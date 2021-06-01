@@ -21,7 +21,7 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
-	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
+	// ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/machine"
 	machinesetcontroller "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/machineset"
 	// TODO: mapiv1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
@@ -129,10 +129,10 @@ func main() {
 
 	// Initialize machine actuator.
 	machineActuator := machine.NewActuator(machine.ActuatorParams{
-		Client:           mgr.GetClient(),
-		EventRecorder:    mgr.GetEventRecorderFor("ibmcloudcontroller"),
-		IbmClientBuilder: ibmclient.NewClient,
-		// TODO: Implement NewClient func - returns new validated ibmcloud Client (Authenticated client?)
+		Client:        mgr.GetClient(),
+		EventRecorder: mgr.GetEventRecorderFor("ibmcloudcontroller"),
+		// IbmClientBuilder: ibmclient.NewClient,
+		// TODO: Implement NewClient func - returns new validated ibmcloud Client
 	})
 
 	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {

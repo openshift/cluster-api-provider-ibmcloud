@@ -20,10 +20,11 @@ import (
 	"context"
 	"fmt"
 
+	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	rec "k8s.io/client-go/tools/record"
 	klog "k8s.io/klog/v2"
-	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	controllerRuntimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -47,7 +48,7 @@ type Actuator struct {
 // ActuatorParams holds parameter information for Actuator.
 type ActuatorParams struct {
 	Client           controllerRuntimeClient.Client
-	EventRecorder    record.EventRecorder
+	EventRecorder    rec.EventRecorder
 	IbmClientBuilder ibmclient.IbmcloudClientBuilderFuncType
 	// TODO: client Builder
 }
@@ -117,7 +118,7 @@ func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error
 	return scope.Close()
 }
 
-// Exists - checks if the machine exists.
+// Exists - checks if the machine exist.
 // IMPORTANT: Exists() does not update Spec/Status obj, Only create() & update() stores the Spec and Status. Do not: scope.Close()
 func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool, error) {
 	klog.Infof("%s: Checking if machine exists", machine.Name)
@@ -133,7 +134,7 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 	return newReconciler(scope).exists()
 }
 
-// Delete - delets a machine
+// Delete - deletes a machine
 func (a *Actuator) Delete(ctx context.Context, machine *machinev1.Machine) error {
 	klog.Infof("%s: Deleting machine", machine.Name)
 	scope, err := newMachineScope(machineScopeParams{

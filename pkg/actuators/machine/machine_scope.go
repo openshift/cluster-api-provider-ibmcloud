@@ -18,14 +18,17 @@ package machine
 
 import (
 	"context"
+	"fmt"
 
+	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/util"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
-	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
+	"k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	klog "k8s.io/klog/v2"
 	controllerRuntimeClient "sigs.k8s.io/controller-runtime/pkg/client"
-    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // machineScopeParams defines the input parameters used to create a new MachineScope.
@@ -49,19 +52,19 @@ type machineScope struct {
 	machineToBePatched controllerRuntimeClient.Patch
 	providerSpec       *ibmcloudproviderv1.IBMCloudMachineProviderSpec
 	providerStatus     *ibmcloudproviderv1.IBMCloudMachineProviderStatus
-    
-    // origMachine captures original value of machine before it is updated (to
+
+	// origMachine captures original value of machine before it is updated (to
 	// skip object updated if nothing is changed)
-	origMachine        *machinev1.Machine
+	origMachine *machinev1.Machine
 	// origProviderStatus captures original value of machine provider status
 	// before it is updated (to skip object updated if nothing is changed)
-	origProviderStatus *v1beta1.IBMCloudMachineProviderStatus
+	origProviderStatus *ibmcloudproviderv1.IBMCloudMachineProviderStatus
 }
 
 // newMachineScope creates a new MachineScope from the supplied parameters.
 // This is meant to be called for each machine actuator operation.
 func newMachineScope(params machineScopeParams) (*machineScope, error) {
-	if params.context == nil {
+	if params.Context == nil {
 		params.Context = context.Background()
 	}
 
@@ -70,7 +73,7 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		return nil, machineapierros.InvalidMachineConfiguration("failed to get machine config: %v", err)
 	}
 
-	providerStatus, err := ibmcloudproviderv1.ProviderStatusFromRawExtension(params.machine.Status.ProviderSpec)
+	providerStatus, err := ibmcloudproviderv1.ProviderStatusFromRawExtension(params.machine.Status.ProviderStatus)
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("failed to get machine provider status: %v", err.Error())
 	}
@@ -79,24 +82,24 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 	if err != nil {
 		return nil, err
 	}
-	
-    ibmClient, err := params.ibmClientBuilder(serviceAccountJSON)
-    if err != nil {
-        return nil, machineapierros.InvalidMachineConfiguration("error creating ibm client: %v", err.Error())
-    }
-    
-    return &machineScope{
-        Context:            params.Context,
-        client:             params.client,
-        ibmClient:          ibmclient,
-        // Deep copy the machine since it is changed outside
-        // of the machine scope by consumers of the machine
-        // scope (e.g. reconciler).
-        machine:            params.machine.DeepCopy(),
-        providerSpec:       providerSpec,
-        providerStatus:     providerStatus,
-        machineToBePatched: controllerRuntimeClient.MergeFrom(params.machine.DeepCopy()),
-    }, nil
+
+	ibmClient, err := params.ibmClientBuilder(serviceAccountJSON)
+	if err != nil {
+		return nil, machineapierros.InvalidMachineConfiguration("error creating ibm client: %v", err.Error())
+	}
+
+	return &machineScope{
+		Context:   params.Context,
+		client:    params.client,
+		ibmClient: ibmClient,
+		// Deep copy the machine since it is changed outside
+		// of the machine scope by consumers of the machine
+		// scope (e.g. reconciler).
+		machine:            params.machine.DeepCopy(),
+		providerSpec:       providerSpec,
+		providerStatus:     providerStatus,
+		machineToBePatched: controllerRuntimeClient.MergeFrom(params.machine.DeepCopy()),
+	}, nil
 }
 
 // Close the MachineScope by persisting the machine spec, machine status after reconciling.

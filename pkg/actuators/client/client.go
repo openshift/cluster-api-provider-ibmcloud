@@ -15,3 +15,37 @@ limitations under the License.
 */
 
 package client
+
+import (
+	"github.com/IBM/vpc-go-sdk/vpcv1"
+)
+
+// Client is a wrapper object for actual IBM SDK clients to allow for easier testing.
+type Client interface {
+	InstancesGet()
+}
+
+// IBMCloudClient struct
+type IBMCloudClient struct {
+	VPCService *vpcv1.VpcV1
+	//APIKey          string
+	//IAMEndpoint     string
+	//ServiceEndPoint string
+}
+
+// IbmcloudClientBuilderFuncType is function type for building ibm cloud client
+type IbmcloudClientBuilderFuncType func(serviceAccountJSON string) (Client, error)
+
+// NewClient return a new client
+func NewClient() error {
+	// var err error
+	// c.VPCService, err = vpcv1.NewVpcV1(&vpcv1.VpcV1Options{
+	// 	Authenticator: &core.IamAuthenticator{
+	// 		ApiKey: apiKey,
+	// 		URL:    iamEndpoint,
+	// 	},
+	// 	URL: svcEndpoint,
+	// })
+
+	return nil
+}

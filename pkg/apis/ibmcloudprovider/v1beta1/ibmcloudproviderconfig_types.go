@@ -77,6 +77,20 @@ type IBMCloudMachineProviderSpec struct {
 	CredentialsSecret *corev1.LocalObjectReference `json:"credentialsSecret,omitempty"`
 }
 
+// NetworkInterface struct
+type NetworkInterface struct {
+	// Subnet ID of the network interface
+	Subnet string `json:"subnet,omitempty"`
+}
+
+// Subnet - Identifies a subnet by a unique property
+type Subnet struct {
+	Ipv4CidrBlock *string `json:"cidr"`
+	Name          *string `json:"name"`
+	ID            *string `json:"id"`
+	Zone          *string `json:"zone"`
+}
+
 // TODO: want to configure Disk/Block Device Mapping for VPC instances
 
 // // IBMCloudMetadata describes metadata for IBM Cloud.

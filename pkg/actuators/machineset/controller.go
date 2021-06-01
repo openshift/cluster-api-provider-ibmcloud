@@ -19,7 +19,6 @@ package machineset
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
@@ -29,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	klog "k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -39,11 +37,12 @@ const (
 	// This exposes compute information based on the providerSpec input.
 	// This is needed by the autoscaler to foresee upcoming capacity when scaling from zero.
 	// https://github.com/openshift/enhancements/pull/186
-	cpuKey    = "machine.openshift.io/vCPU"
-	memoryKey = "machine.openshift.io/memoryMb"
-
-	// TODO: Do we need set GPU Annotation?
-	// gpuKey    = "machine.openshift.io/GPU"
+	// cpuKey    = "machine.openshift.io/vCPU"
+	// memoryKey = "machine.openshift.io/memoryMb"
+	//
+	// // TODO: Do we need set GPU ?
+	// gpuKey = "machine.openshift.io/GPU"
+	profileKey = "machine.openshift.io/Profile"
 )
 
 // Reconciler - MachineSet Reconciler
@@ -53,7 +52,6 @@ type Reconciler struct {
 
 	recorder record.EventRecorder
 	scheme   *runtime.Scheme
-	cache    *machineTypesCache
 }
 
 // SetupWithManager creates a new controller for a manager.
@@ -67,7 +65,6 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, options controller.Optio
 		return fmt.Errorf("failed setting up with a controller manager: %w", err)
 	}
 
-	r.cache = newMachineTypesCache()
 	r.recorder = mgr.GetEventRecorderFor("machineset-controller")
 	r.scheme = mgr.GetScheme()
 
@@ -128,28 +125,25 @@ func isInvalidConfigurationError(err error) bool {
 }
 
 func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, error) {
-	providerConfig, err := ibmcloudproviderv1.ProviderSpecFromRawExtension(machineSet.Spec.Template.Spec.ProviderSpec.Value)
+	providerConfig, err := getproviderConfig(machineSet)
 	if err != nil {
 		return ctrl.Result{}, mapierrors.InvalidMachineConfiguration("failed to get providerConfig: %v", err)
 	}
-	instanceType, ok := InstanceTypes[providerConfig.InstanceType]
-	if !ok {
-		klog.Error("Unable to set scale from zero annotations: unknown instance type: %s", providerConfig.InstanceType)
-		klog.Error("Autoscaling from zero will not work. To fix this, manually populate machine annotations for your instance type: %v", []string{cpuKey, memoryKey, gpuKey})
-
-		// Returning no error to prevent further reconciliation, as user intervention is now required but emit an informational event
-		r.recorder.Eventf(machineSet, corev1.EventTypeWarning, "FailedUpdate", "Failed to set autoscaling from zero annotations, instance type unknown")
-		return ctrl.Result{}, nil
-	}
+	instanceType := providerConfig.Profile
 
 	if machineSet.Annotations == nil {
 		machineSet.Annotations = make(map[string]string)
 	}
 
 	// TODO: get annotations keys from machine API
-	machineSet.Annotations[cpuKey] = strconv.FormatInt(instanceType.VCPU, 10)
-	machineSet.Annotations[memoryKey] = strconv.FormatInt(instanceType.MemoryMb, 10)
-	machineSet.Annotations[gpuKey] = strconv.FormatInt(instanceType.GPU, 10)
+	// machineSet.Annotations[cpuKey] = strconv.FormatInt(instanceType.VCPU, 10)
+	// machineSet.Annotations[memoryKey] = strconv.FormatInt(instanceType.MemoryMb, 10)
+	// machineSet.Annotations[gpuKey] = strconv.FormatInt(instanceType.GPU, 10)
+	machineSet.Annotations[profileKey] = instanceType
 
 	return ctrl.Result{}, nil
+}
+
+func getproviderConfig(machineSet *machinev1.MachineSet) (*ibmcloudproviderv1.IBMCloudMachineProviderSpec, error) {
+	return ibmcloudproviderv1.ProviderSpecFromRawExtension(machineSet.Spec.Template.Spec.ProviderSpec.Value)
 }

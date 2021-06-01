@@ -17,7 +17,8 @@ limitations under the License.
 package machine
 
 import (
-    "github.com/IBM/vpc-go-sdk/vpcv1"
+	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
+	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	klog "k8s.io/klog/v2"
 )
@@ -42,8 +43,35 @@ func newReconciler(scope *machineScope) *Reconciler {
 func (r *Reconciler) create() error {
 	klog.Infof("%s: creating machine", r.machine.Name)
 
-	if err := validateMachine(); err != nil {
+	if err := validateMachine(*r.machine, *r.providerSpec); err != nil {
 		return machinecontroller.InvalidMachineConfiguration("failed validating machine provider spec: %v", err)
 	}
 
+	return r.requeueIfInstancePending()
+}
+
+func (r *Reconciler) update() error {
+	return nil
+}
+
+// Returns true if machine exists.
+func (r *Reconciler) exists() (bool, error) {
+	return true, nil
+}
+
+// delete deletes machine
+func (r *Reconciler) delete() error {
+	return nil
+}
+
+func validateMachine(machine machinev1.Machine, providerSpec ibmcloudproviderv1.IBMCloudMachineProviderSpec) error {
+
+	return nil
+}
+
+func (r *Reconciler) requeueIfInstancePending() error {
+	// If machine state is still pending, we will return an error to keep the controllers
+	// attempting to update status until it hits a more permanent state. This will ensure
+	// we get a public IP populated more quickly.
+	return nil
 }

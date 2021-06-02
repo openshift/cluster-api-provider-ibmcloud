@@ -102,7 +102,7 @@ func (h *handler) run(ctx context.Context) error {
 			return false, fmt.Errorf("could not create request %q: %w", h.pollURL.String(), err)
 		}
 
-		req.Header.Add("Metadata-Flavor", "Google")
+		req.Header.Add("Metadata-Flavor", "IBM")
 
 		resp, err := http.DefaultClient.Do(req)
 		if resp != nil {
@@ -114,7 +114,7 @@ func (h *handler) run(ctx context.Context) error {
 
 		bodyBytes, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return false, fmt.Errorf("failed to read responce body: %w", err)
+			return false, fmt.Errorf("failed to read response body: %w", err)
 		}
 
 		respBody := string(bodyBytes)

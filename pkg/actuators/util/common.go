@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	credentialsSecretKey = "service_account.json"
+	credentialsSecretKey = "ibmcloud_api_key"
 )
 
 // GetCredentialsSecret returns base64 encoded credential secret data

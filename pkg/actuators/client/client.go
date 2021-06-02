@@ -17,35 +17,52 @@ limitations under the License.
 package client
 
 import (
+	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
 
-// Client is a wrapper object for actual IBM SDK clients to allow for easier testing.
+// Client is a wrapper object for IBM SDK clients
 type Client interface {
-	InstancesGet()
+	InstanceGet(instanceID string) (*vpcv1.Instance, error)
+	// InstanceListAll()
+	// InstanceCreate()
+	// InstanceDelete()
+	// InstanceUpdate()
 }
 
-// IBMCloudClient struct
-type IBMCloudClient struct {
-	VPCService *vpcv1.VpcV1
-	//APIKey          string
-	//IAMEndpoint     string
-	//ServiceEndPoint string
+// ibmCloudClient makes call to IBM Cloud APIs
+type ibmCloudClient struct {
+	vpcService *vpcv1.VpcV1
 }
 
 // IbmcloudClientBuilderFuncType is function type for building ibm cloud client
-type IbmcloudClientBuilderFuncType func(serviceAccountJSON string) (Client, error)
+type IbmcloudClientBuilderFuncType func(credentialVal string) (Client, error)
 
-// NewClient return a new client
-func NewClient() error {
-	// var err error
-	// c.VPCService, err = vpcv1.NewVpcV1(&vpcv1.VpcV1Options{
-	// 	Authenticator: &core.IamAuthenticator{
-	// 		ApiKey: apiKey,
-	// 		URL:    iamEndpoint,
-	// 	},
-	// 	URL: svcEndpoint,
-	// })
+// NewClient initilizes a new validated client
+func NewClient(credentialVal string) (Client, error) {
+	authenticator := &core.IamAuthenticator{
+		ApiKey: credentialVal,
+	}
 
-	return nil
+	options := &vpcv1.VpcV1Options{
+		Authenticator: authenticator,
+	}
+
+	vpcService, vpcServiceErr := vpcv1.NewVpcV1(options)
+
+	if vpcServiceErr != nil {
+		panic(vpcServiceErr)
+	}
+	return &ibmCloudClient{
+		vpcService: vpcService,
+	}, nil
+}
+
+// InstanceGet returns retrieves a single instance specified by instanceID
+func (c *ibmCloudClient) InstanceGet(instanceID string) (*vpcv1.Instance, error) {
+	options := &vpcv1.GetInstanceOptions{}
+	options.SetID(instanceID)
+
+	instance, _, err := c.vpcService.GetInstance(options)
+	return instance, err
 }

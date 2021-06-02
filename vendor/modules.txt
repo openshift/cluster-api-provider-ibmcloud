@@ -2,6 +2,7 @@
 github.com/Azure/go-ansiterm
 github.com/Azure/go-ansiterm/winterm
 # github.com/IBM/go-sdk-core/v5 v5.4.2
+## explicit
 github.com/IBM/go-sdk-core/v5/core
 # github.com/IBM/vpc-go-sdk v0.6.0
 ## explicit
@@ -142,10 +143,7 @@ github.com/modern-go/reflect2
 github.com/monochromegane/go-gitignore
 # github.com/oklog/ulid v1.3.1
 github.com/oklog/ulid
-# github.com/onsi/ginkgo v1.15.0
-## explicit
 # github.com/onsi/gomega v1.10.5
-## explicit
 github.com/onsi/gomega
 github.com/onsi/gomega/format
 github.com/onsi/gomega/internal/assertion
@@ -240,7 +238,6 @@ golang.org/x/net/http2
 golang.org/x/net/http2/hpack
 golang.org/x/net/idna
 # golang.org/x/oauth2 v0.0.0-20200902213428-5d25da1a8d43
-## explicit
 golang.org/x/oauth2
 golang.org/x/oauth2/internal
 # golang.org/x/sys v0.0.0-20210225134936-a50acf3fe073
@@ -292,8 +289,6 @@ golang.org/x/xerrors
 golang.org/x/xerrors/internal
 # gomodules.xyz/jsonpatch/v2 v2.1.0
 gomodules.xyz/jsonpatch/v2
-# google.golang.org/api v0.33.0
-## explicit
 # google.golang.org/appengine v1.6.7
 google.golang.org/appengine/internal
 google.golang.org/appengine/internal/base
@@ -337,7 +332,6 @@ gopkg.in/go-playground/validator.v9
 # gopkg.in/inf.v0 v0.9.1
 gopkg.in/inf.v0
 # gopkg.in/yaml.v2 v2.4.0
-## explicit
 gopkg.in/yaml.v2
 # gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776
 gopkg.in/yaml.v3
@@ -585,8 +579,6 @@ k8s.io/client-go/util/homedir
 k8s.io/client-go/util/jsonpath
 k8s.io/client-go/util/keyutil
 k8s.io/client-go/util/workqueue
-# k8s.io/code-generator v0.21.1
-## explicit
 # k8s.io/component-base v0.21.0
 k8s.io/component-base/config
 k8s.io/component-base/config/v1alpha1

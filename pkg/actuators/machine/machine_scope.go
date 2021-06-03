@@ -24,7 +24,7 @@ import (
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/util"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
-	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
+	machineapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	klog "k8s.io/klog/v2"
@@ -70,12 +70,12 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 
 	providerSpec, err := ibmcloudproviderv1.ProviderSpecFromRawExtension(params.machine.Spec.ProviderSpec.Value)
 	if err != nil {
-		return nil, machineapierros.InvalidMachineConfiguration("failed to get machine config: %v", err)
+		return nil, machineapierrors.InvalidMachineConfiguration("failed to get machine config: %v", err)
 	}
 
 	providerStatus, err := ibmcloudproviderv1.ProviderStatusFromRawExtension(params.machine.Status.ProviderStatus)
 	if err != nil {
-		return nil, machineapierros.InvalidMachineConfiguration("failed to get machine provider status: %v", err.Error())
+		return nil, machineapierrors.InvalidMachineConfiguration("failed to get machine provider status: %v", err.Error())
 	}
 
 	apikey, err := util.GetCredentialsSecret(params.client, params.machine.GetNamespace(), *providerSpec)
@@ -85,7 +85,7 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 
 	ibmClient, err := params.ibmClientBuilder(apikey)
 	if err != nil {
-		return nil, machineapierros.InvalidMachineConfiguration("error creating ibm client: %v", err.Error())
+		return nil, machineapierrors.InvalidMachineConfiguration("error creating ibm client: %v", err.Error())
 	}
 
 	return &machineScope{

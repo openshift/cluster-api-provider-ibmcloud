@@ -19,5 +19,5 @@ limitations under the License.
 // +k8s:deepcopy-gen=package,register
 // +k8s:conversion-gen=github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider
 // +k8s:defaulter-gen=TypeMeta
-// +groupName=ibmcloudprovider.openshift.io
+// +groupName=ibmcloudproviderconfig.openshift.io
 package v1beta1

@@ -14,28 +14,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1beta1 contains API Schema definitions for the ibmcloudprovider v1beta1 API group
+// Package v1beta1 contains API Schema definitions for the ibmcloudproviderconfig v1beta1 API group
 // +k8s:openapi-gen=true
 // +k8s:deepcopy-gen=package,register
 // +k8s:conversion-gen=github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider
 // +k8s:defaulter-gen=TypeMeta
-// +groupName=ibmcloudprovider.machine.openshift.io
+// +groupName=ibmcloudproviderconfig.openshift.io
 package v1beta1
 
 import (
-	"fmt"
 	"encoding/json"
+	"fmt"
 
-	yaml "sigs.k8s.io/yaml"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	klog "k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
+	yaml "sigs.k8s.io/yaml"
 )
 
 var (
 	// SchemeGroupVersion is group version used to register these objects
-	SchemeGroupVersion = schema.GroupVersion{Group: "ibmcloudprovider.openshift.io", Version: "v1beta1"}
+	SchemeGroupVersion = schema.GroupVersion{Group: "ibmcloudproviderconfig.openshift.io", Version: "v1beta1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
 	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}

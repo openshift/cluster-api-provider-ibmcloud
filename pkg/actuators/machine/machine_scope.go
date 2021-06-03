@@ -78,12 +78,12 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		return nil, machineapierros.InvalidMachineConfiguration("failed to get machine provider status: %v", err.Error())
 	}
 
-	serviceAccountJSON, err := util.GetCredentialsSecret(params.client, params.machine.GetNamespace(), *providerSpec)
+	apikey, err := util.GetCredentialsSecret(params.client, params.machine.GetNamespace(), *providerSpec)
 	if err != nil {
 		return nil, err
 	}
 
-	ibmClient, err := params.ibmClientBuilder(serviceAccountJSON)
+	ibmClient, err := params.ibmClientBuilder(apikey)
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("error creating ibm client: %v", err.Error())
 	}

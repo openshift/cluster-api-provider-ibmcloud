@@ -17,6 +17,8 @@ limitations under the License.
 package client
 
 import (
+	"fmt"
+
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
@@ -28,6 +30,7 @@ type Client interface {
 	// InstanceCreate()
 	// InstanceDelete()
 	// InstanceUpdate()
+	CustomImageGetID(imageName string, regionName string) (*vpcv1.Image, error)
 }
 
 // ibmCloudClient makes call to IBM Cloud APIs
@@ -65,4 +68,44 @@ func (c *ibmCloudClient) InstanceGet(instanceID string) (*vpcv1.Instance, error)
 
 	instance, _, err := c.vpcService.GetInstance(options)
 	return instance, err
+}
+
+// CustomImageGet retrieves custom image from VPC by region and name
+func (c *ibmCloudClient) CustomImageGetID(imageName string, regionName string) (*vpcv1.Image, error) {
+	// Get region info
+	region, _, err := c.vpcService.GetRegion(c.vpcService.NewGetRegionOptions(regionName))
+	if err != nil {
+		return nil, err
+	}
+
+	options := &vpcv1.ListImagesOptions{}
+	// Private images
+	options.SetVisibility(vpcv1.ImageVisibilityPrivateConst)
+
+	// Set the Service URL
+	err = c.vpcService.SetServiceURL(fmt.Sprintf("%s/v1", *region.Endpoint))
+	if err != nil {
+		return nil, err
+	}
+
+	// List of all the private images in a region
+	privateImages, _, err := c.vpcService.ListImages(options)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update image when found a name match and its status is available
+	var image *vpcv1.Image
+	for _, eachImage := range privateImages.Images {
+		if *eachImage.Name == imageName && *eachImage.Status == vpcv1.ImageStatusAvailableConst {
+			image = &eachImage
+			break
+		}
+	}
+
+	// Check if image info is present
+	if image == nil {
+		return nil, fmt.Errorf("Image: %s not found in Region: %s or Image may not be available yet", imageName, region)
+	}
+	return image, nil
 }

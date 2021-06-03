@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
-	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
+	machoneapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	apicorev1 "k8s.io/api/core/v1"
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
 	controllerRuntimeClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,13 +40,13 @@ func GetCredentialsSecret(coreClient controllerRuntimeClient.Client, namespace s
 
 	if err := coreClient.Get(context.Background(), controllerRuntimeClient.ObjectKey{Namespace: namespace, Name: spec.CredentialsSecret.Name}, &credentialsSecret); err != nil {
 		if apimachineryerrors.IsNotFound(err) {
-			machineapierros.InvalidMachineConfiguration("credentials secret %q in namespace %q not found: %v", spec.CredentialsSecret.Name, namespace, err.Error())
+			machoneapierrors.InvalidMachineConfiguration("credentials secret %q in namespace %q not found: %v", spec.CredentialsSecret.Name, namespace, err.Error())
 		}
 		return "", fmt.Errorf("error getting credentials secret %q in namespace %q: %v", spec.CredentialsSecret.Name, namespace, err)
 	}
 	data, exists := credentialsSecret.Data[credentialsSecretKey]
 	if !exists {
-		return "", machineapierros.InvalidMachineConfiguration("secret %v/%v does not have %q field set. Thus, no credentials applied when creating an instance", namespace, spec.CredentialsSecret.Name, credentialsSecretKey)
+		return "", machoneapierrors.InvalidMachineConfiguration("secret %v/%v does not have %q field set. Thus, no credentials applied when creating an instance", namespace, spec.CredentialsSecret.Name, credentialsSecretKey)
 	}
 
 	return string(data), nil

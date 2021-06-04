@@ -33,10 +33,6 @@ type IBMCloudMachineProviderSpec struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// The user-defined name for this virtual server instance
-	// default: system hostname
-	Name string `json:"name,omitempty"`
-
 	// VPC name where the instance will be created
 	VPC string `json:"vpc"`
 
@@ -60,10 +56,6 @@ type IBMCloudMachineProviderSpec struct {
 
 	// Zone where the virtual server instance will be created
 	Zone string `json:"zone"`
-
-	// ProviderID is the unique identifier as specified by the cloud provider.
-	// +optional
-	ProviderID string `json:"providerID,omitempty"`
 
 	// PrimaryNetworkInterface is required to specify subnet
 	PrimaryNetworkInterface NetworkInterface `json:"primaryNetworkInterface,omitempty"`

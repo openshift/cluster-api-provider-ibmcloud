@@ -63,8 +63,7 @@ func NewClient(credentialVal string) (Client, error) {
 
 // InstanceGet returns retrieves a single instance specified by instanceID
 func (c *ibmCloudClient) InstanceGet(instanceID string) (*vpcv1.Instance, error) {
-	options := &vpcv1.GetInstanceOptions{}
-	options.SetID(instanceID)
+	options := c.vpcService.NewGetInstanceOptions(instanceID)
 
 	instance, _, err := c.vpcService.GetInstance(options)
 	return instance, err
@@ -78,7 +77,7 @@ func (c *ibmCloudClient) CustomImageGetID(imageName string, regionName string) (
 		return nil, err
 	}
 
-	options := &vpcv1.ListImagesOptions{}
+	options := c.vpcService.NewListImagesOptions()
 	// Private images
 	options.SetVisibility(vpcv1.ImageVisibilityPrivateConst)
 
@@ -99,13 +98,8 @@ func (c *ibmCloudClient) CustomImageGetID(imageName string, regionName string) (
 	for _, eachImage := range privateImages.Images {
 		if *eachImage.Name == imageName && *eachImage.Status == vpcv1.ImageStatusAvailableConst {
 			image = &eachImage
-			break
+			return image, nil
 		}
 	}
-
-	// Check if image info is present
-	if image == nil {
-		return nil, fmt.Errorf("Image: %s not found in Region: %s or Image may not be available yet", imageName, region)
-	}
-	return image, nil
+	return nil, fmt.Errorf("Image: %s not found in Region: %s or Image may not be available yet", imageName, region)
 }

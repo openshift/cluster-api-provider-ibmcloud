@@ -57,24 +57,29 @@ type IBMCloudMachineProviderSpec struct {
 	// Zone where the virtual server instance will be created
 	Zone string `json:"zone"`
 
+	// ResourceGroup of VPC
+	ResourceGroup string `json:"resourceGroup"`
+
 	// PrimaryNetworkInterface is required to specify subnet
-	PrimaryNetworkInterface NetworkInterface `json:"primaryNetworkInterface,omitempty"`
+	PrimaryNetworkInterface NetworkInterface `json:"primaryNetworkInterface"`
 
 	// TODO: Probably not needed for the worker machines
 	// SSHKeys is the SSH pub keys that will be used to access virtual service instance
 	// SSHKeys []*string `json:"sshKeys,omitempty"`
 
 	// UserDataSecret holds reference to a secret which containes Instance Ignition data (User Data)
-	UserDataSecret *corev1.LocalObjectReference `json:"userDataSecret,omitempty"`
+	UserDataSecret *corev1.LocalObjectReference `json:"userDataSecret"`
 
 	// CredentialsSecret is a reference to the secret with IBM Cloud credentials.
-	CredentialsSecret *corev1.LocalObjectReference `json:"credentialsSecret,omitempty"`
+	CredentialsSecret *corev1.LocalObjectReference `json:"credentialsSecret"`
 }
 
 // NetworkInterface struct
 type NetworkInterface struct {
-	// Subnet ID of the network interface
-	Subnet string `json:"subnet,omitempty"`
+	// Subnet name of the network interface
+	Subnet string `json:"subnet"`
+	// SecurityGroups holds a list of security group names
+	SecurityGroups []string `json:"securityGroups"`
 }
 
 // TagSpecs is the name:value pair for a tag

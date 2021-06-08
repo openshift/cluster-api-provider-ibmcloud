@@ -79,7 +79,7 @@ type NetworkInterface struct {
 	// Subnet name of the network interface
 	Subnet string `json:"subnet"`
 	// SecurityGroups holds a list of security group names
-	SecurityGroups []string `json:"securitygroups"`
+	SecurityGroups []string `json:"securityGroups"`
 }
 
 // TagSpecs is the name:value pair for a tag

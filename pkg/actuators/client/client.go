@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
@@ -45,9 +44,8 @@ type Client interface {
 
 // ibmCloudClient makes call to IBM Cloud APIs
 type ibmCloudClient struct {
-	vpcService                *vpcv1.VpcV1
-	resourceManagerService    *resourcemanagerv2.ResourceManagerV2
-	resourceControllerService *resourcecontrollerv2.ResourceControllerV2
+	vpcService             *vpcv1.VpcV1
+	resourceManagerService *resourcemanagerv2.ResourceManagerV2
 }
 
 // IbmcloudClientBuilderFuncType is function type for building ibm cloud client
@@ -56,11 +54,14 @@ type IbmcloudClientBuilderFuncType func(credentialVal string) (Client, error)
 // NewClient initilizes a new validated client
 func NewClient(credentialVal string) (Client, error) {
 
+	// authenticator
+	authenticator := &core.IamAuthenticator{
+		ApiKey: credentialVal,
+	}
+
 	// IC Virtual Private Cloud (VPC) API
 	vpcService, err := vpcv1.NewVpcV1(&vpcv1.VpcV1Options{
-		Authenticator: &core.IamAuthenticator{
-			ApiKey: credentialVal,
-		},
+		Authenticator: authenticator,
 	})
 	if err != nil {
 		return nil, err
@@ -68,28 +69,15 @@ func NewClient(credentialVal string) (Client, error) {
 
 	// IC Resource Manager API
 	resourceManagerService, err := resourcemanagerv2.NewResourceManagerV2(&resourcemanagerv2.ResourceManagerV2Options{
-		Authenticator: &core.IamAuthenticator{
-			ApiKey: credentialVal,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// IC Resource Controller API
-	resourceControllerService, err := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{
-		Authenticator: &core.IamAuthenticator{
-			ApiKey: credentialVal,
-		},
+		Authenticator: authenticator,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &ibmCloudClient{
-		vpcService:                vpcService,
-		resourceControllerService: resourceControllerService,
-		resourceManagerService:    resourceManagerService,
+		vpcService:             vpcService,
+		resourceManagerService: resourceManagerService,
 	}, nil
 }
 

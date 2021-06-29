@@ -165,13 +165,13 @@ func (c *ibmCloudClient) InstanceGetByName(name string, machineProviderConfig *i
 	vpcName := machineProviderConfig.VPC
 	listInstOptions.SetVPCName(vpcName)
 
-	// Getting Instances list
+	// Get Instances list
 	instance, _, err := c.vpcService.ListInstances(listInstOptions)
 	if err != nil {
 		return nil, err
 	}
 
-	// check if instance is not nil
+	// Check if instance is not nil
 	if instance != nil {
 		for _, eachInstance := range instance.Instances {
 			if name == *eachInstance.Name {
@@ -251,8 +251,8 @@ func (c *ibmCloudClient) InstanceCreate(machineName string, machineProviderConfi
 
 	// Create Instance Options
 	options := &vpcv1.CreateInstanceOptions{}
-	// Set Instance Prototype
-	// contains all the info necessary to provision an instance
+
+	// Set Instance Prototype - Contains all the info necessary to provision an instance
 	options.SetInstancePrototype(&vpcv1.InstancePrototype{
 		Name: &machineName,
 		Image: &vpcv1.ImageIdentity{
@@ -290,13 +290,13 @@ func (c *ibmCloudClient) InstanceCreate(machineName string, machineProviderConfi
 
 // GetVPCIDByName Retrives VPC ID
 func (c *ibmCloudClient) GetVPCIDByName(vpcName string, resourceGroupID string) (string, error) {
-	// initialize List Vpcs Options
+	// Initialize List Vpcs Options
 	vpcOptions := c.vpcService.NewListVpcsOptions()
 
-	// set Resource Group ID
+	// Set Resource Group ID
 	vpcOptions.SetResourceGroupID(resourceGroupID)
 
-	// List all VPCs
+	// Get a list all VPCs
 	vpcList, _, err := c.vpcService.ListVpcs(vpcOptions)
 	if err != nil {
 		return "", err
@@ -317,14 +317,14 @@ func (c *ibmCloudClient) GetVPCIDByName(vpcName string, resourceGroupID string) 
 
 // GetCustomImageByName retrieves custom image from VPC by region and name
 func (c *ibmCloudClient) GetCustomImageByName(imageName string, resourceGroupID string) (string, error) {
-	// initialize List Images Options
+	// Initialize List Images Options
 	options := c.vpcService.NewListImagesOptions()
 
 	// Private images
 	options.SetVisibility(vpcv1.ImageVisibilityPrivateConst)
-	// set Resource Group ID
+	// Set Resource Group ID
 	options.SetResourceGroupID(resourceGroupID)
-	// set Image name
+	// Set Image name
 	options.SetName(imageName)
 
 	// List of all the private images in a region
@@ -372,13 +372,13 @@ func (c *ibmCloudClient) GetResourceGroupIDByName(resourceGroupName string) (str
 
 // GetSubnetIDbyName retrives a Subnet ID
 func (c *ibmCloudClient) GetSubnetIDbyName(subnetName string, resourceGroupID string) (string, error) {
-	// initialize List Subnets Options
+	// Initialize List Subnets Options
 	subnetOption := c.vpcService.NewListSubnetsOptions()
 
-	// set Resource Group ID
+	// Set Resource Group ID
 	subnetOption.SetResourceGroupID(resourceGroupID)
 
-	// lists all subnets
+	// Get a list of all subnets
 	subnetList, _, err := c.vpcService.ListSubnets(subnetOption)
 	if err != nil {
 		return "", err
@@ -399,13 +399,13 @@ func (c *ibmCloudClient) GetSubnetIDbyName(subnetName string, resourceGroupID st
 
 // GetSecurityGroupsByName retrieves Security Groups ID
 func (c *ibmCloudClient) GetSecurityGroupsByName(securityGroupNames []string, resourceGroupID string, vpcID string) ([]vpcv1.SecurityGroupIdentityIntf, error) {
-	// Initialize a map with Security Group Names for faster lookup
+	// Initialize a map with Security Group Names
 	securityGroupMap := map[string]string{}
 	for _, item := range securityGroupNames {
 		securityGroupMap[item] = ""
 	}
 
-	// initialize List Security Groups Options
+	// Initialize List Security Groups Options
 	securityGroupOptions := c.vpcService.NewListSecurityGroupsOptions()
 	// Set Resource Group ID
 	securityGroupOptions.SetResourceGroupID(resourceGroupID)
@@ -428,7 +428,7 @@ func (c *ibmCloudClient) GetSecurityGroupsByName(securityGroupNames []string, re
 		}
 	}
 
-	// Make sure all IDs were retrieved
+	// Check if retrived all IDs
 	if len(securityGroupNames) == len(SecurityGroupIdentityList) {
 		return SecurityGroupIdentityList, nil
 	}

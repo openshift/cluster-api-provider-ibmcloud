@@ -4,6 +4,7 @@ go 1.15
 
 require (
 	github.com/IBM/go-sdk-core/v5 v5.4.2
+	github.com/IBM/platform-services-go-sdk v0.18.16
 	github.com/IBM/vpc-go-sdk v0.6.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/go-logr/logr v0.4.0
@@ -13,7 +14,6 @@ require (
 	k8s.io/api v0.21.0
 	k8s.io/apimachinery v0.21.1
 	k8s.io/client-go v0.21.0
-	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.8.0
 	sigs.k8s.io/controller-runtime v0.9.0-beta.1.0.20210512131817-ce2f0c92d77e
 	sigs.k8s.io/controller-tools v0.3.0

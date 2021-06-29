@@ -4,6 +4,11 @@ github.com/Azure/go-ansiterm/winterm
 # github.com/IBM/go-sdk-core/v5 v5.4.2
 ## explicit
 github.com/IBM/go-sdk-core/v5/core
+# github.com/IBM/platform-services-go-sdk v0.18.16
+## explicit
+github.com/IBM/platform-services-go-sdk/common
+github.com/IBM/platform-services-go-sdk/resourcecontrollerv2
+github.com/IBM/platform-services-go-sdk/resourcemanagerv2
 # github.com/IBM/vpc-go-sdk v0.6.0
 ## explicit
 github.com/IBM/vpc-go-sdk/common
@@ -88,7 +93,7 @@ github.com/google/go-cmp/cmp/internal/value
 github.com/google/gofuzz
 # github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 github.com/google/shlex
-# github.com/google/uuid v1.1.2
+# github.com/google/uuid v1.2.0
 github.com/google/uuid
 # github.com/googleapis/gnostic v0.5.4
 github.com/googleapis/gnostic/compiler
@@ -583,9 +588,6 @@ k8s.io/client-go/util/workqueue
 k8s.io/component-base/config
 k8s.io/component-base/config/v1alpha1
 k8s.io/component-base/version
-# k8s.io/klog v1.0.0
-## explicit
-k8s.io/klog
 # k8s.io/klog/v2 v2.8.0
 ## explicit
 k8s.io/klog/v2

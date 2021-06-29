@@ -109,12 +109,15 @@ func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error
 		return a.handleMachineError(machine, fmtErr, updateEventAction)
 	}
 	if err := newReconciler(scope).update(); err != nil {
+		// klog.Infof("Actuator:Update():newReconciler(scope).update()")
 		// Update machine and machine status in case it was modified
 		scope.Close()
 		fmtErr := fmt.Errorf(reconcilerFailFmt, machine.GetName(), updateEventAction, err)
 		return a.handleMachineError(machine, fmtErr, updateEventAction)
 	}
+	// klog.Infof("Actuator:Update():Before:eventRecorder")
 	a.eventRecorder.Eventf(machine, corev1.EventTypeNormal, updateEventAction, "Updated Machine %v", machine.Name)
+	// klog.Infof("Actuator:Update():Before:scope.Close()")
 	return scope.Close()
 }
 

@@ -53,15 +53,15 @@ func reconcileProviderConditions(conditions []ibmcloudproviderv1.IBMCloudMachine
 		// Update if new Reason is diff from existing Reason
 		if currCondition.Status != newCondition.Status || currCondition.Message != newCondition.Message || currCondition.Reason != newCondition.Reason {
 			klog.Infof("Updating provider condition %v", newCondition)
-			currCondition.Status = newCondition.Status
-			currCondition.Reason = newCondition.Reason
-			currCondition.Message = newCondition.Message
-			currCondition.LastProbeTime = currTime
-
 			// Update LastTransitionTime if Status differ
 			if currCondition.Status != newCondition.Status {
 				currCondition.LastTransitionTime = currTime
 			}
+			// Update Current Conditions to new
+			currCondition.Status = newCondition.Status
+			currCondition.Reason = newCondition.Reason
+			currCondition.Message = newCondition.Message
+			currCondition.LastProbeTime = currTime
 		}
 	}
 	return conditions

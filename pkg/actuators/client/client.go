@@ -49,10 +49,10 @@ type ibmCloudClient struct {
 }
 
 // IbmcloudClientBuilderFuncType is function type for building ibm cloud client
-type IbmcloudClientBuilderFuncType func(credentialVal string) (Client, error)
+type IbmcloudClientBuilderFuncType func(credentialVal string, providerSpec ibmcloudproviderv1.IBMCloudMachineProviderSpec) (Client, error)
 
 // NewClient initilizes a new validated client
-func NewClient(credentialVal string) (Client, error) {
+func NewClient(credentialVal string, providerSpec ibmcloudproviderv1.IBMCloudMachineProviderSpec) (Client, error) {
 
 	// authenticator
 	authenticator := &core.IamAuthenticator{
@@ -71,6 +71,19 @@ func NewClient(credentialVal string) (Client, error) {
 	resourceManagerService, err := resourcemanagerv2.NewResourceManagerV2(&resourcemanagerv2.ResourceManagerV2Options{
 		Authenticator: authenticator,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Get Region and Set Service URL
+	regionName := providerSpec.Region
+	region, _, err := vpcService.GetRegion(vpcService.NewGetRegionOptions(regionName))
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the Service URL
+	err = vpcService.SetServiceURL(fmt.Sprintf("%s/v1", *region.Endpoint))
 	if err != nil {
 		return nil, err
 	}
@@ -130,19 +143,8 @@ func (c *ibmCloudClient) InstanceDeleteByName(name string, machineProviderConfig
 
 // InstanceGetByName retrieves a single instance specified by Instance Name
 func (c *ibmCloudClient) InstanceGetByName(name string, machineProviderConfig *ibmcloudproviderv1.IBMCloudMachineProviderSpec) (*vpcv1.Instance, error) {
-	// Get region info
+	// Region Name
 	regionName := machineProviderConfig.Region
-	region, _, err := c.vpcService.GetRegion(c.vpcService.NewGetRegionOptions(regionName))
-	if err != nil {
-		return nil, err
-	}
-
-	// Set the Service URL
-	err = c.vpcService.SetServiceURL(fmt.Sprintf("%s/v1", *region.Endpoint))
-	if err != nil {
-		return nil, err
-	}
-
 	// Get Service URL
 	serviceURL := c.vpcService.GetServiceURL()
 	// Initialize New List Instances Options
@@ -160,19 +162,20 @@ func (c *ibmCloudClient) InstanceGetByName(name string, machineProviderConfig *i
 	}
 
 	// Check if instance is not nil
-	if instance != nil {
-		for _, eachInstance := range instance.Instances {
-			if name == *eachInstance.Name {
-				return &eachInstance, nil
-			}
-		}
-		return nil, fmt.Errorf("Instance not found")
+	if instance == nil {
+		return nil, fmt.Errorf("Could not retrieve a list of instances - Name: %v in Region: %v under VPC: %v. Service URL: %v", name, regionName, vpcName, serviceURL)
 	}
 
-	return nil, fmt.Errorf("Could not retrieve a list of instances - Name: %v in Region: %v under VPC: %v. Service URL: %v", name, regionName, vpcName, serviceURL)
+	// Found the instance
+	if len(instance.Instances) != 0 {
+		return &instance.Instances[0], nil
+	}
+
+	// Not found
+	return nil, fmt.Errorf("Instance not found")
 }
 
-// InstanceGetByID returns retrieves a single instance specified by instanceID
+// InstanceGetByID retrieves a single instance specified by instanceID
 func (c *ibmCloudClient) InstanceGetByID(instanceID string) (*vpcv1.Instance, error) {
 	options := c.vpcService.NewGetInstanceOptions(instanceID)
 
@@ -190,19 +193,6 @@ func (c *ibmCloudClient) InstanceCreate(machineName string, machineProviderConfi
 	// Get Subnet ID from Subnet name
 	// Get SecurityGroups ID from Security Groups name
 	// Get VPC ID from VPC name
-
-	// Get region info
-	regionName := machineProviderConfig.Region
-	region, _, err := c.vpcService.GetRegion(c.vpcService.NewGetRegionOptions(regionName))
-	if err != nil {
-		return nil, err
-	}
-
-	// Set the Service URL
-	err = c.vpcService.SetServiceURL(fmt.Sprintf("%s/v1", *region.Endpoint))
-	if err != nil {
-		return nil, err
-	}
 
 	// Get Resource Group ID
 	resourceGroupName := machineProviderConfig.ResourceGroup
@@ -291,11 +281,9 @@ func (c *ibmCloudClient) GetVPCIDByName(vpcName string, resourceGroupID string) 
 	}
 
 	if vpcList != nil {
-		var vpcID string
 		for _, eachVPC := range vpcList.Vpcs {
 			if *eachVPC.Name == vpcName {
-				vpcID = *eachVPC.ID
-				return vpcID, nil
+				return *eachVPC.ID, nil
 			}
 		}
 	}
@@ -306,31 +294,24 @@ func (c *ibmCloudClient) GetVPCIDByName(vpcName string, resourceGroupID string) 
 // GetCustomImageByName retrieves custom image from VPC by region and name
 func (c *ibmCloudClient) GetCustomImageByName(imageName string, resourceGroupID string) (string, error) {
 	// Initialize List Images Options
-	options := c.vpcService.NewListImagesOptions()
+	listImagesOptions := c.vpcService.NewListImagesOptions()
 
 	// Private images
-	options.SetVisibility(vpcv1.ImageVisibilityPrivateConst)
+	listImagesOptions.SetVisibility(vpcv1.ImageVisibilityPrivateConst)
 	// Set Resource Group ID
-	options.SetResourceGroupID(resourceGroupID)
+	listImagesOptions.SetResourceGroupID(resourceGroupID)
 	// Set Image name
-	options.SetName(imageName)
+	listImagesOptions.SetName(imageName)
 
 	// List of all the private images in a region
-	privateImages, _, err := c.vpcService.ListImages(options)
+	privateImage, _, err := c.vpcService.ListImages(listImagesOptions)
 	if err != nil {
 		return "", err
 	}
 
-	if privateImages != nil {
-		// Update imageID when found a name match
-		var imageID string
-		for _, eachImage := range privateImages.Images {
-			if *eachImage.Name == imageName && *eachImage.Status == vpcv1.ImageStatusAvailableConst {
-				// Get Image ID
-				imageID = *eachImage.ID
-				return imageID, nil
-			}
-		}
+	if privateImage != nil && len(privateImage.Images) != 0 {
+		// Return Image ID
+		return *privateImage.Images[0].ID, nil
 	}
 
 	return "", fmt.Errorf("Could not retrieve Image ID of name: %v", imageName)
@@ -338,23 +319,22 @@ func (c *ibmCloudClient) GetCustomImageByName(imageName string, resourceGroupID 
 
 // GetResourceGroupIDByName retrives a Resource Group ID
 func (c *ibmCloudClient) GetResourceGroupIDByName(resourceGroupName string) (string, error) {
-	// Get List of Resource Groups
-	resourceGroupList, _, err := c.resourceManagerService.ListResourceGroups(c.resourceManagerService.NewListResourceGroupsOptions())
+	// Initialize New List Resource Group Options
+	resourceGroupOptions := c.resourceManagerService.NewListResourceGroupsOptions()
+	// Set Resource Group Name
+	resourceGroupOptions.SetName(resourceGroupName)
+	// Get Resource Group
+	resourceGroup, _, err := c.resourceManagerService.ListResourceGroups(resourceGroupOptions)
 	if err != nil {
 		return "", err
 	}
 
-	// Check if resourceGroupList is not nil, in case of a 502, etc
-	if resourceGroupList != nil {
-		var resourceGroupID string
-		for _, eachResource := range resourceGroupList.Resources {
-			if *eachResource.Name == resourceGroupName {
-				// Get Resource Group ID
-				resourceGroupID = *eachResource.ID
-				return resourceGroupID, nil
-			}
-		}
+	// Check resourceGroup is not nil and Resources[] is not empty
+	if resourceGroup != nil && len(resourceGroup.Resources) != 0 {
+		// Return Resource Group ID
+		return *resourceGroup.Resources[0].ID, nil
 	}
+
 	return "", fmt.Errorf("Could not retrieve Resource Group ID of name: %v", resourceGroupName)
 }
 
@@ -373,12 +353,10 @@ func (c *ibmCloudClient) GetSubnetIDbyName(subnetName string, resourceGroupID st
 	}
 
 	if subnetList != nil {
-		var subnetID string
 		for _, eachSubnet := range subnetList.Subnets {
 			if *eachSubnet.Name == subnetName {
-				// Get Subnet ID
-				subnetID = *eachSubnet.ID
-				return subnetID, nil
+				// Return Subnet ID
+				return *eachSubnet.ID, nil
 			}
 		}
 	}
@@ -403,20 +381,21 @@ func (c *ibmCloudClient) GetSecurityGroupsByName(securityGroupNames []string, re
 	// Get a List of Security Groups
 	securityGroups, _, _ := c.vpcService.ListSecurityGroups(securityGroupOptions)
 
-	var SecurityGroupIdentityList = make([]vpcv1.SecurityGroupIdentityIntf, len(securityGroupNames))
+	// A slice with 0 len
+	var SecurityGroupIdentityList = make([]vpcv1.SecurityGroupIdentityIntf, 0)
+
+	// Make sure securityGroups is not nil
 	if securityGroups != nil {
-		idxCounter := 0
 		for _, eachSecurityGroup := range securityGroups.SecurityGroups {
 			if _, ok := securityGroupMap[*eachSecurityGroup.Name]; ok {
-				SecurityGroupIdentityList[idxCounter] = &vpcv1.SecurityGroupIdentityByID{
+				SecurityGroupIdentityList = append(SecurityGroupIdentityList, &vpcv1.SecurityGroupIdentityByID{
 					ID: eachSecurityGroup.ID,
-				}
-				idxCounter++
+				})
 			}
 		}
 	}
 
-	// Check if retrived all IDs
+	// Check if retrieved all IDs
 	if len(securityGroupNames) == len(SecurityGroupIdentityList) {
 		return SecurityGroupIdentityList, nil
 	}

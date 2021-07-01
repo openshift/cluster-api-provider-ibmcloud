@@ -391,6 +391,8 @@ func (c *ibmCloudClient) GetSecurityGroupsByName(securityGroupNames []string, re
 				SecurityGroupIdentityList = append(SecurityGroupIdentityList, &vpcv1.SecurityGroupIdentityByID{
 					ID: eachSecurityGroup.ID,
 				})
+				// Delete ID from map
+				delete(securityGroupMap, *eachSecurityGroup.Name)
 			}
 		}
 	}
@@ -400,6 +402,6 @@ func (c *ibmCloudClient) GetSecurityGroupsByName(securityGroupNames []string, re
 		return SecurityGroupIdentityList, nil
 	}
 
-	return nil, fmt.Errorf("Could not retrieve Security Group IDs of Names: %v", securityGroupNames)
+	return nil, fmt.Errorf("Could not retrieve Security Group IDs of Names: %v", securityGroupMap)
 
 }

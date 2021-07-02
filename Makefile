@@ -23,6 +23,8 @@ GOOS    ?= $(shell go env GOOS)
 VERSION     ?= $(shell git describe --always --abbrev=7)
 REPO_PATH   ?= github.com/openshift/cluster-api-provider-ibmcloud
 LD_FLAGS    ?= -X $(REPO_PATH)/pkg/version.Raw=$(VERSION) -extldflags "-static"
+IMAGE        = origin-ibmcloud-machine-controllers
+MUTABLE_TAG ?= latest
 
 
 NO_DOCKER ?= 0
@@ -45,5 +47,13 @@ vendor:
 build: ## build binaries
 	$(DOCKER_CMD) CGO_ENABLED=0 go build $(GOGCFLAGS) -o "bin/machine-controller-manager" \
                -ldflags "$(LD_FLAGS)" "$(REPO_PATH)/cmd/manager"
-	$(DOCKER_CMD) CGO_ENABLED=0 go build  $(GOGCFLAGS) -o "bin/termination-handler" \
+	$(DOCKER_CMD) CGO_ENABLED=0 go build $(GOGCFLAGS) -o "bin/termination-handler" \
 	             -ldflags "$(LD_FLAGS)" "$(REPO_PATH)/cmd/termination-handler"
+
+.PHONY: images
+images: ## Create images
+ifeq ($(NO_DOCKER), 1)
+	./hack/imagebuilder.sh
+endif
+	$(IMAGE_BUILD_CMD) -t "$(IMAGE):$(VERSION)" -t "$(IMAGE):$(MUTABLE_TAG)" ./
+

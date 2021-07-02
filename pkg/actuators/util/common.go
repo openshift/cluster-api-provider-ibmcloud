@@ -51,3 +51,21 @@ func GetCredentialsSecret(coreClient controllerRuntimeClient.Client, namespace s
 
 	return string(data), nil
 }
+
+// UpdateConditionFailed returns provider condition obj for failed machine creation
+func UpdateConditionFailed() ibmcloudproviderv1.IBMCloudMachineProviderCondition {
+	return ibmcloudproviderv1.IBMCloudMachineProviderCondition{
+		Type:   ibmcloudproviderv1.MachineCreated,
+		Status: apicorev1.ConditionFalse,
+		Reason: ibmcloudproviderv1.MachineCreationFailed,
+	}
+}
+
+// UpdateConditionSuccess returns provider condition obj for successful machine creation
+func UpdateConditionSuccess() ibmcloudproviderv1.IBMCloudMachineProviderCondition {
+	return ibmcloudproviderv1.IBMCloudMachineProviderCondition{
+		Type:   ibmcloudproviderv1.MachineCreated,
+		Status: apicorev1.ConditionTrue,
+		Reason: ibmcloudproviderv1.MachineCreationSucceeded,
+	}
+}

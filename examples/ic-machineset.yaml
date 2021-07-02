@@ -1,0 +1,39 @@
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+  name: oc-d8jl5-worker
+  namespace: openshift-machine-api
+  labels:
+    machine.openshift.io/cluster-api-cluster: mao-dev3-d8jl5
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-machineset: oc-d8jl5-worker
+      machine.openshift.io/cluster-api-cluster: mao-dev3-d8jl5
+  template:
+    metadata:
+      labels:
+        machine.openshift.io/cluster-api-cluster: mao-dev3-d8jl5
+        machine.openshift.io/cluster-api-machine-role: worker
+        machine.openshift.io/cluster-api-machine-type: worker
+        machine.openshift.io/cluster-api-machineset: oc-d8jl5-worker
+    spec:
+      metadata: {}
+      providerSpec:
+        value:
+          apiVersion: ibmcloudproviderconfig.openshift.io/v1beta1
+          kind: IBMCloudMachineProviderSpec
+          credentialsSecret:
+            name: ic-secret
+          profile: bx2-4x16
+          zone: us-south-1
+          region: us-south
+          resourceGroup: default
+          primaryNetworkInterface:
+              subnet: mao-dev3-subnet-compute-us-south-1
+              securityGroups: ["mao-dev3-security-group-compute"]
+          userDataSecret:
+              name: worker-user-data
+          image: rhcos-ibmcloud-qcow
+          vpc: mao-dev3-vpc

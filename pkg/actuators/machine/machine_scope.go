@@ -83,7 +83,7 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		return nil, err
 	}
 
-	ibmClient, err := params.ibmClientBuilder(apikey)
+	ibmClient, err := params.ibmClientBuilder(apikey, *providerSpec)
 	if err != nil {
 		return nil, machineapierrors.InvalidMachineConfiguration("error creating ibm client: %v", err.Error())
 	}

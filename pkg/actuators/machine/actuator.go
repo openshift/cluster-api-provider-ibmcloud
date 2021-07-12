@@ -42,7 +42,6 @@ type Actuator struct {
 	client           controllerRuntimeClient.Client
 	eventRecorder    rec.EventRecorder
 	ibmClientBuilder ibmclient.IbmcloudClientBuilderFuncType
-	// TODO: client Builder Func type for building ibmcloud client
 }
 
 // ActuatorParams holds parameter information for Actuator.
@@ -50,7 +49,6 @@ type ActuatorParams struct {
 	Client           controllerRuntimeClient.Client
 	EventRecorder    rec.EventRecorder
 	IbmClientBuilder ibmclient.IbmcloudClientBuilderFuncType
-	// TODO: client Builder
 }
 
 // NewActuator returns an actuator.

@@ -110,7 +110,6 @@ func validateMachine(machine machinev1.Machine) error {
 func (r *Reconciler) exists() (bool, error) {
 	// check if instance exist
 	exist, err := r.ibmClient.InstanceExistsByName(r.machine.GetName(), r.providerSpec)
-
 	return exist, err
 }
 
@@ -186,7 +185,7 @@ func (r *Reconciler) reconcileMachineWithCloudState(conditionFailed *ibmcloudpro
 		networkAddresses = append(networkAddresses, apicorev1.NodeAddress{Type: apicorev1.NodeInternalIP, Address: ipAddr})
 		r.machine.Status.Addresses = networkAddresses
 	} else {
-		return fmt.Errorf("Could not get the primary ipv4 address of instance: %q", newInstance.Name)
+		return fmt.Errorf("Could not get the primary ipv4 address of instance: %v", newInstance.Name)
 	}
 
 	clusterID := r.machine.Labels[machinev1.MachineClusterIDLabel]
@@ -222,7 +221,6 @@ func (r *Reconciler) reconcileMachineWithCloudState(conditionFailed *ibmcloudpro
 		klog.Infof("%s: machine status is %q, requeuing...", r.machine.Name, *newInstance.Status)
 		return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
 	}
-
 	return nil
 }
 

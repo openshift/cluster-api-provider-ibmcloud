@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	// TODO: Termination endpoint??
 	ibmcloudTerminationEndpointURL                          = "http://169.254.169.254"
 	terminatingConditionType       corev1.NodeConditionType = "Terminating"
 	terminationRequestedReason                              = "TerminationRequested"

@@ -43,6 +43,15 @@ vendor:
 	go mod vendor
 	go mod verify
 
+.PHONY: test
+test: ## Run tests
+	@echo -e "\033[32mTesting...\033[0m"
+	$(DOCKER_CMD) hack/ci-test.sh
+
+.PHONY: unit
+unit: # Run unit test
+	$(DOCKER_CMD) go test -race -cover ./cmd/... ./pkg/...
+
 .PHONY: build
 build: ## build binaries
 	$(DOCKER_CMD) CGO_ENABLED=0 go build $(GOGCFLAGS) -o "bin/machine-controller-manager" \

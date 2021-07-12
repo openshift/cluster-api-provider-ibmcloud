@@ -19,6 +19,7 @@ package machineset
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
@@ -28,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	klog "k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -37,12 +39,11 @@ const (
 	// This exposes compute information based on the providerSpec input.
 	// This is needed by the autoscaler to foresee upcoming capacity when scaling from zero.
 	// https://github.com/openshift/enhancements/pull/186
-	// cpuKey    = "machine.openshift.io/vCPU"
-	// memoryKey = "machine.openshift.io/memoryMb"
-	//
-	// // TODO: Do we need set GPU ?
-	// gpuKey = "machine.openshift.io/GPU"
-	profileKey = "machine.openshift.io/Profile"
+
+	profileKey   = "machine.openshift.io/profile"
+	cpuKey       = "machine.openshift.io/vCPU"
+	memoryKey    = "machine.openshift.io/memoryGb"
+	bandwidthKey = "machine.openshift.io/bandwidthGbps"
 )
 
 // Reconciler - MachineSet Reconciler
@@ -129,17 +130,27 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 	if err != nil {
 		return ctrl.Result{}, mapierrors.InvalidMachineConfiguration("failed to get providerConfig: %v", err)
 	}
-	instanceType := providerConfig.Profile
+
+	profile, ok := Profiles[providerConfig.Profile]
+	if !ok {
+		klog.Error("Unable to set annotations: unknown profile: %v", providerConfig.Profile)
+		klog.Error("Autoscaling from zero will not work. To fix this, manually populate machine annotations for your instance profile: %v", []string{cpuKey, memoryKey})
+
+		// Returning no error to prevent further reconciliation, as user intervention is now required but emit an informational event
+		r.recorder.Eventf(machineSet, corev1.EventTypeWarning, "FailedUpdate", "Failed to set autoscaling from zero annotations, instance profile unknown")
+		return ctrl.Result{}, nil
+	}
 
 	if machineSet.Annotations == nil {
 		machineSet.Annotations = make(map[string]string)
 	}
 
 	// TODO: get annotations keys from machine API
-	// machineSet.Annotations[cpuKey] = strconv.FormatInt(instanceType.VCPU, 10)
-	// machineSet.Annotations[memoryKey] = strconv.FormatInt(instanceType.MemoryMb, 10)
 	// machineSet.Annotations[gpuKey] = strconv.FormatInt(instanceType.GPU, 10)
-	machineSet.Annotations[profileKey] = instanceType
+	machineSet.Annotations[cpuKey] = strconv.FormatInt(profile.VCPU, 10)
+	machineSet.Annotations[memoryKey] = strconv.FormatInt(profile.MemoryGb, 10)
+	machineSet.Annotations[profileKey] = profile.Profile
+	machineSet.Annotations[bandwidthKey] = strconv.FormatInt(profile.BandwidthGbps, 10)
 
 	return ctrl.Result{}, nil
 }

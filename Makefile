@@ -36,7 +36,7 @@ ifeq ($(NO_DOCKER), 1)
   IMAGE_BUILD_CMD = imagebuilder
   export CGO_ENABLED
 else
-  DOCKER_CMD = docker run --rm -e CGO_ENABLED=$(CGO_ENABLED) -e GOARCH=$(GOARCH) -e GOOS=$(GOOS) -v "$(PWD)":/go/src/github.com/openshift/cluster-api-provider-ibmcloud:Z -w /go/src/github.com/openshift/cluster-api-provider-ibmcloud openshift/origin-release:golang-1.15
+  DOCKER_CMD = docker run --rm -e CGO_ENABLED=$(CGO_ENABLED) -e GOARCH=$(GOARCH) -e GOOS=$(GOOS) -v "$(PWD)":/go/src/github.com/openshift/cluster-api-provider-ibmcloud:Z -w /go/src/github.com/openshift/cluster-api-provider-ibmcloud openshift/origin-release:golang-1.16
   IMAGE_BUILD_CMD = docker build
 endif
 

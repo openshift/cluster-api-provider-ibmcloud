@@ -207,7 +207,7 @@ func (r *Reconciler) reconcileMachineWithCloudState(conditionFailed *ibmcloudpro
 	// Update conditions
 	conditionSuccess := ibmcloudproviderv1.IBMCloudMachineProviderCondition{
 		Type:    ibmcloudproviderv1.MachineCreated,
-		Reason:  machineCreationSucceedReasonCondition,
+		Reason:  ibmcloudproviderv1.MachineCreationSucceeded,
 		Message: machineCreationSucceedMessageCondition,
 		Status:  apicorev1.ConditionTrue,
 	}

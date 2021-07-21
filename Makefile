@@ -46,6 +46,32 @@ vendor:
 	go mod vendor
 	go mod verify
 
+.PHONY: check
+check: fmt vet lint test # Check your code
+
+.PHONY: generate
+generate: gogen goimports
+	./hack/verify-diff.sh
+
+gogen:
+	$(DOCKER_CMD) go generate ./pkg/... ./cmd/...
+
+.PHONY: fmt
+fmt: ## Go fmt your code
+	$(DOCKER_CMD) hack/go-fmt.sh .
+
+.PHONY: lint
+lint: ## Go lint your code
+	$(DOCKER_CMD) hack/go-lint.sh -min_confidence 0.3 $$(go list -f '{{ .ImportPath }}' ./... | grep -v -e 'github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client/mock')
+
+.PHONY: goimports
+goimports: ## Go fmt your code
+	$(DOCKER_CMD) hack/goimports.sh .
+
+.PHONY: vet
+vet: ## Apply go vet to all go files
+	$(DOCKER_CMD) hack/go-vet.sh ./...
+
 .PHONY: test
 test: ## Run tests
 	@echo -e "\033[32mTesting...\033[0m"

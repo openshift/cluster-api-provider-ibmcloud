@@ -125,7 +125,7 @@ func (c *ibmCloudClient) InstanceDeleteByName(name string, machineProviderConfig
 	// Get instance ID
 	instanceID := *getInstance.ID
 	if instanceID == "" {
-		return fmt.Errorf("Could not get the Instance ID")
+		return fmt.Errorf("could not get the instance id")
 	}
 
 	// Initialize New Delete Instance Options
@@ -164,7 +164,7 @@ func (c *ibmCloudClient) InstanceGetByName(name string, machineProviderConfig *i
 
 	// Check if instance is not nil
 	if instance == nil {
-		return nil, fmt.Errorf("Could not retrieve a list of instances - Name: %v in Region: %v under VPC: %v. Service URL: %v", name, regionName, vpcName, serviceURL)
+		return nil, fmt.Errorf("could not retrieve a list of instances - name: %v in region: %v under vpc: %v. service url: %v", name, regionName, vpcName, serviceURL)
 	}
 
 	// Found the instance
@@ -173,7 +173,7 @@ func (c *ibmCloudClient) InstanceGetByName(name string, machineProviderConfig *i
 	}
 
 	// Not found
-	return nil, fmt.Errorf("Instance not found")
+	return nil, fmt.Errorf("instance not found")
 }
 
 // InstanceGetByID retrieves a single instance specified by instanceID
@@ -192,7 +192,7 @@ func (c *ibmCloudClient) InstanceGetByID(instanceID string) (*vpcv1.Instance, er
 func (c *ibmCloudClient) InstanceGetProfile(profileName string) (bool, error) {
 	// check if profile is set before making an api call
 	if profileName == "" {
-		return false, fmt.Errorf("Instance profile not set")
+		return false, fmt.Errorf("instance profile not set")
 	}
 
 	// Initialize New List Instance Profiles Options
@@ -311,7 +311,7 @@ func (c *ibmCloudClient) GetVPCIDByName(vpcName string, resourceGroupID string) 
 		}
 	}
 
-	return "", fmt.Errorf("Could not retrieve VPC ID of name: %v", vpcName)
+	return "", fmt.Errorf("could not retrieve vpc id of name: %v", vpcName)
 }
 
 // GetCustomImageByName retrieves custom image from VPC by region and name
@@ -337,7 +337,7 @@ func (c *ibmCloudClient) GetCustomImageByName(imageName string, resourceGroupID 
 		return *privateImage.Images[0].ID, nil
 	}
 
-	return "", fmt.Errorf("Could not retrieve Image ID of name: %v", imageName)
+	return "", fmt.Errorf("could not retrieve image id of name: %v", imageName)
 }
 
 // GetResourceGroupIDByName retrives a Resource Group ID
@@ -358,7 +358,7 @@ func (c *ibmCloudClient) GetResourceGroupIDByName(resourceGroupName string) (str
 		return *resourceGroup.Resources[0].ID, nil
 	}
 
-	return "", fmt.Errorf("Could not retrieve Resource Group ID of name: %v", resourceGroupName)
+	return "", fmt.Errorf("could not retrieve resource group id of name: %v", resourceGroupName)
 }
 
 // GetSubnetIDbyName retrives a Subnet ID
@@ -383,7 +383,7 @@ func (c *ibmCloudClient) GetSubnetIDbyName(subnetName string, resourceGroupID st
 			}
 		}
 	}
-	return "", fmt.Errorf("Could not retrieve Subnet ID of name: %v", subnetName)
+	return "", fmt.Errorf("could not retrieve subnet id of name: %v", subnetName)
 }
 
 // GetSecurityGroupsByName retrieves Security Groups ID
@@ -425,6 +425,6 @@ func (c *ibmCloudClient) GetSecurityGroupsByName(securityGroupNames []string, re
 		return SecurityGroupIdentityList, nil
 	}
 
-	return nil, fmt.Errorf("Could not retrieve Security Group IDs of Names: %v", securityGroupMap)
+	return nil, fmt.Errorf("could not retrieve security group ids of names: %v", securityGroupMap)
 
 }

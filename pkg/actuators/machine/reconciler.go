@@ -175,7 +175,7 @@ func (r *Reconciler) reconcileMachineWithCloudState(conditionFailed *ibmcloudpro
 	// conditionFailed is nil, get the cloud instance and reconcile the fields
 	newInstance, err := r.ibmClient.InstanceGetByName(r.machine.Name, r.providerSpec)
 	if err != nil {
-		return fmt.Errorf("Get Instance failed with an error: %q", err)
+		return fmt.Errorf("get instance failed with an error: %q", err)
 	}
 
 	// Update Machine Status Addresses
@@ -185,7 +185,7 @@ func (r *Reconciler) reconcileMachineWithCloudState(conditionFailed *ibmcloudpro
 		networkAddresses = append(networkAddresses, apicorev1.NodeAddress{Type: apicorev1.NodeInternalIP, Address: ipAddr})
 		r.machine.Status.Addresses = networkAddresses
 	} else {
-		return fmt.Errorf("Could not get the primary ipv4 address of instance: %v", newInstance.Name)
+		return fmt.Errorf("could not get the primary ipv4 address of instance: %v", newInstance.Name)
 	}
 
 	clusterID := r.machine.Labels[machinev1.MachineClusterIDLabel]
@@ -194,10 +194,10 @@ func (r *Reconciler) reconcileMachineWithCloudState(conditionFailed *ibmcloudpro
 
 	// Provider ID check and update
 	if currProviderID != nil && *currProviderID == providerID {
-		klog.Infof("%s: ProviderID already set in the machine Spec with value:%s", r.machine.Name, *currProviderID)
+		klog.Infof("%s: provider id already set in the machine Spec with value:%s", r.machine.Name, *currProviderID)
 	} else {
 		r.machine.Spec.ProviderID = &providerID
-		klog.Infof("%s: ProviderID set at machine spec: %s", r.machine.Name, providerID)
+		klog.Infof("%s: provider id set at machine spec: %s", r.machine.Name, providerID)
 	}
 
 	// Set providerStatus in machine

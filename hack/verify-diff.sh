@@ -1,3 +1,4 @@
+
 FILE_DIFF=$(git ls-files -o --exclude-standard)
 
 if [ "$FILE_DIFF" != "" ]; then

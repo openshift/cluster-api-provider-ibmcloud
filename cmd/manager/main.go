@@ -24,7 +24,6 @@ import (
 	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/machine"
 	machinesetcontroller "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/machineset"
-	// TODO: mapiv1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/version"
 	"github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
@@ -120,12 +119,6 @@ func main() {
 	if err != nil {
 		klog.Fatalf("Failed to set up overall controller manager: %v", err)
 	}
-
-	// TODO:
-	// Setup Scheme for all resources
-	// if err := mapiv1beta1.AddToScheme(mgr.GetScheme()); err != nil {
-	// 	klog.Fatalf("Error setting up scheme: %v", err)
-	// }
 
 	// Initialize machine actuator.
 	machineActuator := machine.NewActuator(machine.ActuatorParams{

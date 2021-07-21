@@ -178,10 +178,6 @@ func TestCreate(t *testing.T) {
 }
 
 func TestExists(t *testing.T) {
-	emptyMachineSpec, err := ibmcloudproviderv1.RawExtensionFromProviderSpec(&ibmcloudproviderv1.IBMCloudMachineProviderSpec{})
-	if err != nil {
-		t.Fatal(err)
-	}
 	testCases := []struct {
 		name          string
 		machine       func() *machinev1.Machine
@@ -196,7 +192,7 @@ func TestExists(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unable to build stub machine: %v", err)
 				}
-				machine.Spec.ProviderSpec = machinev1.ProviderSpec{emptyMachineSpec}
+				machine.Spec.ProviderSpec = machinev1.ProviderSpec{}
 				return machine
 			},
 			existsResult:  true,
@@ -215,7 +211,7 @@ func TestExists(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unable to build stub machine: %v", err)
 				}
-				machine.Spec.ProviderSpec = machinev1.ProviderSpec{emptyMachineSpec}
+				machine.Spec.ProviderSpec = machinev1.ProviderSpec{}
 
 				return machine
 			},

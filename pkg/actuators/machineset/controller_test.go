@@ -19,17 +19,22 @@ package machineset
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	gtypes "github.com/onsi/gomega/types"
+	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
+	mockibm "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client/mock"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,15 +48,43 @@ var _ = Describe("Reconciler", func() {
 	var stopMgr context.CancelFunc
 	var fakeRecorder *record.FakeRecorder
 	var namespace *corev1.Namespace
+	var mockCtrl *gomock.Controller
 
+	// Mock
+	mockCtrl = gomock.NewController(GinkgoT())
+	// defer mockCtrl.Finish()
+	mockIBMClient := mockibm.NewMockClient(mockCtrl)
+
+	gomock.InOrder(
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist")),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist")),
+	)
 	BeforeEach(func() {
+
 		mgr, err := manager.New(cfg, manager.Options{MetricsBindAddress: "0"})
 		Expect(err).ToNot(HaveOccurred())
 
 		r := Reconciler{
 			Client: mgr.GetClient(),
 			Log:    log.Log,
+			getIbmClient: func(_ string, _ ibmcloudproviderv1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
+				return mockIBMClient, nil
+			},
 		}
+
+		// mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil).AnyTimes()
+		// gomock.InOrder(
+		// 	mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("Not Found")),
+		// 	// mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("Not Found")),
+		// 	mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		// )
+		Expect(err).ToNot(HaveOccurred())
 		Expect(r.SetupWithManager(mgr, controller.Options{})).To(Succeed())
 
 		fakeRecorder = record.NewFakeRecorder(1)
@@ -60,12 +93,13 @@ var _ = Describe("Reconciler", func() {
 		c = mgr.GetClient()
 		stopMgr = StartTestManager(mgr)
 
-		namespace = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "mhc-test-"}}
+		namespace = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-machineset-ns-"}}
 		Expect(c.Create(ctx, namespace)).To(Succeed())
 	})
 
 	AfterEach(func() {
 		Expect(deleteMachineSets(c, namespace.Name)).To(Succeed())
+		// mockCtrl.Finish()
 		stopMgr()
 	})
 
@@ -77,11 +111,11 @@ var _ = Describe("Reconciler", func() {
 	}
 
 	DescribeTable("when reconciling MachineSets", func(rtc reconcileTestCase) {
+
 		machineSet, err := newTestMachineSet(namespace.Name, rtc.profile, rtc.existingAnnotations)
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(c.Create(ctx, machineSet)).To(Succeed())
-
 		Eventually(func() map[string]string {
 			m := &machinev1.MachineSet{}
 			key := client.ObjectKey{Namespace: machineSet.Namespace, Name: machineSet.Name}
@@ -117,10 +151,7 @@ var _ = Describe("Reconciler", func() {
 			profile:             "bx2d-4x16",
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
-				profileKey:   "bx2d-4x16",
-				cpuKey:       "4",
-				memoryKey:    "16",
-				bandwidthKey: "4",
+				profileKey: "bx2d-4x16",
 			},
 			expectedEvents: []string{},
 		}),
@@ -128,10 +159,7 @@ var _ = Describe("Reconciler", func() {
 			profile:             "bx2-2x8",
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
-				profileKey:   "bx2-2x8",
-				cpuKey:       "2",
-				memoryKey:    "8",
-				bandwidthKey: "4",
+				profileKey: "bx2-2x8",
 			},
 			expectedEvents: []string{},
 		}),
@@ -142,12 +170,9 @@ var _ = Describe("Reconciler", func() {
 				"annother": "existingAnnotation",
 			},
 			expectedAnnotations: map[string]string{
-				"existing":   "annotation",
-				"annother":   "existingAnnotation",
-				profileKey:   "bx2-2x8",
-				cpuKey:       "2",
-				memoryKey:    "8",
-				bandwidthKey: "4",
+				"existing": "annotation",
+				"annother": "existingAnnotation",
+				profileKey: "bx2-2x8",
 			},
 			expectedEvents: []string{},
 		}),
@@ -217,10 +242,7 @@ func TestReconcile(t *testing.T) {
 			profile:             "cx2d-32x64",
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
-				profileKey:   "cx2d-32x64",
-				cpuKey:       "32",
-				memoryKey:    "64",
-				bandwidthKey: "64",
+				profileKey: "cx2d-32x64",
 			},
 			expectErr: false,
 		},
@@ -229,10 +251,7 @@ func TestReconcile(t *testing.T) {
 			profile:             "mx2-96x768",
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
-				profileKey:   "mx2-96x768",
-				cpuKey:       "96",
-				memoryKey:    "768",
-				bandwidthKey: "80",
+				profileKey: "mx2-96x768",
 			},
 			expectErr: false,
 		},
@@ -244,12 +263,9 @@ func TestReconcile(t *testing.T) {
 				"annother": "existingAnnotation",
 			},
 			expectedAnnotations: map[string]string{
-				"existing":   "annotation",
-				"annother":   "existingAnnotation",
-				profileKey:   "bx2d-4x16",
-				cpuKey:       "4",
-				memoryKey:    "16",
-				bandwidthKey: "4",
+				"existing": "annotation",
+				"annother": "existingAnnotation",
+				profileKey: "bx2d-4x16",
 			},
 			expectErr: false,
 		},
@@ -269,6 +285,18 @@ func TestReconcile(t *testing.T) {
 			expectErr: false,
 		},
 	}
+	// Mock
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+	mockIBMClient := mockibm.NewMockClient(mockCtrl)
+
+	gomock.InOrder(
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist")),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
+		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist")),
+	)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(tt *testing.T) {
 			g := NewWithT(tt)
@@ -278,6 +306,9 @@ func TestReconcile(t *testing.T) {
 
 			r := Reconciler{
 				recorder: record.NewFakeRecorder(1),
+				getIbmClient: func(_ string, _ ibmcloudproviderv1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
+					return mockIBMClient, nil
+				},
 			}
 
 			_, err = r.reconcile(machineSet)

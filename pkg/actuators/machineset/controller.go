@@ -19,12 +19,13 @@ package machineset
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/go-logr/logr"
+	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
+	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/util"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
-	mapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
+	machineapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,10 +41,10 @@ const (
 	// This is needed by the autoscaler to foresee upcoming capacity when scaling from zero.
 	// https://github.com/openshift/enhancements/pull/186
 
-	profileKey   = "machine.openshift.io/profile"
-	cpuKey       = "machine.openshift.io/vCPU"
-	memoryKey    = "machine.openshift.io/memoryGb"
-	bandwidthKey = "machine.openshift.io/bandwidthGbps"
+	profileKey = "machine.openshift.io/profile"
+	// cpuKey       = "machine.openshift.io/vCPU"
+	// memoryKey    = "machine.openshift.io/memoryMb"
+	// bandwidthKey = "machine.openshift.io/bandwidthMbps"
 )
 
 // Reconciler - MachineSet Reconciler
@@ -53,6 +54,9 @@ type Reconciler struct {
 
 	recorder record.EventRecorder
 	scheme   *runtime.Scheme
+
+	// Allows to mock ibm client for testing
+	getIbmClient func(namespace string, providerSpec ibmcloudproviderv1.IBMCloudMachineProviderSpec) (ibmclient.Client, error)
 }
 
 // SetupWithManager creates a new controller for a manager.
@@ -69,7 +73,26 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, options controller.Optio
 	r.recorder = mgr.GetEventRecorderFor("machineset-controller")
 	r.scheme = mgr.GetScheme()
 
+	if r.getIbmClient == nil {
+		r.getIbmClient = r.getActualIbmClient
+	}
+
 	return nil
+}
+
+// getActualIbmClient initilizes an ibmclient
+func (r *Reconciler) getActualIbmClient(namespace string, providerSpec ibmcloudproviderv1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
+
+	apikey, err := util.GetCredentialsSecret(r.Client, namespace, providerSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	ibmClient, err := ibmclient.NewClient(apikey, providerSpec)
+	if err != nil {
+		return nil, machineapierrors.InvalidMachineConfiguration("error creating ibm client: %v", err.Error())
+	}
+	return ibmClient, nil
 }
 
 // Reconcile implements controller runtime Reconciler interface.
@@ -117,7 +140,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 func isInvalidConfigurationError(err error) bool {
 	switch t := err.(type) {
-	case *mapierrors.MachineError:
+	case *machineapierrors.MachineError:
 		if t.Reason == machinev1.InvalidConfigurationMachineError {
 			return true
 		}
@@ -128,13 +151,20 @@ func isInvalidConfigurationError(err error) bool {
 func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, error) {
 	providerConfig, err := getproviderConfig(machineSet)
 	if err != nil {
-		return ctrl.Result{}, mapierrors.InvalidMachineConfiguration("failed to get providerConfig: %v", err)
+		return ctrl.Result{}, machineapierrors.InvalidMachineConfiguration("failed to get providerConfig: %v", err)
 	}
 
-	profile, ok := Profiles[providerConfig.Profile]
-	if !ok {
+	// profile, ok := Profiles[providerConfig.Profile]
+	ibmClient, err := r.getIbmClient(machineSet.GetNamespace(), *providerConfig)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	_, err = ibmClient.InstanceGetProfile(providerConfig.Profile)
+
+	if err != nil {
 		klog.Error("Unable to set annotations: unknown profile: %v", providerConfig.Profile)
-		klog.Error("Autoscaling from zero will not work. To fix this, manually populate machine annotations for your instance profile: %v", []string{cpuKey, memoryKey})
+		klog.Error("Autoscaling from zero will not work. To fix this, manually populate machine annotations for your instance profile: %v", []string{profileKey})
 
 		// Returning no error to prevent further reconciliation, as user intervention is now required but emit an informational event
 		r.recorder.Eventf(machineSet, corev1.EventTypeWarning, "FailedUpdate", "Failed to set autoscaling from zero annotations, instance profile unknown")
@@ -145,12 +175,8 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 		machineSet.Annotations = make(map[string]string)
 	}
 
-	// TODO: get annotations keys from machine API
-	// machineSet.Annotations[gpuKey] = strconv.FormatInt(instanceType.GPU, 10)
-	machineSet.Annotations[cpuKey] = strconv.FormatInt(profile.VCPU, 10)
-	machineSet.Annotations[memoryKey] = strconv.FormatInt(profile.MemoryGb, 10)
-	machineSet.Annotations[profileKey] = profile.Profile
-	machineSet.Annotations[bandwidthKey] = strconv.FormatInt(profile.BandwidthGbps, 10)
+	// Set Annotation
+	machineSet.Annotations[profileKey] = providerConfig.Profile
 
 	return ctrl.Result{}, nil
 }

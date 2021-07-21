@@ -183,3 +183,18 @@ func (mr *MockClientMockRecorder) InstanceGetByName(name, machineProviderConfig 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InstanceGetByName", reflect.TypeOf((*MockClient)(nil).InstanceGetByName), name, machineProviderConfig)
 }
+
+// InstanceGetProfile mocks base method.
+func (m *MockClient) InstanceGetProfile(profileName string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InstanceGetProfile", profileName)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InstanceGetProfile indicates an expected call of InstanceGetProfile.
+func (mr *MockClientMockRecorder) InstanceGetProfile(profileName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InstanceGetProfile", reflect.TypeOf((*MockClient)(nil).InstanceGetProfile), profileName)
+}

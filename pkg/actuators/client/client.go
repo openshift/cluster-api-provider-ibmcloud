@@ -33,6 +33,7 @@ type Client interface {
 	InstanceGetByName(name string, machineProviderConfig *ibmcloudproviderv1.IBMCloudMachineProviderSpec) (*vpcv1.Instance, error)
 	InstanceDeleteByName(name string, machineProviderConfig *ibmcloudproviderv1.IBMCloudMachineProviderSpec) error
 	InstanceCreate(machineName string, machineProviderConfig *ibmcloudproviderv1.IBMCloudMachineProviderSpec, userData string) (*vpcv1.Instance, error)
+	InstanceGetProfile(profileName string) (bool, error)
 
 	// Helper functions
 	GetCustomImageByName(imageName string, resourceGroupID string) (string, error)
@@ -185,6 +186,23 @@ func (c *ibmCloudClient) InstanceGetByID(instanceID string) (*vpcv1.Instance, er
 	}
 
 	return instance, nil
+}
+
+// InstanceGetProfile returns instance profile info
+func (c *ibmCloudClient) InstanceGetProfile(profileName string) (bool, error) {
+	// Initialize New List Instance Profiles Options
+	listInstanceProfileOptions := c.vpcService.NewGetInstanceProfileOptions(profileName)
+
+	// Get a list of all instance profiles
+	_, _, err := c.vpcService.GetInstanceProfile(listInstanceProfileOptions)
+
+	// Instance profile err
+	if err != nil {
+		return false, err
+	}
+
+	// found instance profile
+	return true, nil
 }
 
 // InstanceCreate creates an instance in VPC

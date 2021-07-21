@@ -190,6 +190,11 @@ func (c *ibmCloudClient) InstanceGetByID(instanceID string) (*vpcv1.Instance, er
 
 // InstanceGetProfile returns instance profile info
 func (c *ibmCloudClient) InstanceGetProfile(profileName string) (bool, error) {
+	// check if profile is set before making an api call
+	if profileName == "" {
+		return false, fmt.Errorf("Instance profile not set")
+	}
+
 	// Initialize New List Instance Profiles Options
 	listInstanceProfileOptions := c.vpcService.NewGetInstanceProfileOptions(profileName)
 

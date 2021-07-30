@@ -19,6 +19,7 @@ package machineset
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
@@ -42,8 +43,8 @@ const (
 	// https://github.com/openshift/enhancements/pull/186
 
 	profileKey = "machine.openshift.io/profile"
-	// cpuKey       = "machine.openshift.io/vCPU"
-	// memoryKey    = "machine.openshift.io/memoryMb"
+	cpuKey     = "machine.openshift.io/vCPU"
+	memoryKey  = "machine.openshift.io/memoryGb"
 	// bandwidthKey = "machine.openshift.io/bandwidthMbps"
 )
 
@@ -154,7 +155,6 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 		return ctrl.Result{}, machineapierrors.InvalidMachineConfiguration("failed to get providerConfig: %v", err)
 	}
 
-	// profile, ok := Profiles[providerConfig.Profile]
 	ibmClient, err := r.getIbmClient(machineSet.GetNamespace(), *providerConfig)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -175,8 +175,16 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 		machineSet.Annotations = make(map[string]string)
 	}
 
+	// Extract CPU and Memory
+	profileStr := strings.Split(providerConfig.Profile, "-")
+	cpuStr := strings.Split(profileStr[1], "x")[0]
+	memStr := strings.Split(profileStr[1], "x")[1]
+
 	// Set Annotation
+
 	machineSet.Annotations[profileKey] = providerConfig.Profile
+	machineSet.Annotations[cpuKey] = cpuStr
+	machineSet.Annotations[memoryKey] = memStr
 
 	return ctrl.Result{}, nil
 }

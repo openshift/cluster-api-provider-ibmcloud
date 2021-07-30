@@ -17,208 +17,21 @@ limitations under the License.
 package machineset
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
-	gtypes "github.com/onsi/gomega/types"
 	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	mockibm "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client/mock"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
-
-var _ = Describe("Reconciler", func() {
-	var c client.Client
-	var stopMgr context.CancelFunc
-	var fakeRecorder *record.FakeRecorder
-	var namespace *corev1.Namespace
-	var mockCtrl *gomock.Controller
-
-	// Mock
-	mockCtrl = gomock.NewController(GinkgoT())
-	// defer mockCtrl.Finish()
-	mockIBMClient := mockibm.NewMockClient(mockCtrl)
-
-	gomock.InOrder(
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist")),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist")),
-	)
-	BeforeEach(func() {
-
-		mgr, err := manager.New(cfg, manager.Options{MetricsBindAddress: "0"})
-		Expect(err).ToNot(HaveOccurred())
-
-		r := Reconciler{
-			Client: mgr.GetClient(),
-			Log:    log.Log,
-			getIbmClient: func(_ string, _ ibmcloudproviderv1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
-				return mockIBMClient, nil
-			},
-		}
-
-		// mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil).AnyTimes()
-		// gomock.InOrder(
-		// 	mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("Not Found")),
-		// 	// mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("Not Found")),
-		// 	mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		// )
-		Expect(err).ToNot(HaveOccurred())
-		Expect(r.SetupWithManager(mgr, controller.Options{})).To(Succeed())
-
-		fakeRecorder = record.NewFakeRecorder(1)
-		r.recorder = fakeRecorder
-
-		c = mgr.GetClient()
-		stopMgr = StartTestManager(mgr)
-
-		namespace = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "test-machineset-ns-"}}
-		Expect(c.Create(ctx, namespace)).To(Succeed())
-	})
-
-	AfterEach(func() {
-		Expect(deleteMachineSets(c, namespace.Name)).To(Succeed())
-		// mockCtrl.Finish()
-		stopMgr()
-	})
-
-	type reconcileTestCase = struct {
-		profile             string
-		existingAnnotations map[string]string
-		expectedAnnotations map[string]string
-		expectedEvents      []string
-	}
-
-	DescribeTable("when reconciling MachineSets", func(rtc reconcileTestCase) {
-
-		machineSet, err := newTestMachineSet(namespace.Name, rtc.profile, rtc.existingAnnotations)
-		Expect(err).ToNot(HaveOccurred())
-
-		Expect(c.Create(ctx, machineSet)).To(Succeed())
-		Eventually(func() map[string]string {
-			m := &machinev1.MachineSet{}
-			key := client.ObjectKey{Namespace: machineSet.Namespace, Name: machineSet.Name}
-			err := c.Get(ctx, key, m)
-			if err != nil {
-				return nil
-			}
-			annotations := m.GetAnnotations()
-			if annotations != nil {
-				return annotations
-			}
-			// Return an empty map to distinguish between empty annotations and errors
-			return make(map[string]string)
-		}, timeout).Should(Equal(rtc.expectedAnnotations))
-
-		// Check which event types were sent
-		Eventually(fakeRecorder.Events, timeout).Should(HaveLen(len(rtc.expectedEvents)))
-		receivedEvents := []string{}
-		eventMatchers := []gtypes.GomegaMatcher{}
-		for _, eachEvent := range rtc.expectedEvents {
-			receivedEvents = append(receivedEvents, <-fakeRecorder.Events)
-			eventMatchers = append(eventMatchers, ContainSubstring(fmt.Sprintf(" %s ", eachEvent)))
-		}
-		Expect(receivedEvents).To(ConsistOf(eventMatchers))
-	},
-		Entry("with no profile set", reconcileTestCase{
-			profile:             "",
-			existingAnnotations: make(map[string]string),
-			expectedAnnotations: make(map[string]string),
-			expectedEvents:      []string{"FailedUpdate"},
-		}),
-		Entry("with a bx2d-4x16", reconcileTestCase{
-			profile:             "bx2d-4x16",
-			existingAnnotations: make(map[string]string),
-			expectedAnnotations: map[string]string{
-				profileKey: "bx2d-4x16",
-			},
-			expectedEvents: []string{},
-		}),
-		Entry("with a bx2-2x8", reconcileTestCase{
-			profile:             "bx2-2x8",
-			existingAnnotations: make(map[string]string),
-			expectedAnnotations: map[string]string{
-				profileKey: "bx2-2x8",
-			},
-			expectedEvents: []string{},
-		}),
-		Entry("with existing annotations", reconcileTestCase{
-			profile: "bx2-2x8",
-			existingAnnotations: map[string]string{
-				"existing": "annotation",
-				"annother": "existingAnnotation",
-			},
-			expectedAnnotations: map[string]string{
-				"existing": "annotation",
-				"annother": "existingAnnotation",
-				profileKey: "bx2-2x8",
-			},
-			expectedEvents: []string{},
-		}),
-		Entry("with an invalid instance profile", reconcileTestCase{
-			profile: "invalid",
-			existingAnnotations: map[string]string{
-				"existing": "annotation",
-				"annother": "existingAnnotation",
-			},
-			expectedAnnotations: map[string]string{
-				"existing": "annotation",
-				"annother": "existingAnnotation",
-			},
-			expectedEvents: []string{"FailedUpdate"},
-		}),
-	)
-})
-
-func deleteMachineSets(c client.Client, namespaceName string) error {
-	machineSets := &machinev1.MachineSetList{}
-	err := c.List(ctx, machineSets, client.InNamespace(namespaceName))
-	if err != nil {
-		return err
-	}
-
-	for _, ms := range machineSets.Items {
-		err := c.Delete(ctx, &ms)
-		if err != nil {
-			return err
-		}
-	}
-
-	Eventually(func() error {
-		machineSets := &machinev1.MachineSetList{}
-		err := c.List(ctx, machineSets)
-		if err != nil {
-			return err
-		}
-		if len(machineSets.Items) > 0 {
-			return fmt.Errorf("machineSets not deleted")
-		}
-		return nil
-	}, timeout).Should(Succeed())
-
-	return nil
-}
 
 func TestReconcile(t *testing.T) {
 	testCases := []struct {
@@ -227,6 +40,7 @@ func TestReconcile(t *testing.T) {
 		existingAnnotations map[string]string
 		expectedAnnotations map[string]string
 		expectErr           bool
+		ibmClient           func(ctrl *gomock.Controller) ibmclient.Client
 	}{
 		{
 			name:                "with no instance profile set",
@@ -236,6 +50,12 @@ func TestReconcile(t *testing.T) {
 			// Expect no error and only log entry in such case as we don't update
 			// instance profile dynamically
 			expectErr: false,
+			ibmClient: func(ctrl *gomock.Controller) ibmclient.Client {
+				mockCtrl := gomock.NewController(t)
+				mockIBMClient := mockibm.NewMockClient(mockCtrl)
+				mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist"))
+				return mockIBMClient
+			},
 		},
 		{
 			name:                "with a cx2d-32x64",
@@ -243,8 +63,16 @@ func TestReconcile(t *testing.T) {
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
 				profileKey: "cx2d-32x64",
+				cpuKey:     "32",
+				memoryKey:  "64",
 			},
 			expectErr: false,
+			ibmClient: func(ctrl *gomock.Controller) ibmclient.Client {
+				mockCtrl := gomock.NewController(t)
+				mockIBMClient := mockibm.NewMockClient(mockCtrl)
+				mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil)
+				return mockIBMClient
+			},
 		},
 		{
 			name:                "with a mx2-96x768",
@@ -252,8 +80,16 @@ func TestReconcile(t *testing.T) {
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
 				profileKey: "mx2-96x768",
+				cpuKey:     "96",
+				memoryKey:  "768",
 			},
 			expectErr: false,
+			ibmClient: func(ctrl *gomock.Controller) ibmclient.Client {
+				mockCtrl := gomock.NewController(t)
+				mockIBMClient := mockibm.NewMockClient(mockCtrl)
+				mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil)
+				return mockIBMClient
+			},
 		},
 		{
 			name:    "with existing annotations",
@@ -266,8 +102,16 @@ func TestReconcile(t *testing.T) {
 				"existing": "annotation",
 				"annother": "existingAnnotation",
 				profileKey: "bx2d-4x16",
+				cpuKey:     "4",
+				memoryKey:  "16",
 			},
 			expectErr: false,
+			ibmClient: func(ctrl *gomock.Controller) ibmclient.Client {
+				mockCtrl := gomock.NewController(t)
+				mockIBMClient := mockibm.NewMockClient(mockCtrl)
+				mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil)
+				return mockIBMClient
+			},
 		},
 		{
 			name:    "with an invalid instance profile",
@@ -283,20 +127,15 @@ func TestReconcile(t *testing.T) {
 			// Expect no error and only log entry in such case as we don't update
 			// instance profile dynamically
 			expectErr: false,
+			ibmClient: func(ctrl *gomock.Controller) ibmclient.Client {
+				mockCtrl := gomock.NewController(t)
+				mockIBMClient := mockibm.NewMockClient(mockCtrl)
+				mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist"))
+				return mockIBMClient
+			},
 		},
 	}
-	// Mock
-	mockCtrl := gomock.NewController(t)
-	defer mockCtrl.Finish()
-	mockIBMClient := mockibm.NewMockClient(mockCtrl)
 
-	gomock.InOrder(
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist")),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(true, nil),
-		mockIBMClient.EXPECT().InstanceGetProfile(gomock.Any()).Return(false, errors.New("the provided instance profile ID does not exist")),
-	)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(tt *testing.T) {
 			g := NewWithT(tt)
@@ -304,10 +143,11 @@ func TestReconcile(t *testing.T) {
 			machineSet, err := newTestMachineSet("default", tc.profile, tc.existingAnnotations)
 			g.Expect(err).ToNot(HaveOccurred())
 
+			mockCtrl := gomock.NewController(t)
 			r := Reconciler{
 				recorder: record.NewFakeRecorder(1),
 				getIbmClient: func(_ string, _ ibmcloudproviderv1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
-					return mockIBMClient, nil
+					return tc.ibmClient(mockCtrl), nil
 				},
 			}
 

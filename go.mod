@@ -1,6 +1,6 @@
 module github.com/openshift/cluster-api-provider-ibmcloud
 
-go 1.15
+go 1.16
 
 require (
 	github.com/IBM/go-sdk-core/v5 v5.4.2
@@ -14,7 +14,6 @@ require (
 	github.com/openshift/api v0.0.0-20210416115537-a60c0dc032fd
 	github.com/openshift/machine-api-operator v0.2.1-0.20210504014029-a132ec00f7dd
 
-	// k8s 1.18
 	k8s.io/api v0.21.0
 	k8s.io/apimachinery v0.21.1
 	k8s.io/client-go v0.21.0

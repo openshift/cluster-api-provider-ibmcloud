@@ -62,9 +62,8 @@ func TestReconcile(t *testing.T) {
 			profile:             "cx2d-32x64",
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
-				profileKey: "cx2d-32x64",
-				cpuKey:     "32",
-				memoryKey:  "64",
+				cpuKey:    "32",
+				memoryKey: "65536",
 			},
 			expectErr: false,
 			ibmClient: func(ctrl *gomock.Controller) ibmclient.Client {
@@ -79,9 +78,8 @@ func TestReconcile(t *testing.T) {
 			profile:             "mx2-96x768",
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
-				profileKey: "mx2-96x768",
-				cpuKey:     "96",
-				memoryKey:  "768",
+				cpuKey:    "96",
+				memoryKey: "786432",
 			},
 			expectErr: false,
 			ibmClient: func(ctrl *gomock.Controller) ibmclient.Client {
@@ -101,9 +99,8 @@ func TestReconcile(t *testing.T) {
 			expectedAnnotations: map[string]string{
 				"existing": "annotation",
 				"annother": "existingAnnotation",
-				profileKey: "bx2d-4x16",
 				cpuKey:     "4",
-				memoryKey:  "16",
+				memoryKey:  "16384",
 			},
 			expectErr: false,
 			ibmClient: func(ctrl *gomock.Controller) ibmclient.Client {

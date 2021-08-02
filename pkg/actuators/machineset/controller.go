@@ -19,6 +19,7 @@ package machineset
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -42,10 +43,8 @@ const (
 	// This is needed by the autoscaler to foresee upcoming capacity when scaling from zero.
 	// https://github.com/openshift/enhancements/pull/186
 
-	profileKey = "machine.openshift.io/profile"
-	cpuKey     = "machine.openshift.io/vCPU"
-	memoryKey  = "machine.openshift.io/memoryGb"
-	// bandwidthKey = "machine.openshift.io/bandwidthMbps"
+	cpuKey    = "machine.openshift.io/vCPU"
+	memoryKey = "machine.openshift.io/memoryMb"
 )
 
 // Reconciler - MachineSet Reconciler
@@ -164,7 +163,7 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 
 	if err != nil {
 		klog.Error("Unable to set annotations: unknown profile: %v", providerConfig.Profile)
-		klog.Error("Autoscaling from zero will not work. To fix this, manually populate machine annotations for your instance profile: %v", []string{profileKey})
+		klog.Error("Autoscaling from zero will not work. To fix this, manually populate machine annotations for your instance profile: %v", []string{cpuKey, memoryKey})
 
 		// Returning no error to prevent further reconciliation, as user intervention is now required but emit an informational event
 		r.recorder.Eventf(machineSet, corev1.EventTypeWarning, "FailedUpdate", "Failed to set autoscaling from zero annotations, instance profile unknown")
@@ -176,15 +175,21 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 	}
 
 	// Extract CPU and Memory
+	// Ex: Profile => "bx2-4x16"; CPU - 4, Mem - 16 GB
+
+	// Spilt on "-"
 	profileStr := strings.Split(providerConfig.Profile, "-")
+
+	// Extract CPU and Mem from previous split
 	cpuStr := strings.Split(profileStr[1], "x")[0]
-	memStr := strings.Split(profileStr[1], "x")[1]
+	memGbStr := strings.Split(profileStr[1], "x")[1]
 
 	// Set Annotation
-
-	machineSet.Annotations[profileKey] = providerConfig.Profile
 	machineSet.Annotations[cpuKey] = cpuStr
-	machineSet.Annotations[memoryKey] = memStr
+
+	// GB to MB
+	memVal, _ := strconv.ParseInt(memGbStr, 10, 16)
+	machineSet.Annotations[memoryKey] = strconv.FormatInt(memVal*1024, 10)
 
 	return ctrl.Result{}, nil
 }

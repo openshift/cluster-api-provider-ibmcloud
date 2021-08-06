@@ -26,6 +26,9 @@ LD_FLAGS    ?= -X $(REPO_PATH)/pkg/version.Raw=$(VERSION) -extldflags "-static"
 IMAGE        = origin-ibmcloud-machine-controllers
 MUTABLE_TAG ?= latest
 
+# # race tests need CGO_ENABLED, everything else should have it disabled
+CGO_ENABLED = 0
+unit : CGO_ENABLED = 1
 
 NO_DOCKER ?= 0
 ifeq ($(NO_DOCKER), 1)
@@ -33,7 +36,7 @@ ifeq ($(NO_DOCKER), 1)
   IMAGE_BUILD_CMD = imagebuilder
   export CGO_ENABLED
 else
-  DOCKER_CMD = docker run --rm -e CGO_ENABLED=0 -e GOARCH=$(GOARCH) -e GOOS=$(GOOS) -v "$(PWD)":/go/src/github.com/openshift/cluster-api-provider-ibmcloud:Z -w /go/src/openshift/cluster-api-provider-ibmcloud openshift/origin-release:golang-1.15
+  DOCKER_CMD = docker run --rm -e CGO_ENABLED=$(CGO_ENABLED) -e GOARCH=$(GOARCH) -e GOOS=$(GOOS) -v "$(PWD)":/go/src/github.com/openshift/cluster-api-provider-ibmcloud:Z -w /go/src/github.com/openshift/cluster-api-provider-ibmcloud openshift/origin-release:golang-1.16
   IMAGE_BUILD_CMD = docker build
 endif
 
@@ -43,12 +46,45 @@ vendor:
 	go mod vendor
 	go mod verify
 
+.PHONY: check
+check: fmt vet lint test # Check your code
+
+.PHONY: generate
+generate: gogen goimports
+	./hack/verify-diff.sh
+
+gogen:
+	$(DOCKER_CMD) go generate ./pkg/... ./cmd/...
+
+.PHONY: fmt
+fmt: ## Go fmt your code
+	$(DOCKER_CMD) hack/go-fmt.sh .
+
+.PHONY: lint
+lint: ## Go lint your code
+	$(DOCKER_CMD) hack/go-lint.sh -min_confidence 0.3 $$(go list -f '{{ .ImportPath }}' ./... | grep -v -e 'github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client/mock')
+
+.PHONY: goimports
+goimports: ## Go fmt your code
+	$(DOCKER_CMD) hack/goimports.sh .
+
+.PHONY: vet
+vet: ## Apply go vet to all go files
+	$(DOCKER_CMD) hack/go-vet.sh ./...
+
+.PHONY: test
+test: ## Run tests
+	@echo -e "\033[32mTesting...\033[0m"
+	$(DOCKER_CMD) hack/ci-test.sh
+
+.PHONY: unit
+unit: # Run unit test
+	$(DOCKER_CMD) go test -race -cover ./cmd/... ./pkg/...
+
 .PHONY: build
 build: ## build binaries
 	$(DOCKER_CMD) CGO_ENABLED=0 go build $(GOGCFLAGS) -o "bin/machine-controller-manager" \
                -ldflags "$(LD_FLAGS)" "$(REPO_PATH)/cmd/manager"
-	$(DOCKER_CMD) CGO_ENABLED=0 go build $(GOGCFLAGS) -o "bin/termination-handler" \
-	             -ldflags "$(LD_FLAGS)" "$(REPO_PATH)/cmd/termination-handler"
 
 .PHONY: images
 images: ## Create images

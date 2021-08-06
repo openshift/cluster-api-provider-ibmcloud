@@ -40,9 +40,6 @@ type IBMCloudMachineProviderSpec struct {
 	// to default tags applied by the actuator
 	Tags []TagSpecs `json:"tags,omitempty"`
 
-	// TODO: Add labels to the virtual server
-	// Labels map[string]string `json:"labels,omitempty"`
-
 	// Image is the id of the custom OS image in VPC
 	// Example: rchos-4-4-7 (Image name)
 	Image string `json:"image"`
@@ -63,7 +60,6 @@ type IBMCloudMachineProviderSpec struct {
 	// PrimaryNetworkInterface is required to specify subnet
 	PrimaryNetworkInterface NetworkInterface `json:"primaryNetworkInterface"`
 
-	// TODO: Probably not needed for the worker machines
 	// SSHKeys is the SSH pub keys that will be used to access virtual service instance
 	// SSHKeys []*string `json:"sshKeys,omitempty"`
 
@@ -96,8 +92,6 @@ type TagSpecs struct {
 // 	Key   string  `json:"key"`
 // 	Value *string `json:"value"`
 // }
-
-// TODO: IBMCloudLoadBalancerReferece - register an instance with the LoadBalancer
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 func init() {

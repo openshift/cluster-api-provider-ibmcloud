@@ -98,6 +98,8 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		machine:            params.machine.DeepCopy(),
 		providerSpec:       providerSpec,
 		providerStatus:     providerStatus,
+		origMachine:        params.machine.DeepCopy(),
+		origProviderStatus: providerStatus.DeepCopy(),
 		machineToBePatched: controllerRuntimeClient.MergeFrom(params.machine.DeepCopy()),
 	}, nil
 }

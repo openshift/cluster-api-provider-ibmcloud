@@ -26,11 +26,13 @@ import (
 
 var (
 	expectedProviderSpec = IBMCloudMachineProviderSpec{
-		VPC:     "test-vpc",
-		Image:   "test-instance-image",
-		Profile: "bx2d-32x128",
-		Zone:    "us-east-1",
-		Region:  "us-east",
+		VPC:           "test-vpc",
+		Image:         "test-instance-image",
+		Profile:       "bx2d-32x128",
+		DedicatedHost: "dedicated-host-name",
+		Zone:          "us-east-1",
+		Region:        "us-east",
+		ResourceGroup: "aaab-bbbc-cccd-zzzz-xxxx",
 		UserDataSecret: &corev1.LocalObjectReference{
 			Name: "userData",
 		},
@@ -45,7 +47,7 @@ var (
 			},
 		},
 	}
-	expectedRawProviderSpec = `{"metadata":{"creationTimestamp":null},"vpc":"test-vpc","image":"test-instance-image","profile":"bx2d-32x128","region":"us-east","zone":"us-east-1","resourceGroup":"","primaryNetworkInterface":{"subnet":"test-subnet","securityGroups":["test-security-group-1","test-security-group-2"]},"userDataSecret":{"name":"userData"},"credentialsSecret":{"name":"credentialKey"}}`
+	expectedRawProviderSpec = `{"metadata":{"creationTimestamp":null},"vpc":"test-vpc","image":"test-instance-image","profile":"bx2d-32x128","dedicatedHost":"dedicated-host-name","region":"us-east","zone":"us-east-1","resourceGroup":"aaab-bbbc-cccd-zzzz-xxxx","primaryNetworkInterface":{"subnet":"test-subnet","securityGroups":["test-security-group-1","test-security-group-2"]},"userDataSecret":{"name":"userData"},"credentialsSecret":{"name":"credentialKey"}}`
 
 	instanceID             = "test-instance-id"
 	instanceState          = "running"

@@ -41,6 +41,7 @@ type Client interface {
 	GetResourceGroupIDByName(resourceGroupName string) (string, error)
 	GetSubnetIDbyName(subnetName string, resourceGroupID string) (string, error)
 	GetSecurityGroupsByName(securityGroupNames []string, resourceGroupID string, vpcID string) ([]vpcv1.SecurityGroupIdentityIntf, error)
+	GetDedicatedHostByName(dedicatedHostName string, resourceGroupID string, zoneName string) (string, error)
 }
 
 // ibmCloudClient makes call to IBM Cloud APIs
@@ -250,11 +251,8 @@ func (c *ibmCloudClient) InstanceCreate(machineName string, machineProviderConfi
 		return nil, err
 	}
 
-	// Create Instance Options
-	options := &vpcv1.CreateInstanceOptions{}
-
 	// Set Instance Prototype - Contains all the info necessary to provision an instance
-	options.SetInstancePrototype(&vpcv1.InstancePrototype{
+	instancePrototypeObj := &vpcv1.InstancePrototype{
 		Name: &machineName,
 		Image: &vpcv1.ImageIdentity{
 			ID: &imageID,
@@ -278,7 +276,24 @@ func (c *ibmCloudClient) InstanceCreate(machineName string, machineProviderConfi
 			ID: &vpcID,
 		},
 		UserData: &userData,
-	})
+	}
+
+	// Get Dedicated Host ID if needed
+	if machineProviderConfig.DedicatedHost != "" {
+		dedicatedHostID, err := c.GetDedicatedHostByName(machineProviderConfig.DedicatedHost, resourceGroupID, machineProviderConfig.Zone)
+		if err != nil {
+			return nil, err
+		}
+		instancePrototypeObj.PlacementTarget = &vpcv1.InstancePlacementTargetPrototypeDedicatedHostIdentity{
+			ID: &dedicatedHostID,
+		}
+	}
+
+	// Create Instance Options
+	options := &vpcv1.CreateInstanceOptions{}
+
+	// Ser Instance Prototype
+	options.SetInstancePrototype(instancePrototypeObj)
 
 	// Create a new Instance from an instance prototype object
 	instance, _, err := c.vpcService.CreateInstance(options)
@@ -427,4 +442,33 @@ func (c *ibmCloudClient) GetSecurityGroupsByName(securityGroupNames []string, re
 
 	return nil, fmt.Errorf("could not retrieve security group ids of names: %v", securityGroupMap)
 
+}
+
+// GetDedicatedHostByName retrieves Dedicated Hosts info
+func (c *ibmCloudClient) GetDedicatedHostByName(dedicatedHostName string, resourceGroupID string, zoneName string) (string, error) {
+	// Initialize List Dedicated Hosts Options
+	dedicatedHostOptions := c.vpcService.NewListDedicatedHostsOptions()
+
+	// Set Resource Group ID
+	dedicatedHostOptions.SetResourceGroupID(resourceGroupID)
+
+	// Set Zone
+	dedicatedHostOptions.SetZoneName(zoneName)
+
+	// Get a list of all Dedicated Hosts
+	dedicatedHosts, _, err := c.vpcService.ListDedicatedHosts(dedicatedHostOptions)
+	if err != nil {
+		return "", err
+	}
+
+	if dedicatedHosts != nil {
+		for _, eachDedicatedHost := range dedicatedHosts.DedicatedHosts {
+			if *eachDedicatedHost.Name == dedicatedHostName {
+				// return Dedicated Host ID
+				return *eachDedicatedHost.ID, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("could not retrieve dedicated host id of name: %v", dedicatedHostName)
 }

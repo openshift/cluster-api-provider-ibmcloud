@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
@@ -42,10 +43,12 @@ type Client interface {
 	GetSubnetIDbyName(subnetName string, resourceGroupID string) (string, error)
 	GetSecurityGroupsByName(securityGroupNames []string, resourceGroupID string, vpcID string) ([]vpcv1.SecurityGroupIdentityIntf, error)
 	GetDedicatedHostByName(dedicatedHostName string, resourceGroupID string, zoneName string) (string, error)
+	GetAccountIDByAuthenticator(authenticator *core.IamAuthenticator) (string, error)
 }
 
 // ibmCloudClient makes call to IBM Cloud APIs
 type ibmCloudClient struct {
+	iamAuthenticator       *core.IamAuthenticator
 	vpcService             *vpcv1.VpcV1
 	resourceManagerService *resourcemanagerv2.ResourceManagerV2
 }
@@ -91,6 +94,7 @@ func NewClient(credentialVal string, providerSpec ibmcloudproviderv1.IBMCloudMac
 	}
 
 	return &ibmCloudClient{
+		iamAuthenticator:       authenticator,
 		vpcService:             vpcService,
 		resourceManagerService: resourceManagerService,
 	}, nil
@@ -107,7 +111,7 @@ func (c *ibmCloudClient) InstanceExistsByName(name string, machineProviderConfig
 	}
 
 	// Instance not found
-	if err.Error() == "Instance not found" {
+	if err.Error() == "instance not found" {
 		return false, nil
 	}
 
@@ -361,6 +365,13 @@ func (c *ibmCloudClient) GetResourceGroupIDByName(resourceGroupName string) (str
 	resourceGroupOptions := c.resourceManagerService.NewListResourceGroupsOptions()
 	// Set Resource Group Name
 	resourceGroupOptions.SetName(resourceGroupName)
+	// Get account ID
+	accountID, err := c.GetAccountIDByAuthenticator(c.iamAuthenticator)
+	if err != nil {
+		return "", err
+	}
+	// Set Account ID
+	resourceGroupOptions.SetAccountID(accountID)
 	// Get Resource Group
 	resourceGroup, _, err := c.resourceManagerService.ListResourceGroups(resourceGroupOptions)
 	if err != nil {
@@ -471,4 +482,27 @@ func (c *ibmCloudClient) GetDedicatedHostByName(dedicatedHostName string, resour
 	}
 
 	return "", fmt.Errorf("could not retrieve dedicated host id of name: %v", dedicatedHostName)
+}
+
+// GetAccountIDByAuthenticator returns the IBMC account ID associated with the IAM API key.
+func (c *ibmCloudClient) GetAccountIDByAuthenticator(authenticator *core.IamAuthenticator) (string, error) {
+	// Set iamIdentityService
+	iamIdentityService, err := iamidentityv1.NewIamIdentityV1(&iamidentityv1.IamIdentityV1Options{
+		Authenticator: authenticator,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	// Set New Get API Keys Details Options
+	options := iamIdentityService.NewGetAPIKeysDetailsOptions()
+	// Set API Key
+	options.SetIamAPIKey(authenticator.ApiKey)
+	// Get details associated with the API Key
+	apiKeyDetails, _, err := iamIdentityService.GetAPIKeysDetails(options)
+	if err != nil {
+		return "", err
+	}
+
+	return *apiKeyDetails.AccountID, nil
 }

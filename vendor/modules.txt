@@ -7,6 +7,7 @@ github.com/IBM/go-sdk-core/v5/core
 # github.com/IBM/platform-services-go-sdk v0.18.16
 ## explicit
 github.com/IBM/platform-services-go-sdk/common
+github.com/IBM/platform-services-go-sdk/iamidentityv1
 github.com/IBM/platform-services-go-sdk/resourcemanagerv2
 # github.com/IBM/vpc-go-sdk v0.6.0
 ## explicit

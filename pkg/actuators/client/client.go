@@ -472,7 +472,7 @@ func (c *ibmCloudClient) GetDedicatedHostByName(dedicatedHostName string, resour
 		return "", err
 	}
 
-	if dedicatedHosts != nil {
+	if dedicatedHosts != nil && len(dedicatedHosts.DedicatedHosts) > 0 {
 		for _, eachDedicatedHost := range dedicatedHosts.DedicatedHosts {
 			if *eachDedicatedHost.Name == dedicatedHostName {
 				// return Dedicated Host ID

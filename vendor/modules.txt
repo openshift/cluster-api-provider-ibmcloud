@@ -7,7 +7,6 @@ github.com/IBM/go-sdk-core/v5/core
 # github.com/IBM/platform-services-go-sdk v0.18.16
 ## explicit
 github.com/IBM/platform-services-go-sdk/common
-github.com/IBM/platform-services-go-sdk/iamidentityv1
 github.com/IBM/platform-services-go-sdk/resourcemanagerv2
 # github.com/IBM/vpc-go-sdk v0.6.0
 ## explicit
@@ -69,6 +68,9 @@ github.com/gobuffalo/flect
 # github.com/gogo/protobuf v1.3.2
 github.com/gogo/protobuf/proto
 github.com/gogo/protobuf/sortkeys
+# github.com/golang-jwt/jwt v3.2.2+incompatible
+## explicit
+github.com/golang-jwt/jwt
 # github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e
 github.com/golang/groupcache/lru
 # github.com/golang/mock v1.4.4
@@ -219,6 +221,7 @@ github.com/openshift/machine-api-operator/pkg/util/conditions
 # github.com/peterbourgon/diskv v2.0.1+incompatible
 github.com/peterbourgon/diskv
 # github.com/pkg/errors v0.9.1
+## explicit
 github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
 github.com/pmezard/go-difflib/difflib

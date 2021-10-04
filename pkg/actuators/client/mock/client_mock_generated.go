@@ -7,7 +7,6 @@ package mock_client
 import (
 	reflect "reflect"
 
-	core "github.com/IBM/go-sdk-core/v5/core"
 	vpcv1 "github.com/IBM/vpc-go-sdk/vpcv1"
 	gomock "github.com/golang/mock/gomock"
 	v1beta1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
@@ -34,21 +33,6 @@ func NewMockClient(ctrl *gomock.Controller) *MockClient {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockClient) EXPECT() *MockClientMockRecorder {
 	return m.recorder
-}
-
-// GetAccountIDByAuthenticator mocks base method.
-func (m *MockClient) GetAccountIDByAuthenticator(authenticator *core.IamAuthenticator) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAccountIDByAuthenticator", authenticator)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAccountIDByAuthenticator indicates an expected call of GetAccountIDByAuthenticator.
-func (mr *MockClientMockRecorder) GetAccountIDByAuthenticator(authenticator interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountIDByAuthenticator", reflect.TypeOf((*MockClient)(nil).GetAccountIDByAuthenticator), authenticator)
 }
 
 // GetCustomImageByName mocks base method.

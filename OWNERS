@@ -1,0 +1,8 @@
+approvers:
+- JoelSpeed
+- elmiko
+- alexander-demichev
+- lobziik
+
+component: "Cloud Compute"
+subcomponent: "Other Providers"

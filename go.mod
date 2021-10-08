@@ -8,12 +8,13 @@ require (
 	github.com/IBM/vpc-go-sdk v0.6.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/go-logr/logr v0.4.0
+	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/mock v1.4.4
 	github.com/onsi/ginkgo v1.15.0
 	github.com/onsi/gomega v1.10.5
 	github.com/openshift/api v0.0.0-20210416115537-a60c0dc032fd
 	github.com/openshift/machine-api-operator v0.2.1-0.20210504014029-a132ec00f7dd
-
+	github.com/pkg/errors v0.9.1
 	k8s.io/api v0.21.0
 	k8s.io/apimachinery v0.21.1
 	k8s.io/client-go v0.21.0

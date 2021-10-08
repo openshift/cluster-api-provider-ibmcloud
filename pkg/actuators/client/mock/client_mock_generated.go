@@ -50,6 +50,21 @@ func (mr *MockClientMockRecorder) GetCustomImageByName(imageName, resourceGroupI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCustomImageByName", reflect.TypeOf((*MockClient)(nil).GetCustomImageByName), imageName, resourceGroupID)
 }
 
+// GetDedicatedHostByName mocks base method.
+func (m *MockClient) GetDedicatedHostByName(dedicatedHostName, resourceGroupID, zoneName string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDedicatedHostByName", dedicatedHostName, resourceGroupID, zoneName)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDedicatedHostByName indicates an expected call of GetDedicatedHostByName.
+func (mr *MockClientMockRecorder) GetDedicatedHostByName(dedicatedHostName, resourceGroupID, zoneName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDedicatedHostByName", reflect.TypeOf((*MockClient)(nil).GetDedicatedHostByName), dedicatedHostName, resourceGroupID, zoneName)
+}
+
 // GetResourceGroupIDByName mocks base method.
 func (m *MockClient) GetResourceGroupIDByName(resourceGroupName string) (string, error) {
 	m.ctrl.T.Helper()

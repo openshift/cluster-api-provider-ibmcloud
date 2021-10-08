@@ -22,6 +22,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
+	"github.com/golang-jwt/jwt"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
 	"github.com/pkg/errors"
 )
@@ -45,10 +46,12 @@ type Client interface {
 	GetResourceGroupIDByName(resourceGroupName string) (string, error)
 	GetSubnetIDbyName(subnetName string, resourceGroupID string) (string, error)
 	GetSecurityGroupsByName(securityGroupNames []string, resourceGroupID string, vpcID string) ([]vpcv1.SecurityGroupIdentityIntf, error)
+	GetDedicatedHostByName(dedicatedHostName string, resourceGroupID string, zoneName string) (string, error)
 }
 
 // ibmCloudClient makes call to IBM Cloud APIs
 type ibmCloudClient struct {
+	AccountID              string
 	vpcService             *vpcv1.VpcV1
 	resourceManagerService *resourcemanagerv2.ResourceManagerV2
 }
@@ -59,9 +62,38 @@ type IbmcloudClientBuilderFuncType func(credentialVal string, providerSpec ibmcl
 // NewClient initilizes a new validated client
 func NewClient(credentialVal string, providerSpec ibmcloudproviderv1.IBMCloudMachineProviderSpec) (Client, error) {
 
-	// authenticator
+	// Authenticator
 	authenticator := &core.IamAuthenticator{
 		ApiKey: credentialVal,
+	}
+
+	// Retrieve IAM Token
+	iamToken, err := authenticator.RequestToken()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse access token retrieved from IAM
+	// Ignore "no Keyfunc was provided" error - we only want to extract the account id
+	// The token will not be used to perform any further actions
+	token, _ := jwt.Parse(iamToken.AccessToken, nil)
+
+	// Extract account ID
+	var accountID string
+	if claimsObj, ok := token.Claims.(jwt.MapClaims); ok {
+		// Check if account key is present
+		if accountObj, ok := claimsObj["account"].(map[string]interface{}); ok {
+			// Check if bss key is present
+			if bss, ok := accountObj["bss"].(string); ok {
+				// set accountID
+				accountID = bss
+			}
+		}
+	}
+
+	// Check accountID
+	if accountID == "" {
+		return nil, fmt.Errorf("could not parse account id from token")
 	}
 
 	// IC Virtual Private Cloud (VPC) API
@@ -94,6 +126,7 @@ func NewClient(credentialVal string, providerSpec ibmcloudproviderv1.IBMCloudMac
 	}
 
 	return &ibmCloudClient{
+		AccountID:              accountID,
 		vpcService:             vpcService,
 		resourceManagerService: resourceManagerService,
 	}, nil
@@ -254,11 +287,8 @@ func (c *ibmCloudClient) InstanceCreate(machineName string, machineProviderConfi
 		return nil, err
 	}
 
-	// Create Instance Options
-	options := &vpcv1.CreateInstanceOptions{}
-
 	// Set Instance Prototype - Contains all the info necessary to provision an instance
-	options.SetInstancePrototype(&vpcv1.InstancePrototype{
+	instancePrototypeObj := &vpcv1.InstancePrototype{
 		Name: &machineName,
 		Image: &vpcv1.ImageIdentity{
 			ID: &imageID,
@@ -282,7 +312,24 @@ func (c *ibmCloudClient) InstanceCreate(machineName string, machineProviderConfi
 			ID: &vpcID,
 		},
 		UserData: &userData,
-	})
+	}
+
+	// Get Dedicated Host ID if needed
+	if machineProviderConfig.DedicatedHost != "" {
+		dedicatedHostID, err := c.GetDedicatedHostByName(machineProviderConfig.DedicatedHost, resourceGroupID, machineProviderConfig.Zone)
+		if err != nil {
+			return nil, err
+		}
+		instancePrototypeObj.PlacementTarget = &vpcv1.InstancePlacementTargetPrototypeDedicatedHostIdentity{
+			ID: &dedicatedHostID,
+		}
+	}
+
+	// Create Instance Options
+	options := &vpcv1.CreateInstanceOptions{}
+
+	// Ser Instance Prototype
+	options.SetInstancePrototype(instancePrototypeObj)
 
 	// Create a new Instance from an instance prototype object
 	instance, _, err := c.vpcService.CreateInstance(options)
@@ -350,6 +397,8 @@ func (c *ibmCloudClient) GetResourceGroupIDByName(resourceGroupName string) (str
 	resourceGroupOptions := c.resourceManagerService.NewListResourceGroupsOptions()
 	// Set Resource Group Name
 	resourceGroupOptions.SetName(resourceGroupName)
+	// Set Account ID
+	resourceGroupOptions.SetAccountID(c.AccountID)
 	// Get Resource Group
 	resourceGroup, _, err := c.resourceManagerService.ListResourceGroups(resourceGroupOptions)
 	if err != nil {
@@ -431,4 +480,33 @@ func (c *ibmCloudClient) GetSecurityGroupsByName(securityGroupNames []string, re
 
 	return nil, fmt.Errorf("could not retrieve security group ids of names: %v", securityGroupMap)
 
+}
+
+// GetDedicatedHostByName retrieves Dedicated Hosts info
+func (c *ibmCloudClient) GetDedicatedHostByName(dedicatedHostName string, resourceGroupID string, zoneName string) (string, error) {
+	// Initialize List Dedicated Hosts Options
+	dedicatedHostOptions := c.vpcService.NewListDedicatedHostsOptions()
+
+	// Set Resource Group ID
+	dedicatedHostOptions.SetResourceGroupID(resourceGroupID)
+
+	// Set Zone
+	dedicatedHostOptions.SetZoneName(zoneName)
+
+	// Get a list of all Dedicated Hosts
+	dedicatedHosts, _, err := c.vpcService.ListDedicatedHosts(dedicatedHostOptions)
+	if err != nil {
+		return "", err
+	}
+
+	if dedicatedHosts != nil && len(dedicatedHosts.DedicatedHosts) > 0 {
+		for _, eachDedicatedHost := range dedicatedHosts.DedicatedHosts {
+			if *eachDedicatedHost.Name == dedicatedHostName {
+				// return Dedicated Host ID
+				return *eachDedicatedHost.ID, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("could not retrieve dedicated host id of name: %v", dedicatedHostName)
 }

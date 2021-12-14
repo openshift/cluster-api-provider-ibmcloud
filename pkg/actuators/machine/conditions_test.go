@@ -19,24 +19,24 @@ package machine
 import (
 	"testing"
 
-	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
+	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestShouldUpdateCondition(t *testing.T) {
 	testCases := []struct {
-		oldCondition         v1beta1.IBMCloudMachineProviderCondition
-		newCondition         v1beta1.IBMCloudMachineProviderCondition
+		oldCondition         v1.IBMCloudMachineProviderCondition
+		newCondition         v1.IBMCloudMachineProviderCondition
 		lastTransitionUpdate bool
 	}{
 		{
-			oldCondition: v1beta1.IBMCloudMachineProviderCondition{
+			oldCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
 			},
-			newCondition: v1beta1.IBMCloudMachineProviderCondition{
+			newCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
@@ -44,12 +44,12 @@ func TestShouldUpdateCondition(t *testing.T) {
 			lastTransitionUpdate: false,
 		},
 		{
-			oldCondition: v1beta1.IBMCloudMachineProviderCondition{
+			oldCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
 			},
-			newCondition: v1beta1.IBMCloudMachineProviderCondition{
+			newCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo2",
 				Message: "bar2",
 				Status:  corev1.ConditionTrue,
@@ -57,12 +57,12 @@ func TestShouldUpdateCondition(t *testing.T) {
 			lastTransitionUpdate: false,
 		},
 		{
-			oldCondition: v1beta1.IBMCloudMachineProviderCondition{
+			oldCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
 			},
-			newCondition: v1beta1.IBMCloudMachineProviderCondition{
+			newCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo2",
 				Message: "New Message",
 				Status:  corev1.ConditionFalse,
@@ -70,12 +70,12 @@ func TestShouldUpdateCondition(t *testing.T) {
 			lastTransitionUpdate: true,
 		},
 		{
-			oldCondition: v1beta1.IBMCloudMachineProviderCondition{
+			oldCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
 			},
-			newCondition: v1beta1.IBMCloudMachineProviderCondition{
+			newCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "New Reason",
 				Message: "New Message",
 				Status:  corev1.ConditionTrue,
@@ -83,12 +83,12 @@ func TestShouldUpdateCondition(t *testing.T) {
 			lastTransitionUpdate: false,
 		},
 		{
-			oldCondition: v1beta1.IBMCloudMachineProviderCondition{
+			oldCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionFalse,
 			},
-			newCondition: v1beta1.IBMCloudMachineProviderCondition{
+			newCondition: v1.IBMCloudMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
@@ -99,7 +99,7 @@ func TestShouldUpdateCondition(t *testing.T) {
 
 	for _, tc := range testCases {
 
-		conditions := []v1beta1.IBMCloudMachineProviderCondition{}
+		conditions := []v1.IBMCloudMachineProviderCondition{}
 		conditions = append(conditions, tc.oldCondition)
 
 		// set current time before calling reconcileProviderConditions

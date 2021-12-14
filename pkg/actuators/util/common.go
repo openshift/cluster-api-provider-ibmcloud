@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
+	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1"
 	machoneapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	apicorev1 "k8s.io/api/core/v1"
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"

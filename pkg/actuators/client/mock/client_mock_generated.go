@@ -9,7 +9,7 @@ import (
 
 	vpcv1 "github.com/IBM/vpc-go-sdk/vpcv1"
 	gomock "github.com/golang/mock/gomock"
-	v1beta1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
+	v1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1"
 )
 
 // MockClient is a mock of Client interface.
@@ -126,7 +126,7 @@ func (mr *MockClientMockRecorder) GetVPCIDByName(vpcName, resourceGroupID interf
 }
 
 // InstanceCreate mocks base method.
-func (m *MockClient) InstanceCreate(machineName string, machineProviderConfig *v1beta1.IBMCloudMachineProviderSpec, userData string) (*vpcv1.Instance, error) {
+func (m *MockClient) InstanceCreate(machineName string, machineProviderConfig *v1.IBMCloudMachineProviderSpec, userData string) (*vpcv1.Instance, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InstanceCreate", machineName, machineProviderConfig, userData)
 	ret0, _ := ret[0].(*vpcv1.Instance)
@@ -141,7 +141,7 @@ func (mr *MockClientMockRecorder) InstanceCreate(machineName, machineProviderCon
 }
 
 // InstanceDeleteByName mocks base method.
-func (m *MockClient) InstanceDeleteByName(name string, machineProviderConfig *v1beta1.IBMCloudMachineProviderSpec) error {
+func (m *MockClient) InstanceDeleteByName(name string, machineProviderConfig *v1.IBMCloudMachineProviderSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InstanceDeleteByName", name, machineProviderConfig)
 	ret0, _ := ret[0].(error)
@@ -155,7 +155,7 @@ func (mr *MockClientMockRecorder) InstanceDeleteByName(name, machineProviderConf
 }
 
 // InstanceExistsByName mocks base method.
-func (m *MockClient) InstanceExistsByName(name string, machineProviderConfig *v1beta1.IBMCloudMachineProviderSpec) (bool, error) {
+func (m *MockClient) InstanceExistsByName(name string, machineProviderConfig *v1.IBMCloudMachineProviderSpec) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InstanceExistsByName", name, machineProviderConfig)
 	ret0, _ := ret[0].(bool)
@@ -185,7 +185,7 @@ func (mr *MockClientMockRecorder) InstanceGetByID(instanceID interface{}) *gomoc
 }
 
 // InstanceGetByName mocks base method.
-func (m *MockClient) InstanceGetByName(name string, machineProviderConfig *v1beta1.IBMCloudMachineProviderSpec) (*vpcv1.Instance, error) {
+func (m *MockClient) InstanceGetByName(name string, machineProviderConfig *v1.IBMCloudMachineProviderSpec) (*vpcv1.Instance, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InstanceGetByName", name, machineProviderConfig)
 	ret0, _ := ret[0].(*vpcv1.Instance)

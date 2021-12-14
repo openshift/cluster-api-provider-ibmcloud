@@ -29,7 +29,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	mockibm "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client/mock"
-	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
+	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -142,7 +142,7 @@ func TestNewMachineScope(t *testing.T) {
 					},
 				},
 			},
-			expectedError: errors.New("failed to get machine config: error unmarshalling providerSpec: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1beta1.IBMCloudMachineProviderSpec"),
+			expectedError: errors.New("failed to get machine config: error unmarshalling providerSpec: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1.IBMCloudMachineProviderSpec"),
 		},
 		{
 			name: "fail to get provider status",
@@ -169,7 +169,7 @@ func TestNewMachineScope(t *testing.T) {
 					},
 				},
 			},
-			expectedError: errors.New("failed to get machine provider status: error unmarshalling providerStatus: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1beta1.IBMCloudMachineProviderStatus"),
+			expectedError: errors.New("failed to get machine provider status: error unmarshalling providerStatus: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1.IBMCloudMachineProviderStatus"),
 		},
 		{
 			name: "fail to get credentials secret",

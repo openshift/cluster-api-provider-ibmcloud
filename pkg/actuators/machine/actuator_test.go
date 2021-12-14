@@ -30,7 +30,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	mockibm "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client/mock"
-	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1beta1"
+	v1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -131,7 +131,7 @@ func TestActuatorEvents(t *testing.T) {
 		g.Expect(k8sClient.Delete(context.Background(), credentialsSecret)).To(Succeed())
 	}()
 
-	providerSpec, err := v1beta1.RawExtensionFromProviderSpec(&v1beta1.IBMCloudMachineProviderSpec{
+	providerSpec, err := v1.RawExtensionFromProviderSpec(&v1.IBMCloudMachineProviderSpec{
 		CredentialsSecret: &corev1.LocalObjectReference{
 			Name: credentialsSecretName,
 		},
@@ -162,7 +162,7 @@ func TestActuatorEvents(t *testing.T) {
 				}
 				actuator.Create(context.Background(), machine)
 			},
-			event:               "ibm-actuator-testing-machine: failed to create scope for machine: failed to get machine config: error unmarshalling providerSpec: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1beta1.IBMCloudMachineProviderSpec",
+			event:               "ibm-actuator-testing-machine: failed to create scope for machine: failed to get machine config: error unmarshalling providerSpec: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1.IBMCloudMachineProviderSpec",
 			invalidMachineScope: true,
 			ibmCloudError:       false,
 		},
@@ -197,7 +197,7 @@ func TestActuatorEvents(t *testing.T) {
 				}
 				actuator.Update(context.Background(), machine)
 			},
-			event:               "ibm-actuator-testing-machine: failed to create scope for machine: failed to get machine config: error unmarshalling providerSpec: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1beta1.IBMCloudMachineProviderSpec",
+			event:               "ibm-actuator-testing-machine: failed to create scope for machine: failed to get machine config: error unmarshalling providerSpec: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1.IBMCloudMachineProviderSpec",
 			invalidMachineScope: true,
 			ibmCloudError:       false,
 		},
@@ -231,7 +231,7 @@ func TestActuatorEvents(t *testing.T) {
 				}
 				actuator.Delete(context.Background(), machine)
 			},
-			event:               "ibm-actuator-testing-machine: failed to create scope for machine: failed to get machine config: error unmarshalling providerSpec: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1beta1.IBMCloudMachineProviderSpec",
+			event:               "ibm-actuator-testing-machine: failed to create scope for machine: failed to get machine config: error unmarshalling providerSpec: error unmarshaling JSON: while decoding JSON: json: cannot unmarshal number into Go value of type v1.IBMCloudMachineProviderSpec",
 			invalidMachineScope: true,
 			ibmCloudError:       false,
 		},
@@ -295,17 +295,17 @@ func TestActuatorEvents(t *testing.T) {
 			}
 			gs.Eventually(getMachine, timeout).Should(Succeed())
 
-			ibmClientBuilder := func(secretVal string, providerSpec v1beta1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
+			ibmClientBuilder := func(secretVal string, providerSpec v1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
 				return mockIBMClient, nil
 			}
 			if tc.invalidMachineScope {
-				ibmClientBuilder = func(secretVal string, providerSpec v1beta1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
+				ibmClientBuilder = func(secretVal string, providerSpec v1.IBMCloudMachineProviderSpec) (ibmclient.Client, error) {
 					return nil, errors.New("IBM Cloud client error")
 				}
 			}
 
 			mockIBMClient.EXPECT().InstanceCreate(machine.Name, gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-			mockIBMClient.EXPECT().InstanceGetByName(machine.Name, gomock.Any()).Return(stubInstanceGetByName(machine.Name, &v1beta1.IBMCloudMachineProviderSpec{CredentialsSecret: &corev1.LocalObjectReference{Name: credentialsSecretName}})).AnyTimes()
+			mockIBMClient.EXPECT().InstanceGetByName(machine.Name, gomock.Any()).Return(stubInstanceGetByName(machine.Name, &v1.IBMCloudMachineProviderSpec{CredentialsSecret: &corev1.LocalObjectReference{Name: credentialsSecretName}})).AnyTimes()
 			mockIBMClient.EXPECT().InstanceDeleteByName(machine.Name, gomock.Any()).Return(nil).AnyTimes()
 
 			params := ActuatorParams{
@@ -344,7 +344,7 @@ func TestActuatorEvents(t *testing.T) {
 
 func TestActuatorExists(t *testing.T) {
 
-	providerSpec, err := v1beta1.RawExtensionFromProviderSpec(&v1beta1.IBMCloudMachineProviderSpec{
+	providerSpec, err := v1.RawExtensionFromProviderSpec(&v1.IBMCloudMachineProviderSpec{
 		CredentialsSecret: &corev1.LocalObjectReference{
 			Name: credentialsSecretName,
 		},

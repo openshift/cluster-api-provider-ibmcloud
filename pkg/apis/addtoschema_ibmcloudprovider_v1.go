@@ -14,10 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1beta1 contains API Schema definitions for the ibmcloudprovider v1beta1 API group
-// +k8s:openapi-gen=true
-// +k8s:deepcopy-gen=package,register
-// +k8s:conversion-gen=github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider
-// +k8s:defaulter-gen=TypeMeta
-// +groupName=ibmcloudproviderconfig.openshift.io
-package v1beta1
+package apis
+
+import (
+	v1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1"
+)
+
+func init() {
+	// Register the types with the Scheme so the components can map objects to GroupVersionKinds and back
+	AddToSchemes = append(AddToSchemes, v1.SchemeBuilder.AddToScheme)
+}

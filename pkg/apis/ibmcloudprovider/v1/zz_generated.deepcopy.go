@@ -21,7 +21,7 @@ limitations under the License.
 package v1
 
 import (
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -55,12 +55,12 @@ func (in *IBMCloudMachineProviderSpec) DeepCopyInto(out *IBMCloudMachineProvider
 	in.PrimaryNetworkInterface.DeepCopyInto(&out.PrimaryNetworkInterface)
 	if in.UserDataSecret != nil {
 		in, out := &in.UserDataSecret, &out.UserDataSecret
-		*out = new(v1.LocalObjectReference)
+		*out = new(corev1.LocalObjectReference)
 		**out = **in
 	}
 	if in.CredentialsSecret != nil {
 		in, out := &in.CredentialsSecret, &out.CredentialsSecret
-		*out = new(v1.LocalObjectReference)
+		*out = new(corev1.LocalObjectReference)
 		**out = **in
 	}
 }

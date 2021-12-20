@@ -72,6 +72,14 @@ goimports: ## Go fmt your code
 vet: ## Apply go vet to all go files
 	$(DOCKER_CMD) hack/go-vet.sh ./...
 
+.PHONY: crds-sync
+crds-sync: ## Sync crds in install with the ones in the vendored oc/api
+	$(DOCKER_CMD) hack/crds-sync.sh .
+
+.PHONY: verify-crds-sync
+verify-crds-sync: ## Verify that the crds in install and the ones in vendored oc/api are in sync
+	$(DOCKER_CMD) hack/crds-sync.sh . && hack/verify-diff.sh .
+
 .PHONY: test
 test: ## Run tests
 	@echo -e "\033[32mTesting...\033[0m"

@@ -26,7 +26,7 @@ import (
 	machinesetcontroller "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/machineset"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/version"
-	"github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	"github.com/openshift/api/machine/v1beta1"
 	capimachine "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
 	klog "k8s.io/klog/v2"

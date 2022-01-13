@@ -25,6 +25,7 @@ REPO_PATH   ?= github.com/openshift/cluster-api-provider-ibmcloud
 LD_FLAGS    ?= -X $(REPO_PATH)/pkg/version.Raw=$(VERSION) -extldflags "-static"
 IMAGE        = origin-ibmcloud-machine-controllers
 MUTABLE_TAG ?= latest
+BUILD_IMAGE ?= registry.ci.openshift.org/openshift/release:golang-1.17
 
 # # race tests need CGO_ENABLED, everything else should have it disabled
 CGO_ENABLED = 0
@@ -32,11 +33,11 @@ unit : CGO_ENABLED = 1
 
 NO_DOCKER ?= 0
 ifeq ($(NO_DOCKER), 1)
-  DOCKER_CMD =
+  DOCKER_CMD = CGO_ENABLED=$(CGO_ENABLED)
   IMAGE_BUILD_CMD = imagebuilder
   export CGO_ENABLED
 else
-  DOCKER_CMD = docker run --rm -e CGO_ENABLED=$(CGO_ENABLED) -e GOARCH=$(GOARCH) -e GOOS=$(GOOS) -v "$(PWD)":/go/src/github.com/openshift/cluster-api-provider-ibmcloud:Z -w /go/src/github.com/openshift/cluster-api-provider-ibmcloud openshift/origin-release:golang-1.16
+  DOCKER_CMD = docker run --rm -e CGO_ENABLED=$(CGO_ENABLED) -e GOARCH=$(GOARCH) -e GOOS=$(GOOS) -v "$(PWD)":/go/src/github.com/openshift/cluster-api-provider-ibmcloud:Z -w /go/src/github.com/openshift/cluster-api-provider-ibmcloud $(BUILD_IMAGE)
   IMAGE_BUILD_CMD = docker build
 endif
 
@@ -83,7 +84,7 @@ unit: # Run unit test
 
 .PHONY: build
 build: ## build binaries
-	$(DOCKER_CMD) CGO_ENABLED=0 go build $(GOGCFLAGS) -o "bin/machine-controller-manager" \
+	$(DOCKER_CMD) go build $(GOGCFLAGS) -o "bin/machine-controller-manager" \
                -ldflags "$(LD_FLAGS)" "$(REPO_PATH)/cmd/manager"
 
 .PHONY: images

@@ -61,7 +61,7 @@ func TestActuatorEvents(t *testing.T) {
 	timeout := 10 * time.Second
 
 	testEnv := &envtest.Environment{
-		CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "config", "crds")},
+		CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1")},
 	}
 
 	cfg, err := testEnv.Start()

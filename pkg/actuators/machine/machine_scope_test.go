@@ -237,7 +237,7 @@ func TestPatchMachine(t *testing.T) {
 	g := NewWithT(t)
 
 	testEnv := &envtest.Environment{
-		CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "config", "crds")},
+		CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1")},
 	}
 
 	cfg, err := testEnv.Start()
@@ -301,6 +301,9 @@ func TestPatchMachine(t *testing.T) {
 		{
 			name: "Test changing labels",
 			mutate: func(m *machinev1.Machine) {
+				if m.Labels == nil {
+					m.Labels = make(map[string]string)
+				}
 				m.Labels["testlabel"] = "test"
 			},
 			expect: func(m *machinev1.Machine) error {

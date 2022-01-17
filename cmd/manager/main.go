@@ -21,12 +21,12 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/machine"
 	machinesetcontroller "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/machineset"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/version"
-	"github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	capimachine "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
 	klog "k8s.io/klog/v2"
@@ -132,7 +132,7 @@ func main() {
 		klog.Fatal(err)
 	}
 
-	if err := v1beta1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := machinev1.AddToScheme(mgr.GetScheme()); err != nil {
 		klog.Fatal(err)
 	}
 

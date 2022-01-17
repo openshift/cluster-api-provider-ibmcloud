@@ -24,11 +24,11 @@ import (
 
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/golang/mock/gomock"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	mockibm "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client/mock"
 	"github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/util"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1"
-	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

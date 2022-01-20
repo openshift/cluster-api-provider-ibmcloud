@@ -133,6 +133,7 @@ func TestCreate(t *testing.T) {
 			}
 
 			mockIBMClient.EXPECT().InstanceCreate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+			mockIBMClient.EXPECT().GetAccountID().Return("accountID", nil).AnyTimes()
 			mockIBMClient.EXPECT().InstanceGetByName(gomock.Any(), gomock.Any()).Return(stubInstanceGetByName(machine.Name, &ibmcloudproviderv1.IBMCloudMachineProviderSpec{CredentialsSecret: &corev1.LocalObjectReference{Name: credentialsSecretName}})).AnyTimes()
 			mockIBMClient.EXPECT().InstanceDeleteByName(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			mockIBMClient.EXPECT().InstanceExistsByName(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
@@ -409,8 +410,11 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 		},
 	})
 
+	// account ID returned from stubGetAccountID
+	accountID := "01234_5678_90ab_cdef"
+	mockIBMClient.EXPECT().GetAccountID().Return(accountID, nil).AnyTimes()
 	// instance ID returned from stubInstanceGetByName
-	intanceID := "0727_xyz-xyz-cccc-aaba-cacdaccad"
+	instanceID := "0727_xyz-xyz-cccc-aaba-cacdaccad"
 	mockIBMClient.EXPECT().InstanceGetByName(gomock.Any(), gomock.Any()).Return(stubInstanceGetByName(machine.Name, &ibmcloudproviderv1.IBMCloudMachineProviderSpec{CredentialsSecret: &corev1.LocalObjectReference{Name: credentialsSecretName}})).AnyTimes()
 
 	expectedNodeAddresses := []corev1.NodeAddress{
@@ -423,7 +427,7 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 			Address: "10.0.0.1",
 		},
 	}
-	expectedProviderID := fmt.Sprintf("ibmvpc://CLUSTERID/%s/%s", zone, instanceName)
+	expectedProviderID := fmt.Sprintf("ibm://%s///CLUSTERID/%s", accountID, instanceID)
 
 	r := newReconciler(machineScope)
 	if err := r.reconcileMachineWithCloudState(nil); err != nil {
@@ -443,8 +447,8 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 	if *r.providerStatus.InstanceState != "running" {
 		t.Errorf("Expected: %s, got: %s", "running", *r.providerStatus.InstanceState)
 	}
-	if *r.providerStatus.InstanceID != intanceID {
-		t.Errorf("Expected: %s, got: %s", intanceID, *r.providerStatus.InstanceID)
+	if *r.providerStatus.InstanceID != instanceID {
+		t.Errorf("Expected: %s, got: %s", instanceID, *r.providerStatus.InstanceID)
 	}
 }
 

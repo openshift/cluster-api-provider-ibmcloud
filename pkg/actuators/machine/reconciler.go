@@ -189,7 +189,13 @@ func (r *Reconciler) reconcileMachineWithCloudState(conditionFailed *ibmcloudpro
 	}
 
 	clusterID := r.machine.Labels[machinev1.MachineClusterIDLabel]
-	providerID := fmt.Sprintf("ibmvpc://%s/%s/%s", clusterID, r.providerSpec.Zone, r.machine.GetName())
+	accountID, err := r.ibmClient.GetAccountID()
+	if err != nil {
+		return fmt.Errorf("get account id failed with an error: %q", err)
+	}
+	// Follow same providerID format as the cloud-provider-ibm
+	// https://github.com/openshift/cloud-provider-ibm/blob/e30391202c3f02694b2f5b3c2d73cb560d9c133d/ibm/ibm_instances.go#L113-L114
+	providerID := fmt.Sprintf("ibm://%s///%s/%s", accountID, clusterID, *newInstance.ID)
 	currProviderID := r.machine.Spec.ProviderID
 
 	// Provider ID check and update

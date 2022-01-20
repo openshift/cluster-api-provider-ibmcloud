@@ -27,10 +27,10 @@ import (
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/gomega"
 	configv1 "github.com/openshift/api/config/v1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	ibmclient "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client"
 	mockibm "github.com/openshift/cluster-api-provider-ibmcloud/pkg/actuators/client/mock"
 	ibmcloudproviderv1 "github.com/openshift/cluster-api-provider-ibmcloud/pkg/apis/ibmcloudprovider/v1"
-	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -237,7 +237,7 @@ func TestPatchMachine(t *testing.T) {
 	g := NewWithT(t)
 
 	testEnv := &envtest.Environment{
-		CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "config", "crds")},
+		CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1")},
 	}
 
 	cfg, err := testEnv.Start()
@@ -301,6 +301,9 @@ func TestPatchMachine(t *testing.T) {
 		{
 			name: "Test changing labels",
 			mutate: func(m *machinev1.Machine) {
+				if m.Labels == nil {
+					m.Labels = make(map[string]string)
+				}
 				m.Labels["testlabel"] = "test"
 			},
 			expect: func(m *machinev1.Machine) error {

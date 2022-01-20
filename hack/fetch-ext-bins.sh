@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# 
+#
 # Copyright 2021.
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,8 +27,7 @@ if [ -n "$TRACE" ]; then
   set -x
 fi
 
-# TODO: update to k8s 1.17
-k8s_version=1.16.4
+k8s_version=1.23.1
 goarch=amd64
 goos="unknown"
 
@@ -115,4 +114,10 @@ function setup_envs {
   export TEST_ASSET_ETCD=/tmp/kubebuilder/bin/etcd
   export KUBEBUILDER_CONTROLPLANE_START_TIMEOUT=10m
   export NO_DOCKER=1
+
+  # Ensure that some home var is set and that it's not the root
+  export HOME=${HOME:=/tmp/kubebuilder-testing}
+  if [ $HOME == "/" ]; then
+    export HOME=/tmp/kubebuilder-testing
+  fi
 }

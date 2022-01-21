@@ -305,6 +305,7 @@ func TestActuatorEvents(t *testing.T) {
 			}
 
 			mockIBMClient.EXPECT().InstanceCreate(machine.Name, gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+			mockIBMClient.EXPECT().GetAccountID().Return("accountID", nil).AnyTimes()
 			mockIBMClient.EXPECT().InstanceGetByName(machine.Name, gomock.Any()).Return(stubInstanceGetByName(machine.Name, &v1.IBMCloudMachineProviderSpec{CredentialsSecret: &corev1.LocalObjectReference{Name: credentialsSecretName}})).AnyTimes()
 			mockIBMClient.EXPECT().InstanceDeleteByName(machine.Name, gomock.Any()).Return(nil).AnyTimes()
 

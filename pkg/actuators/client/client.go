@@ -41,6 +41,7 @@ type Client interface {
 	InstanceGetProfile(profileName string) (bool, error)
 
 	// Helper functions
+	GetAccountID() (string, error)
 	GetCustomImageByName(imageName string, resourceGroupID string) (string, error)
 	GetVPCIDByName(vpcName string, resourceGroupID string) (string, error)
 	GetResourceGroupIDByName(resourceGroupName string) (string, error)
@@ -363,6 +364,14 @@ func (c *ibmCloudClient) GetVPCIDByName(vpcName string, resourceGroupID string) 
 	}
 
 	return "", fmt.Errorf("could not retrieve vpc id of name: %v", vpcName)
+}
+
+// GetAccountID retrieves the Account ID for the IBMCloud Client
+func (c *ibmCloudClient) GetAccountID() (string, error) {
+	if c.AccountID == "" {
+		return "", fmt.Errorf("could not retrieve account id")
+	}
+	return c.AccountID, nil
 }
 
 // GetCustomImageByName retrieves custom image from VPC by region and name

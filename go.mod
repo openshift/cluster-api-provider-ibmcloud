@@ -1,6 +1,6 @@
 module github.com/openshift/cluster-api-provider-ibmcloud
 
-go 1.17
+go 1.18
 
 require (
 	github.com/IBM/go-sdk-core/v5 v5.4.2

@@ -9,7 +9,7 @@ require (
 	github.com/IBM/go-sdk-core/v5 v5.10.2
 	github.com/IBM/platform-services-go-sdk v0.28.5
 	github.com/IBM/vpc-go-sdk v0.26.0
-	github.com/go-logr/logr v1.2.0
+	github.com/go-logr/logr v1.2.3
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/mock v1.6.0
 	github.com/onsi/ginkgo v1.16.5

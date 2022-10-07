@@ -54,7 +54,7 @@ github.com/IBM-Cloud/power-go-client/power/models
 # github.com/IBM/go-sdk-core/v5 v5.10.2
 ## explicit; go 1.16
 github.com/IBM/go-sdk-core/v5/core
-# github.com/IBM/platform-services-go-sdk v0.28.4
+# github.com/IBM/platform-services-go-sdk v0.28.5
 ## explicit; go 1.16
 github.com/IBM/platform-services-go-sdk/common
 github.com/IBM/platform-services-go-sdk/resourcecontrollerv2

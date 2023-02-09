@@ -24,11 +24,12 @@ import (
 	"reflect"
 	"strings"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -141,8 +142,8 @@ func ClusterClassChangesSpec(ctx context.Context, inputGetter func() ClusterClas
 				Namespace:                namespace.Name,
 				ClusterName:              fmt.Sprintf("%s-%s", specName, util.RandomString(6)),
 				KubernetesVersion:        input.E2EConfig.GetVariable(KubernetesVersion),
-				ControlPlaneMachineCount: pointer.Int64Ptr(1),
-				WorkerMachineCount:       pointer.Int64Ptr(1),
+				ControlPlaneMachineCount: pointer.Int64(1),
+				WorkerMachineCount:       pointer.Int64(1),
 			},
 			ControlPlaneWaiters:          input.ControlPlaneWaiters,
 			WaitForClusterIntervals:      input.E2EConfig.GetIntervals(specName, "wait-cluster"),
@@ -177,6 +178,12 @@ func ClusterClassChangesSpec(ctx context.Context, inputGetter func() ClusterClas
 			WaitForMachineDeployments: input.E2EConfig.GetIntervals(specName, "wait-worker-nodes"),
 		})
 
+		By("Deleting a MachineDeploymentTopology in the Cluster Topology and wait for associated MachineDeployment to be deleted")
+		deleteMachineDeploymentTopologyAndWait(ctx, deleteMachineDeploymentTopologyAndWaitInput{
+			ClusterProxy:              input.BootstrapClusterProxy,
+			Cluster:                   clusterResources.Cluster,
+			WaitForMachineDeployments: input.E2EConfig.GetIntervals(specName, "wait-worker-nodes"),
+		})
 		By("PASSED!")
 	})
 
@@ -206,7 +213,7 @@ func modifyControlPlaneViaClusterClassAndWait(ctx context.Context, input modifyC
 
 	mgmtClient := input.ClusterProxy.GetClient()
 
-	log.Logf("Modifying the ControlPlaneTemplate of ClusterClass %s/%s", input.ClusterClass.Namespace, input.ClusterClass.Name)
+	log.Logf("Modifying the ControlPlaneTemplate of ClusterClass %s", klog.KObj(input.ClusterClass))
 
 	// Get ControlPlaneTemplate object.
 	controlPlaneTemplateRef := input.ClusterClass.Spec.ControlPlane.Ref
@@ -280,7 +287,7 @@ func modifyMachineDeploymentViaClusterClassAndWait(ctx context.Context, input mo
 			continue
 		}
 
-		log.Logf("Modifying the BootstrapConfigTemplate of MachineDeploymentClass %q of ClusterClass %s/%s", mdClass.Class, input.ClusterClass.Namespace, input.ClusterClass.Name)
+		log.Logf("Modifying the BootstrapConfigTemplate of MachineDeploymentClass %q of ClusterClass %s", mdClass.Class, klog.KObj(input.ClusterClass))
 
 		// Retrieve BootstrapConfigTemplate object.
 		bootstrapConfigTemplateRef := mdClass.Template.Bootstrap.Ref
@@ -419,7 +426,12 @@ func rebaseClusterClassAndWait(ctx context.Context, input rebaseClusterClassAndW
 	patchHelper, err := patch.NewHelper(input.Cluster, mgmtClient)
 	Expect(err).ToNot(HaveOccurred())
 	input.Cluster.Spec.Topology.Class = newClusterClassName
-	Expect(patchHelper.Patch(ctx, input.Cluster)).To(Succeed())
+	// We have to retry the patch. The ClusterClass was just created so the client cache in the
+	// controller/webhook might not be aware of it yet. If the webhook is not aware of the ClusterClass
+	// we get a "Cluster ... can't be validated. ClusterClass ... can not be retrieved" error.
+	Eventually(func() error {
+		return patchHelper.Patch(ctx, input.Cluster)
+	}, "1m", "5s").Should(Succeed(), "Failed to patch Cluster")
 
 	log.Logf("Waiting for MachineDeployment rollout to complete.")
 	for _, mdTopology := range input.Cluster.Spec.Topology.Workers.MachineDeployments {
@@ -457,4 +469,43 @@ func rebaseClusterClassAndWait(ctx context.Context, input rebaseClusterClassAndW
 	Expect(err).ToNot(HaveOccurred())
 	Expect(afterControlPlane.GetGeneration()).To(Equal(beforeControlPlane.GetGeneration()),
 		"ControlPlane generation should not be incremented during the rebase because ControlPlane should not be affected.")
+}
+
+// deleteMachineDeploymentTopologyAndWaitInput is the input type for deleteMachineDeploymentTopologyAndWaitInput.
+type deleteMachineDeploymentTopologyAndWaitInput struct {
+	ClusterProxy              framework.ClusterProxy
+	Cluster                   *clusterv1.Cluster
+	WaitForMachineDeployments []interface{}
+}
+
+// deleteMachineDeploymentTopologyAndWait deletes a MachineDeploymentTopology from the Cluster and waits until the changes
+// are rolled out by ensuring the associated MachineDeployment is correctly deleted.
+func deleteMachineDeploymentTopologyAndWait(ctx context.Context, input deleteMachineDeploymentTopologyAndWaitInput) {
+	Expect(ctx).NotTo(BeNil(), "ctx is required for deleteMachineDeploymentTopologyAndWait")
+	Expect(input.ClusterProxy).ToNot(BeNil(), "Invalid argument. input.ClusterProxy can't be nil when calling deleteMachineDeploymentTopologyAndWait")
+	Expect(input.Cluster).ToNot(BeNil(), "Invalid argument. input.Cluster can't be nil when calling deleteMachineDeploymentTopologyAndWait")
+	Expect(len(input.Cluster.Spec.Topology.Workers.MachineDeployments)).To(BeNumerically(">", 0),
+		"Invalid Cluster. deleteMachineDeploymentTopologyAndWait requires at least one MachineDeploymentTopology to be defined in the Cluster topology")
+
+	log.Logf("Removing MachineDeploymentTopology from the Cluster Topology.")
+	patchHelper, err := patch.NewHelper(input.Cluster, input.ClusterProxy.GetClient())
+	Expect(err).ToNot(HaveOccurred())
+
+	// Remove the first MachineDeploymentTopology under input.Cluster.Spec.Topology.Workers.MachineDeployments
+	mdTopologyToDelete := input.Cluster.Spec.Topology.Workers.MachineDeployments[0]
+	input.Cluster.Spec.Topology.Workers.MachineDeployments = input.Cluster.Spec.Topology.Workers.MachineDeployments[1:]
+	Expect(patchHelper.Patch(ctx, input.Cluster)).To(Succeed())
+
+	log.Logf("Waiting for MachineDeployment to be deleted.")
+	Eventually(func() error {
+		// Get MachineDeployment for the current MachineDeploymentTopology.
+		mdList := &clusterv1.MachineDeploymentList{}
+		Expect(input.ClusterProxy.GetClient().List(ctx, mdList, client.InNamespace(input.Cluster.Namespace), client.MatchingLabels{
+			clusterv1.ClusterTopologyMachineDeploymentLabelName: mdTopologyToDelete.Name,
+		})).To(Succeed())
+		if len(mdList.Items) != 0 {
+			return errors.Errorf("expected no MachineDeployment for topology %q, but got %d", mdTopologyToDelete.Name, len(mdList.Items))
+		}
+		return nil
+	}, input.WaitForMachineDeployments...).Should(BeNil())
 }

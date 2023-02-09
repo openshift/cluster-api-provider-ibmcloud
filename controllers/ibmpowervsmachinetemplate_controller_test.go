@@ -25,12 +25,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	infrav1beta1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta1"
+	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 
 	. "github.com/onsi/gomega"
 )
@@ -39,7 +40,7 @@ func TestIBMPowerVSMachineTemplateReconciler_Reconcile(t *testing.T) {
 	testCases := []struct {
 		name                   string
 		expectError            bool
-		powerVSMachineTemplate *infrav1beta1.IBMPowerVSMachineTemplate
+		powerVSMachineTemplate *infrav1beta2.IBMPowerVSMachineTemplate
 		expectedCapacity       corev1.ResourceList
 	}{
 		{
@@ -48,7 +49,7 @@ func TestIBMPowerVSMachineTemplateReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name:                   "Should Reconcile with memory and fractional processor values",
-			powerVSMachineTemplate: stubPowerVSMachineTemplate("0.5", "4"),
+			powerVSMachineTemplate: stubPowerVSMachineTemplate(intstr.FromString("0.5"), 4),
 			expectedCapacity: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU:    resource.MustParse("8"),
 				corev1.ResourceMemory: resource.MustParse("4G"),
@@ -57,7 +58,7 @@ func TestIBMPowerVSMachineTemplateReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name:                   "Should Reconcile with valid memory and processor values",
-			powerVSMachineTemplate: stubPowerVSMachineTemplate("2", "32"),
+			powerVSMachineTemplate: stubPowerVSMachineTemplate(intstr.FromInt(2), 32),
 			expectedCapacity: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU:    resource.MustParse("16"),
 				corev1.ResourceMemory: resource.MustParse("32G"),
@@ -82,7 +83,7 @@ func TestIBMPowerVSMachineTemplateReconciler_Reconcile(t *testing.T) {
 
 			if tc.powerVSMachineTemplate != nil {
 				g.Eventually(func() bool {
-					machineTemplate := &infrav1beta1.IBMPowerVSMachineTemplate{}
+					machineTemplate := &infrav1beta2.IBMPowerVSMachineTemplate{}
 					key := client.ObjectKey{
 						Name:      tc.powerVSMachineTemplate.Name,
 						Namespace: ns.Name,
@@ -102,7 +103,7 @@ func TestIBMPowerVSMachineTemplateReconciler_Reconcile(t *testing.T) {
 				} else {
 					g.Expect(err).To(BeNil())
 					g.Eventually(func() bool {
-						machineTemplate := &infrav1beta1.IBMPowerVSMachineTemplate{}
+						machineTemplate := &infrav1beta2.IBMPowerVSMachineTemplate{}
 						key := client.ObjectKey{
 							Name:      tc.powerVSMachineTemplate.Name,
 							Namespace: ns.Name,
@@ -128,13 +129,13 @@ func TestIBMPowerVSMachineTemplateReconciler_Reconcile(t *testing.T) {
 func TestGetIBMPowerVSMachineCapacity(t *testing.T) {
 	testCases := []struct {
 		name                   string
-		powerVSMachineTemplate infrav1beta1.IBMPowerVSMachineTemplate
+		powerVSMachineTemplate infrav1beta2.IBMPowerVSMachineTemplate
 		expectedCapacity       corev1.ResourceList
 		expectErr              bool
 	}{
 		{
 			name:                   "with memory and cpu in fractional",
-			powerVSMachineTemplate: *stubPowerVSMachineTemplate("0.5", "4"),
+			powerVSMachineTemplate: *stubPowerVSMachineTemplate(intstr.FromString("0.5"), 4),
 			expectedCapacity: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU:    resource.MustParse("8"),
 				corev1.ResourceMemory: resource.MustParse("4G"),
@@ -142,7 +143,7 @@ func TestGetIBMPowerVSMachineCapacity(t *testing.T) {
 		},
 		{
 			name:                   "with memory and cpu in fractional value greater than 1",
-			powerVSMachineTemplate: *stubPowerVSMachineTemplate("1.5", "8"),
+			powerVSMachineTemplate: *stubPowerVSMachineTemplate(intstr.FromString("1.5"), 8),
 			expectedCapacity: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU:    resource.MustParse("16"),
 				corev1.ResourceMemory: resource.MustParse("8G"),
@@ -150,7 +151,7 @@ func TestGetIBMPowerVSMachineCapacity(t *testing.T) {
 		},
 		{
 			name:                   "with memory and cpu in whole number",
-			powerVSMachineTemplate: *stubPowerVSMachineTemplate("3", "8"),
+			powerVSMachineTemplate: *stubPowerVSMachineTemplate(intstr.FromInt(3), 8),
 			expectedCapacity: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU:    resource.MustParse("24"),
 				corev1.ResourceMemory: resource.MustParse("8G"),
@@ -158,7 +159,7 @@ func TestGetIBMPowerVSMachineCapacity(t *testing.T) {
 		},
 		{
 			name:                   "with invalid cpu",
-			powerVSMachineTemplate: *stubPowerVSMachineTemplate("invalid_cpu", "8"),
+			powerVSMachineTemplate: *stubPowerVSMachineTemplate(intstr.FromString("invalid_cpu"), 8),
 			expectErr:              true,
 		},
 	}
@@ -181,20 +182,20 @@ func TestGetIBMPowerVSMachineCapacity(t *testing.T) {
 	}
 }
 
-func stubPowerVSMachineTemplate(processor, memory string) *infrav1beta1.IBMPowerVSMachineTemplate {
-	return &infrav1beta1.IBMPowerVSMachineTemplate{
+func stubPowerVSMachineTemplate(processor intstr.IntOrString, memory int32) *infrav1beta2.IBMPowerVSMachineTemplate {
+	return &infrav1beta2.IBMPowerVSMachineTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "powervs-test-1",
 		},
-		Spec: infrav1beta1.IBMPowerVSMachineTemplateSpec{
-			Template: infrav1beta1.IBMPowerVSMachineTemplateResource{
-				Spec: infrav1beta1.IBMPowerVSMachineSpec{
+		Spec: infrav1beta2.IBMPowerVSMachineTemplateSpec{
+			Template: infrav1beta2.IBMPowerVSMachineTemplateResource{
+				Spec: infrav1beta2.IBMPowerVSMachineSpec{
 					ServiceInstanceID: "test_service_instance_id_27",
-					Image: &infrav1beta1.IBMPowerVSResourceReference{
+					Image: &infrav1beta2.IBMPowerVSResourceReference{
 						ID: pointer.String("capi-image"),
 					},
 					Processors: processor,
-					Memory:     memory,
+					MemoryGiB:  memory,
 				},
 			},
 		},

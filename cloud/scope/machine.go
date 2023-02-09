@@ -29,15 +29,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2/klogr"
+	"k8s.io/utils/pointer"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/patch"
 
-	infrav1beta1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta1"
+	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/utils"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/options"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/record"
 )
 
@@ -48,8 +51,8 @@ type MachineScopeParams struct {
 	Logger          logr.Logger
 	Cluster         *capiv1beta1.Cluster
 	Machine         *capiv1beta1.Machine
-	IBMVPCCluster   *infrav1beta1.IBMVPCCluster
-	IBMVPCMachine   *infrav1beta1.IBMVPCMachine
+	IBMVPCCluster   *infrav1beta2.IBMVPCCluster
+	IBMVPCMachine   *infrav1beta2.IBMVPCMachine
 	ServiceEndpoint []endpoints.ServiceEndpoint
 }
 
@@ -62,8 +65,8 @@ type MachineScope struct {
 	IBMVPCClient    vpc.Vpc
 	Cluster         *capiv1beta1.Cluster
 	Machine         *capiv1beta1.Machine
-	IBMVPCCluster   *infrav1beta1.IBMVPCCluster
-	IBMVPCMachine   *infrav1beta1.IBMVPCMachine
+	IBMVPCCluster   *infrav1beta2.IBMVPCCluster
+	IBMVPCMachine   *infrav1beta2.IBMVPCMachine
 	ServiceEndpoint []endpoints.ServiceEndpoint
 }
 
@@ -124,11 +127,17 @@ func (m *MachineScope) CreateMachine() (*vpcv1.Instance, error) {
 		return nil, err
 	}
 
+	imageID, err := fetchImageID(m.IBMVPCMachine.Spec.Image, m)
+	if err != nil {
+		record.Warnf(m.IBMVPCMachine, "FailedRetriveImage", "Failed image retrival - %v", err)
+		return nil, fmt.Errorf("error while fetching image ID: %v", err)
+	}
+
 	options := &vpcv1.CreateInstanceOptions{}
 	instancePrototype := &vpcv1.InstancePrototype{
 		Name: &m.IBMVPCMachine.Name,
 		Image: &vpcv1.ImageIdentity{
-			ID: &m.IBMVPCMachine.Spec.Image,
+			ID: imageID,
 		},
 		Profile: &vpcv1.InstanceProfileIdentity{
 			Name: &m.IBMVPCMachine.Spec.Profile,
@@ -150,11 +159,19 @@ func (m *MachineScope) CreateMachine() (*vpcv1.Instance, error) {
 	if m.IBMVPCMachine.Spec.SSHKeys != nil {
 		instancePrototype.Keys = []vpcv1.KeyIdentityIntf{}
 		for _, sshKey := range m.IBMVPCMachine.Spec.SSHKeys {
+			keyID, err := fetchKeyID(sshKey, m)
+			if err != nil {
+				return nil, fmt.Errorf("error while fetching SSHKey: %v error: %v", sshKey, err)
+			}
 			key := &vpcv1.KeyIdentity{
-				ID: sshKey,
+				ID: keyID,
 			}
 			instancePrototype.Keys = append(instancePrototype.Keys, key)
 		}
+	}
+
+	if m.IBMVPCMachine.Spec.BootVolume != nil {
+		instancePrototype.BootVolumeAttachment = volumeToVPCVolumeAttachment(m.IBMVPCMachine.Spec.BootVolume)
 	}
 
 	options.SetInstancePrototype(instancePrototype)
@@ -165,6 +182,39 @@ func (m *MachineScope) CreateMachine() (*vpcv1.Instance, error) {
 		record.Eventf(m.IBMVPCMachine, "SuccessfulCreateInstance", "Created Instance %q", *instance.Name)
 	}
 	return instance, err
+}
+
+func volumeToVPCVolumeAttachment(volume *infrav1beta2.VPCVolume) *vpcv1.VolumeAttachmentPrototypeInstanceByImageContext {
+	bootVolume := &vpcv1.VolumeAttachmentPrototypeInstanceByImageContext{
+		DeleteVolumeOnInstanceDelete: core.BoolPtr(volume.DeleteVolumeOnInstanceDelete),
+		Volume:                       &vpcv1.VolumePrototypeInstanceByImageContext{},
+	}
+
+	if volume.Name != "" {
+		bootVolume.Volume.Name = core.StringPtr(volume.Name)
+	}
+
+	if volume.Profile != "" {
+		bootVolume.Volume.Profile = &vpcv1.VolumeProfileIdentity{
+			Name: core.StringPtr(volume.Profile),
+		}
+	}
+
+	if volume.SizeGiB != 0 {
+		bootVolume.Volume.Capacity = core.Int64Ptr(volume.SizeGiB)
+	}
+
+	if volume.Iops != 0 {
+		bootVolume.Volume.Iops = core.Int64Ptr(volume.Iops)
+	}
+
+	if volume.EncryptionKeyCRN != "" {
+		bootVolume.Volume.EncryptionKey = &vpcv1.EncryptionKeyIdentity{
+			CRN: core.StringPtr(volume.EncryptionKeyCRN),
+		}
+	}
+
+	return bootVolume
 }
 
 // DeleteMachine deletes the vpc machine associated with machine instance id.
@@ -184,18 +234,41 @@ func (m *MachineScope) DeleteMachine() error {
 }
 
 func (m *MachineScope) ensureInstanceUnique(instanceName string) (*vpcv1.Instance, error) {
-	options := &vpcv1.ListInstancesOptions{}
-	instances, _, err := m.IBMVPCClient.ListInstances(options)
+	var instance *vpcv1.Instance
+	f := func(start string) (bool, string, error) {
+		// check for existing instances
+		listInstancesOptions := &vpcv1.ListInstancesOptions{}
+		if start != "" {
+			listInstancesOptions.Start = &start
+		}
 
-	if err != nil {
+		instancesList, _, err := m.IBMVPCClient.ListInstances(listInstancesOptions)
+		if err != nil {
+			return false, "", err
+		}
+
+		if instancesList == nil {
+			return false, "", fmt.Errorf("instance list returned is nil")
+		}
+
+		for i, ins := range instancesList.Instances {
+			if (*ins.Name) == instanceName {
+				instance = &instancesList.Instances[i]
+				return true, "", nil
+			}
+		}
+
+		if instancesList.Next != nil && *instancesList.Next.Href != "" {
+			return false, *instancesList.Next.Href, nil
+		}
+		return true, "", nil
+	}
+
+	if err := utils.PagingHelper(f); err != nil {
 		return nil, err
 	}
-	for _, instance := range instances.Instances {
-		if *instance.Name == instanceName {
-			return &instance, nil
-		}
-	}
-	return nil, nil
+
+	return instance, nil
 }
 
 // CreateVPCLoadBalancerPoolMember creates a new pool member and adds it to the load balancer pool.
@@ -207,7 +280,7 @@ func (m *MachineScope) CreateVPCLoadBalancerPoolMember(internalIP *string, targe
 		return nil, err
 	}
 
-	if *loadBalancer.ProvisioningStatus != string(infrav1beta1.VPCLoadBalancerStateActive) {
+	if *loadBalancer.ProvisioningStatus != string(infrav1beta2.VPCLoadBalancerStateActive) {
 		return nil, fmt.Errorf("load balancer is not in active state")
 	}
 
@@ -280,7 +353,7 @@ func (m *MachineScope) DeleteVPCLoadBalancerPoolMember() error {
 		if _, ok := member.Target.(*vpcv1.LoadBalancerPoolMemberTarget); ok {
 			mtarget := member.Target.(*vpcv1.LoadBalancerPoolMemberTarget)
 			if *mtarget.Address == *instance.PrimaryNetworkInterface.PrimaryIP.Address {
-				if *loadBalancer.ProvisioningStatus != string(infrav1beta1.VPCLoadBalancerStateActive) {
+				if *loadBalancer.ProvisioningStatus != string(infrav1beta2.VPCLoadBalancerStateActive) {
 					return fmt.Errorf("load balancer is not in active state")
 				}
 
@@ -326,4 +399,126 @@ func (m *MachineScope) GetBootstrapData() (string, error) {
 		return "", errors.New("error retrieving bootstrap data: secret value key is missing")
 	}
 	return string(value), nil
+}
+
+func fetchKeyID(key *infrav1beta2.IBMVPCResourceReference, m *MachineScope) (*string, error) {
+	if key.ID == nil && key.Name == nil {
+		return nil, fmt.Errorf("both ID and Name can't be nil")
+	}
+
+	if key.ID != nil {
+		return key.ID, nil
+	}
+
+	var k *vpcv1.Key
+	f := func(start string) (bool, string, error) {
+		// check for existing keys
+		listKeysOptions := &vpcv1.ListKeysOptions{}
+		if start != "" {
+			listKeysOptions.Start = &start
+		}
+
+		keysList, _, err := m.IBMVPCClient.ListKeys(listKeysOptions)
+		if err != nil {
+			m.Logger.Error(err, "Failed to get keys")
+			return false, "", err
+		}
+
+		if keysList == nil {
+			return false, "", fmt.Errorf("key list returned is nil")
+		}
+
+		for i, ks := range keysList.Keys {
+			if *ks.Name == *key.Name {
+				m.Logger.V(3).Info("Key found with ID", "Key", *ks.Name, "ID", *ks.ID)
+				k = &keysList.Keys[i]
+				return true, "", nil
+			}
+		}
+
+		if keysList.Next != nil && *keysList.Next.Href != "" {
+			return false, *keysList.Next.Href, nil
+		}
+		return true, "", nil
+	}
+
+	if err := utils.PagingHelper(f); err != nil {
+		return nil, err
+	}
+
+	if k != nil {
+		return k.ID, nil
+	}
+
+	return nil, fmt.Errorf("sshkey does not exist - failed to find Key ID")
+}
+
+func fetchImageID(image *infrav1beta2.IBMVPCResourceReference, m *MachineScope) (*string, error) {
+	if image.ID == nil && image.Name == nil {
+		return nil, fmt.Errorf("both ID and Name can't be nil")
+	}
+
+	if image.ID != nil {
+		return image.ID, nil
+	}
+
+	var img *vpcv1.Image
+	f := func(start string) (bool, string, error) {
+		// check for existing images
+		listImagesOptions := &vpcv1.ListImagesOptions{
+			ResourceGroupID: &m.IBMVPCCluster.Spec.ResourceGroup,
+		}
+		if start != "" {
+			listImagesOptions.Start = &start
+		}
+
+		imagesList, _, err := m.IBMVPCClient.ListImages(listImagesOptions)
+		if err != nil {
+			m.Logger.Error(err, "Failed to get images")
+			return false, "", err
+		}
+
+		if imagesList == nil {
+			return false, "", fmt.Errorf("image list returned is nil")
+		}
+
+		for j, i := range imagesList.Images {
+			if *image.Name == *i.Name {
+				m.Logger.Info("Image found with ID", "Image", *i.Name, "ID", *i.ID)
+				img = &imagesList.Images[j]
+				return true, "", nil
+			}
+		}
+
+		if imagesList.Next != nil && *imagesList.Next.Href != "" {
+			return false, *imagesList.Next.Href, nil
+		}
+		return true, "", nil
+	}
+
+	if err := utils.PagingHelper(f); err != nil {
+		return nil, err
+	}
+
+	if img != nil {
+		return img.ID, nil
+	}
+
+	return nil, fmt.Errorf("image does not exist - failed to find an image ID")
+}
+
+// SetProviderID will set the provider id for the machine.
+func (m *MachineScope) SetProviderID(id *string) error {
+	// Based on the ProviderIDFormat version the providerID format will be decided.
+	if options.ProviderIDFormatType(options.ProviderIDFormat) == options.ProviderIDFormatV2 {
+		accountID, err := utils.GetAccountID()
+		if err != nil {
+			m.Logger.Error(err, "failed to get cloud account id", err.Error())
+			return err
+		}
+		m.IBMVPCMachine.Spec.ProviderID = pointer.String(fmt.Sprintf("ibm://%s///%s/%s", accountID, m.Machine.Spec.ClusterName, *id))
+	} else {
+		m.IBMVPCMachine.Spec.ProviderID = pointer.String(fmt.Sprintf("ibmvpc://%s/%s", m.Machine.Spec.ClusterName, m.IBMVPCMachine.Name))
+	}
+	return nil
 }

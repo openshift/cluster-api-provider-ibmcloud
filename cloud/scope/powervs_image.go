@@ -34,7 +34,7 @@ import (
 
 	"sigs.k8s.io/cluster-api/util/patch"
 
-	infrav1beta1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta1"
+	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcecontroller"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
@@ -46,11 +46,10 @@ const BucketAccess = "public"
 
 // PowerVSImageScopeParams defines the input parameters used to create a new PowerVSImageScope.
 type PowerVSImageScopeParams struct {
-	Client            client.Client
-	Logger            logr.Logger
-	IBMPowerVSImage   *infrav1beta1.IBMPowerVSImage
-	IBMPowerVSCluster *infrav1beta1.IBMPowerVSCluster
-	ServiceEndpoint   []endpoints.ServiceEndpoint
+	Client          client.Client
+	Logger          logr.Logger
+	IBMPowerVSImage *infrav1beta2.IBMPowerVSImage
+	ServiceEndpoint []endpoints.ServiceEndpoint
 }
 
 // PowerVSImageScope defines a scope defined around a Power VS Cluster.
@@ -59,10 +58,9 @@ type PowerVSImageScope struct {
 	Client      client.Client
 	patchHelper *patch.Helper
 
-	IBMPowerVSClient  powervs.PowerVS
-	IBMPowerVSImage   *infrav1beta1.IBMPowerVSImage
-	IBMPowerVSCluster *infrav1beta1.IBMPowerVSCluster
-	ServiceEndpoint   []endpoints.ServiceEndpoint
+	IBMPowerVSClient powervs.PowerVS
+	IBMPowerVSImage  *infrav1beta2.IBMPowerVSImage
+	ServiceEndpoint  []endpoints.ServiceEndpoint
 }
 
 // NewPowerVSImageScope creates a new PowerVSImageScope from the supplied parameters.
@@ -124,12 +122,6 @@ func NewPowerVSImageScope(params PowerVSImageScopeParams) (scope *PowerVSImageSc
 		},
 		CloudInstanceID: spec.ServiceInstanceID,
 	}
-
-	if params.IBMPowerVSCluster == nil {
-		err = errors.New("failed to generate new scope from nil IBMPowerVSCluster")
-		return
-	}
-	scope.IBMPowerVSCluster = params.IBMPowerVSCluster
 
 	// Fetch the service endpoint.
 	if svcEndpoint := endpoints.FetchPVSEndpoint(endpoints.CostructRegionFromZone(*res.RegionID), params.ServiceEndpoint); svcEndpoint != "" {
@@ -265,11 +257,11 @@ func (i *PowerVSImageScope) GetImageID() string {
 
 // SetImageState will set the state for the image.
 func (i *PowerVSImageScope) SetImageState(status string) {
-	i.IBMPowerVSImage.Status.ImageState = infrav1beta1.PowerVSImageState(status)
+	i.IBMPowerVSImage.Status.ImageState = infrav1beta2.PowerVSImageState(status)
 }
 
 // GetImageState will get the state for the image.
-func (i *PowerVSImageScope) GetImageState() infrav1beta1.PowerVSImageState {
+func (i *PowerVSImageScope) GetImageState() infrav1beta2.PowerVSImageState {
 	return i.IBMPowerVSImage.Status.ImageState
 }
 

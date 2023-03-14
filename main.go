@@ -36,9 +36,8 @@ import (
 
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
-	infrav1alpha3 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1alpha3"
-	infrav1alpha4 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1alpha4"
 	infrav1beta1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta1"
+	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/controllers"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/options"
@@ -61,9 +60,8 @@ var (
 func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 
-	_ = infrav1alpha3.AddToScheme(scheme)
-	_ = infrav1alpha4.AddToScheme(scheme)
 	_ = infrav1beta1.AddToScheme(scheme)
+	_ = infrav1beta2.AddToScheme(scheme)
 	_ = capiv1beta1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
@@ -167,10 +165,19 @@ func initFlags(fs *pflag.FlagSet) {
 		"The minimum interval at which watched resources are reconciled.",
 	)
 
+	// Deprecated: Use provider-id-fmt flag go set provider id format for Power VS.
 	fs.StringVar(
 		&options.PowerVSProviderIDFormat,
 		"powervs-provider-id-fmt",
 		string(options.PowerVSProviderIDFormatV1),
+		"ProviderID format is used set the Provider ID format for Machine",
+	)
+	_ = fs.MarkDeprecated("powervs-provider-id-fmt", "please use provider-id-fmt flag")
+
+	fs.StringVar(
+		&options.ProviderIDFormat,
+		"provider-id-fmt",
+		string(options.ProviderIDFormatV1),
 		"ProviderID format is used set the Provider ID format for Machine",
 	)
 
@@ -183,14 +190,21 @@ func initFlags(fs *pflag.FlagSet) {
 }
 
 func validateFlags() error {
-	switch options.PowerVSProviderIDFormatType(options.PowerVSProviderIDFormat) {
+	switch options.ProviderIDFormatType(options.PowerVSProviderIDFormat) {
 	case options.PowerVSProviderIDFormatV1:
-		setupLog.Info("Using v1 version of ProviderID format")
+		setupLog.Info("Power VS ProviderID format is set to v1 version")
 	case options.PowerVSProviderIDFormatV2:
+		setupLog.Info("Power VS ProviderID format is set to v2 version")
+	default:
+		return fmt.Errorf("invalid value for flag powervs-provider-id-fmt: %s, Supported values: v1, v2 ", options.PowerVSProviderIDFormat)
+	}
+	switch options.ProviderIDFormatType(options.ProviderIDFormat) {
+	case options.ProviderIDFormatV1:
+		setupLog.Info("Using v1 version of ProviderID format")
+	case options.ProviderIDFormatV2:
 		setupLog.Info("Using v2 version of ProviderID format")
 	default:
-		errStr := fmt.Errorf("invalid value for flag powervs-provider-id-fmt: %s, Supported values: v1, v2 ", options.PowerVSProviderIDFormat)
-		return errStr
+		return fmt.Errorf("invalid value for flag provider-id-fmt: %s, Supported values: %s, %s ", options.ProviderIDFormat, options.ProviderIDFormatV1, options.ProviderIDFormatV2)
 	}
 	return nil
 }
@@ -258,31 +272,31 @@ func setupReconcilers(mgr ctrl.Manager, serviceEndpoint []endpoints.ServiceEndpo
 }
 
 func setupWebhooks(mgr ctrl.Manager) {
-	if err := (&infrav1beta1.IBMVPCCluster{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta2.IBMVPCCluster{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "IBMVPCCluster")
 		os.Exit(1)
 	}
-	if err := (&infrav1beta1.IBMVPCMachine{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta2.IBMVPCMachine{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "IBMVPCMachine")
 		os.Exit(1)
 	}
-	if err := (&infrav1beta1.IBMVPCMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta2.IBMVPCMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "IBMVPCMachineTemplate")
 		os.Exit(1)
 	}
-	if err := (&infrav1beta1.IBMPowerVSCluster{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta2.IBMPowerVSCluster{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "IBMPowerVSCluster")
 		os.Exit(1)
 	}
-	if err := (&infrav1beta1.IBMPowerVSMachine{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta2.IBMPowerVSMachine{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "IBMPowerVSMachine")
 		os.Exit(1)
 	}
-	if err := (&infrav1beta1.IBMPowerVSMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta2.IBMPowerVSMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "IBMPowerVSMachineTemplate")
 		os.Exit(1)
 	}
-	if err := (&infrav1beta1.IBMPowerVSImage{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&infrav1beta2.IBMPowerVSImage{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "IBMPowerVSImage")
 		os.Exit(1)
 	}

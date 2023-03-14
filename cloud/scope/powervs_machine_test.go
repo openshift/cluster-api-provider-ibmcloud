@@ -30,6 +30,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2/klogr"
@@ -38,16 +39,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	infrav1beta1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta1"
+	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs/mock"
 
 	. "github.com/onsi/gomega"
 )
 
-func newPowerVSMachine(clusterName, machineName string, imageRef *string, networkRef *string, isID bool) *infrav1beta1.IBMPowerVSMachine {
-	image := &infrav1beta1.IBMPowerVSResourceReference{}
-	network := infrav1beta1.IBMPowerVSResourceReference{}
+func newPowerVSMachine(clusterName, machineName string, imageRef *string, networkRef *string, isID bool) *infrav1beta2.IBMPowerVSMachine {
+	image := &infrav1beta2.IBMPowerVSResourceReference{}
+	network := infrav1beta2.IBMPowerVSResourceReference{}
 
 	if !isID {
 		image.Name = imageRef
@@ -57,7 +58,7 @@ func newPowerVSMachine(clusterName, machineName string, imageRef *string, networ
 		network.ID = networkRef
 	}
 
-	return &infrav1beta1.IBMPowerVSMachine{
+	return &infrav1beta2.IBMPowerVSMachine{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
 				capiv1beta1.ClusterLabelName: clusterName,
@@ -65,9 +66,9 @@ func newPowerVSMachine(clusterName, machineName string, imageRef *string, networ
 			Name:      machineName,
 			Namespace: "default",
 		},
-		Spec: infrav1beta1.IBMPowerVSMachineSpec{
-			Memory:     "8",
-			Processors: "0.25",
+		Spec: infrav1beta2.IBMPowerVSMachineSpec{
+			MemoryGiB:  8,
+			Processors: intstr.FromInt(1),
 			Image:      image,
 			Network:    network,
 		},
@@ -310,23 +311,12 @@ func TestCreateMachinePVS(t *testing.T) {
 			g.Expect(err).To(Not(BeNil()))
 		})
 
-		t.Run("Invalid memory value", func(t *testing.T) {
+		t.Run("Invalid processors value", func(t *testing.T) {
 			g := NewWithT(t)
 			setup(t)
 			t.Cleanup(teardown)
 			scope := setupPowerVSMachineScope(clusterName, machineName, core.StringPtr(pvsImage), core.StringPtr(pvsNetwork), true, mockpowervs)
-			scope.IBMPowerVSMachine.Spec.Memory = "illegal"
-			mockpowervs.EXPECT().GetAllInstance().Return(pvmInstances, nil)
-			_, err := scope.CreateMachine()
-			g.Expect(err).To(Not(BeNil()))
-		})
-
-		t.Run("Invalid core value", func(t *testing.T) {
-			g := NewWithT(t)
-			setup(t)
-			t.Cleanup(teardown)
-			scope := setupPowerVSMachineScope(clusterName, machineName, core.StringPtr(pvsImage), core.StringPtr(pvsNetwork), true, mockpowervs)
-			scope.IBMPowerVSMachine.Spec.Processors = "illegal"
+			scope.IBMPowerVSMachine.Spec.Processors = intstr.FromString("invalid")
 			mockpowervs.EXPECT().GetAllInstance().Return(pvmInstances, nil)
 			_, err := scope.CreateMachine()
 			g.Expect(err).To(Not(BeNil()))
@@ -337,8 +327,8 @@ func TestCreateMachinePVS(t *testing.T) {
 			setup(t)
 			t.Cleanup(teardown)
 			scope := setupPowerVSMachineScope(clusterName, machineName, nil, core.StringPtr(pvsNetwork), true, mockpowervs)
-			scope.IBMPowerVSImage = &infrav1beta1.IBMPowerVSImage{
-				Status: infrav1beta1.IBMPowerVSImageStatus{
+			scope.IBMPowerVSImage = &infrav1beta2.IBMPowerVSImage{
+				Status: infrav1beta2.IBMPowerVSImageStatus{
 					ImageID: "foo-image",
 				},
 			}

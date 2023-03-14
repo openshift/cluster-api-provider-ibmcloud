@@ -30,7 +30,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/pointer"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,7 +38,7 @@ import (
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 
-	infrav1beta1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta1"
+	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cloud/scope"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
 )
@@ -65,7 +64,7 @@ func (r *IBMVPCMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// Fetch the IBMVPCMachine instance.
 
-	ibmVpcMachine := &infrav1beta1.IBMVPCMachine{}
+	ibmVpcMachine := &infrav1beta2.IBMVPCMachine{}
 	err := r.Get(ctx, req.NamespacedName, ibmVpcMachine)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -92,7 +91,7 @@ func (r *IBMVPCMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	log = log.WithValues("cluster", cluster.Name)
 
-	ibmCluster := &infrav1beta1.IBMVPCCluster{}
+	ibmCluster := &infrav1beta2.IBMVPCCluster{}
 	ibmVpcClusterName := client.ObjectKey{
 		Namespace: ibmVpcMachine.Namespace,
 		Name:      cluster.Spec.InfrastructureRef.Name,
@@ -135,21 +134,21 @@ func (r *IBMVPCMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // SetupWithManager creates a new IBMVPCMachine controller for a manager.
 func (r *IBMVPCMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1beta1.IBMVPCMachine{}).
+		For(&infrav1beta2.IBMVPCMachine{}).
 		Complete(r)
 }
 
 func (r *IBMVPCMachineReconciler) reconcileNormal(machineScope *scope.MachineScope) (ctrl.Result, error) {
-	controllerutil.AddFinalizer(machineScope.IBMVPCMachine, infrav1beta1.MachineFinalizer)
+	controllerutil.AddFinalizer(machineScope.IBMVPCMachine, infrav1beta2.MachineFinalizer)
 
 	// Make sure bootstrap data is available and populated.
 	if machineScope.Machine.Spec.Bootstrap.DataSecretName == nil {
 		machineScope.Info("Bootstrap data secret reference is not yet available")
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
 	if machineScope.IBMVPCCluster.Status.Subnet.ID != nil {
-		machineScope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1beta1.NetworkInterface{
+		machineScope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1beta2.NetworkInterface{
 			Subnet: *machineScope.IBMVPCCluster.Status.Subnet.ID,
 		}
 	}
@@ -168,7 +167,9 @@ func (r *IBMVPCMachineReconciler) reconcileNormal(machineScope *scope.MachineSco
 			},
 		}
 		_, ok := machineScope.IBMVPCMachine.Labels[capiv1beta1.MachineControlPlaneLabelName]
-		machineScope.IBMVPCMachine.Spec.ProviderID = pointer.StringPtr(fmt.Sprintf("ibmvpc://%s/%s", machineScope.Machine.Spec.ClusterName, machineScope.IBMVPCMachine.Name))
+		if err = machineScope.SetProviderID(instance.ID); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to set provider id IBMVPCMachine %s/%s", machineScope.IBMVPCMachine.Namespace, machineScope.IBMVPCMachine.Name)
+		}
 		if ok {
 			if machineScope.IBMVPCCluster.Spec.ControlPlaneLoadBalancer == nil {
 				options := &vpcv1.AddInstanceNetworkInterfaceFloatingIPOptions{}
@@ -194,7 +195,7 @@ func (r *IBMVPCMachineReconciler) reconcileNormal(machineScope *scope.MachineSco
 				if err != nil {
 					return ctrl.Result{}, errors.Wrapf(err, "failed to bind port %d to control plane %s/%s", port, machineScope.IBMVPCMachine.Namespace, machineScope.IBMVPCMachine.Name)
 				}
-				if poolMember != nil && *poolMember.ProvisioningStatus != string(infrav1beta1.VPCLoadBalancerStateActive) {
+				if poolMember != nil && *poolMember.ProvisioningStatus != string(infrav1beta2.VPCLoadBalancerStateActive) {
 					return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 				}
 			}
@@ -227,7 +228,7 @@ func (r *IBMVPCMachineReconciler) reconcileDelete(scope *scope.MachineScope) (_ 
 	defer func() {
 		if reterr == nil {
 			// VSI is deleted so remove the finalizer.
-			controllerutil.RemoveFinalizer(scope.IBMVPCMachine, infrav1beta1.MachineFinalizer)
+			controllerutil.RemoveFinalizer(scope.IBMVPCMachine, infrav1beta2.MachineFinalizer)
 		}
 	}()
 

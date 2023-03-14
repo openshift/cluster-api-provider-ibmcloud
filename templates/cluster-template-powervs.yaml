@@ -14,7 +14,7 @@ spec:
       cidrBlocks:
         - ${SERVICE_CIDR:="10.128.0.0/12"}
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
     kind: IBMPowerVSCluster
     name: "${CLUSTER_NAME}"
   controlPlaneRef:
@@ -22,7 +22,7 @@ spec:
     kind: KubeadmControlPlane
     name: "${CLUSTER_NAME}-control-plane"
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: IBMPowerVSCluster
 metadata:
   labels:
@@ -46,7 +46,7 @@ spec:
   machineTemplate:
     infrastructureRef:
       kind: IBMPowerVSMachineTemplate
-      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
       name: "${CLUSTER_NAME}-control-plane"
   kubeadmConfigSpec:
     clusterConfiguration:
@@ -152,7 +152,7 @@ spec:
         owner: "root:root"
         permissions: "0744"
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: IBMPowerVSMachineTemplate
 metadata:
   name: "${CLUSTER_NAME}-control-plane"
@@ -165,10 +165,10 @@ spec:
         name: "${IBMPOWERVS_IMAGE_NAME}"
       network:
         name: "${IBMPOWERVS_NETWORK_NAME}"
-      memory: ${IBMPOWERVS_CONTROL_PLANE_MEMORY:="4"}
+      memoryGiB: ${IBMPOWERVS_CONTROL_PLANE_MEMORY:=4}
       processors: ${IBMPOWERVS_CONTROL_PLANE_PROCESSORS:="0.25"}
-      sysType: ${IBMPOWERVS_CONTROL_PLANE_SYSTYPE:="s922"}
-      procType: ${IBMPOWERVS_CONTROL_PLANE_PROCTYPE:="shared"}
+      systemType: ${IBMPOWERVS_CONTROL_PLANE_SYSTYPE:="s922"}
+      processorType: ${IBMPOWERVS_CONTROL_PLANE_PROCTYPE:="Shared"}
 ---
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: MachineDeployment
@@ -190,10 +190,10 @@ spec:
           kind: KubeadmConfigTemplate
       infrastructureRef:
         name: "${CLUSTER_NAME}-md-0"
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
         kind: IBMPowerVSMachineTemplate
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: IBMPowerVSMachineTemplate
 metadata:
   name: "${CLUSTER_NAME}-md-0"
@@ -206,17 +206,16 @@ spec:
         name: "${IBMPOWERVS_IMAGE_NAME}"
       network:
         name: "${IBMPOWERVS_NETWORK_NAME}"
-      memory: ${IBMPOWERVS_COMPUTE_MEMORY:="4"}
+      memoryGiB: ${IBMPOWERVS_COMPUTE_MEMORY:=4}
       processors: ${IBMPOWERVS_COMPUTE_PROCESSORS:="0.25"}
-      sysType: ${IBMPOWERVS_COMPUTE_SYSTYPE:="s922"}
-      procType: ${IBMPOWERVS_COMPUTE_PROCTYPE:="shared"}
+      systemType: ${IBMPOWERVS_COMPUTE_SYSTYPE:="s922"}
+      processorType: ${IBMPOWERVS_COMPUTE_PROCTYPE:="Shared"}
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
 metadata:
   labels:
     cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
-    cluster.x-k8s.io/control-plane: ""
   name: "${CLUSTER_NAME}-md-0"
 spec:
   template:

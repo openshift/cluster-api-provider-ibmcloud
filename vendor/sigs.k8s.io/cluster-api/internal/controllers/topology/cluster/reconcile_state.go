@@ -28,6 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apiserver/pkg/storage/names"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -188,11 +190,7 @@ func (r *Reconciler) callAfterHooks(ctx context.Context, s *scope.Scope) error {
 		return err
 	}
 
-	if err := r.callAfterClusterUpgrade(ctx, s); err != nil {
-		return err
-	}
-
-	return nil
+	return r.callAfterClusterUpgrade(ctx, s)
 }
 
 func (r *Reconciler) callAfterControlPlaneInitialized(ctx context.Context, s *scope.Scope) error {
@@ -267,7 +265,8 @@ func (r *Reconciler) callAfterClusterUpgrade(ctx context.Context, s *scope.Scope
 
 		if !cpUpgrading && !cpScaling && !s.UpgradeTracker.ControlPlane.PendingUpgrade && // Control Plane checks
 			len(s.UpgradeTracker.MachineDeployments.RolloutNames()) == 0 && // Machine deployments are not rollout out or not about to roll out
-			!s.UpgradeTracker.MachineDeployments.PendingUpgrade() { // Machine Deployments are not pending an upgrade
+			!s.UpgradeTracker.MachineDeployments.PendingUpgrade() && // No MachineDeployments have an upgrade pending
+			!s.UpgradeTracker.MachineDeployments.DeferredUpgrade() { // No MachineDeployments have an upgrade deferred
 			// Everything is stable and the cluster can be considered fully upgraded.
 			hookRequest := &runtimehooksv1.AfterClusterUpgradeRequest{
 				Cluster:           *s.Current.Cluster,
@@ -506,10 +505,10 @@ func (r *Reconciler) createMachineDeployment(ctx context.Context, cluster *clust
 	log.Infof(fmt.Sprintf("Creating %s", tlog.KObj{Obj: md.Object}))
 	helper, err := r.patchHelperFactory(ctx, nil, md.Object)
 	if err != nil {
-		return createErrorWithoutObjectName(err, md.Object)
+		return createErrorWithoutObjectName(ctx, err, md.Object)
 	}
 	if err := helper.Patch(ctx); err != nil {
-		return createErrorWithoutObjectName(err, md.Object)
+		return createErrorWithoutObjectName(ctx, err, md.Object)
 	}
 	r.recorder.Eventf(cluster, corev1.EventTypeNormal, createEventReason, "Created %q", tlog.KObj{Obj: md.Object})
 
@@ -654,10 +653,10 @@ func (r *Reconciler) reconcileReferencedObject(ctx context.Context, in reconcile
 		log.Infof("Creating %s", tlog.KObj{Obj: in.desired})
 		helper, err := r.patchHelperFactory(ctx, nil, in.desired, structuredmerge.IgnorePaths(in.ignorePaths))
 		if err != nil {
-			return errors.Wrap(createErrorWithoutObjectName(err, in.desired), "failed to create patch helper")
+			return errors.Wrap(createErrorWithoutObjectName(ctx, err, in.desired), "failed to create patch helper")
 		}
 		if err := helper.Patch(ctx); err != nil {
-			return createErrorWithoutObjectName(err, in.desired)
+			return createErrorWithoutObjectName(ctx, err, in.desired)
 		}
 		r.recorder.Eventf(in.cluster, corev1.EventTypeNormal, createEventReason, "Created %q", tlog.KObj{Obj: in.desired})
 		return nil
@@ -731,10 +730,10 @@ func (r *Reconciler) reconcileReferencedTemplate(ctx context.Context, in reconci
 		log.Infof("Creating %s", tlog.KObj{Obj: in.desired})
 		helper, err := r.patchHelperFactory(ctx, nil, in.desired)
 		if err != nil {
-			return errors.Wrap(createErrorWithoutObjectName(err, in.desired), "failed to create patch helper")
+			return errors.Wrap(createErrorWithoutObjectName(ctx, err, in.desired), "failed to create patch helper")
 		}
 		if err := helper.Patch(ctx); err != nil {
-			return createErrorWithoutObjectName(err, in.desired)
+			return createErrorWithoutObjectName(ctx, err, in.desired)
 		}
 		r.recorder.Eventf(in.cluster, corev1.EventTypeNormal, createEventReason, "Created %q", tlog.KObj{Obj: in.desired})
 		return nil
@@ -783,10 +782,10 @@ func (r *Reconciler) reconcileReferencedTemplate(ctx context.Context, in reconci
 	log.Infof("Creating %s", tlog.KObj{Obj: in.desired})
 	helper, err := r.patchHelperFactory(ctx, nil, in.desired)
 	if err != nil {
-		return errors.Wrap(createErrorWithoutObjectName(err, in.desired), "failed to create patch helper")
+		return errors.Wrap(createErrorWithoutObjectName(ctx, err, in.desired), "failed to create patch helper")
 	}
 	if err := helper.Patch(ctx); err != nil {
-		return createErrorWithoutObjectName(err, in.desired)
+		return createErrorWithoutObjectName(ctx, err, in.desired)
 	}
 	r.recorder.Eventf(in.cluster, corev1.EventTypeNormal, createEventReason, "Created %q as a replacement for %q (template rotation)", tlog.KObj{Obj: in.desired}, in.ref.Name)
 
@@ -801,7 +800,13 @@ func (r *Reconciler) reconcileReferencedTemplate(ctx context.Context, in reconci
 // createErrorWithoutObjectName removes the name of the object from the error message. As each new Create call involves an
 // object with a unique generated name each error appears to be a different error. As the errors are being surfaced in a condition
 // on the Cluster, the name is removed here to prevent each creation error from triggering a new reconciliation.
-func createErrorWithoutObjectName(err error, obj client.Object) error {
+func createErrorWithoutObjectName(ctx context.Context, err error, obj client.Object) error {
+	log := ctrl.LoggerFrom(ctx)
+	if obj != nil {
+		log = log.WithValues(obj.GetObjectKind().GroupVersionKind().Kind, klog.KObj(obj))
+	}
+	log.Error(err, "Failed to create object")
+
 	var statusError *apierrors.StatusError
 	if errors.As(err, &statusError) {
 		var msg string

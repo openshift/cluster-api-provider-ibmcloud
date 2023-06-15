@@ -17,9 +17,15 @@ limitations under the License.
 package powervs
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/cmd/powervs/image"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/cmd/powervs/key"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/cmd/powervs/network"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/cmd/powervs/port"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/options"
 )
 
@@ -28,6 +34,14 @@ func Commands() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "powervs",
 		Short: "Commands for operations on PowerVS resources",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			apiKey := os.Getenv(options.IBMCloudAPIKeyEnvName)
+			if apiKey == "" {
+				return fmt.Errorf("ibmcloud api key is not provided, set %s environmental variable", options.IBMCloudAPIKeyEnvName)
+			}
+			options.GlobalOptions.IBMCloudAPIKey = apiKey
+			return nil
+		},
 	}
 
 	cmd.PersistentFlags().StringVar(&options.GlobalOptions.ServiceInstanceID, "service-instance-id", "", "PowerVS service instance id (Required)")
@@ -37,7 +51,10 @@ func Commands() *cobra.Command {
 	_ = cmd.MarkPersistentFlagRequired("service-instance-id")
 	_ = cmd.MarkPersistentFlagRequired("zone")
 
+	cmd.AddCommand(key.Commands())
 	cmd.AddCommand(network.Commands())
+	cmd.AddCommand(port.Commands())
+	cmd.AddCommand(image.Commands())
 
 	return cmd
 }

@@ -18,8 +18,13 @@ limitations under the License.
 package vpc
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/cmd/vpc/image"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/cmd/vpc/key"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/options"
 )
 
@@ -28,12 +33,23 @@ func Commands() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "vpc",
 		Short: "Commands for operations on VPC resources",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			apiKey := os.Getenv(options.IBMCloudAPIKeyEnvName)
+			if apiKey == "" {
+				return fmt.Errorf("ibmcloud api key is not provided, set %s environmental variable", options.IBMCloudAPIKeyEnvName)
+			}
+			options.GlobalOptions.IBMCloudAPIKey = apiKey
+			return nil
+		},
 	}
 
 	cmd.PersistentFlags().StringVar(&options.GlobalOptions.VPCRegion, "region", options.GlobalOptions.VPCRegion, "IBM cloud vpc region. (Required)")
 	cmd.PersistentFlags().StringVar(&options.GlobalOptions.ResourceGroupName, "resource-group-name", options.GlobalOptions.ResourceGroupName, "IBM cloud resource group name")
 
 	_ = cmd.MarkPersistentFlagRequired("region")
+
+	cmd.AddCommand(key.Commands())
+	cmd.AddCommand(image.Commands())
 
 	return cmd
 }

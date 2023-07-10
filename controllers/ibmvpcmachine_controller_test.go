@@ -231,7 +231,7 @@ func TestIBMVPCMachineReconciler_reconcile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "capi-machine",
 					Labels: map[string]string{
-						capiv1beta1.MachineControlPlaneLabelName: "capi-control-plane-machine",
+						capiv1beta1.MachineControlPlaneNameLabel: "capi-control-plane-machine",
 					},
 				},
 			},
@@ -329,7 +329,7 @@ func TestIBMVPCMachineLBReconciler_reconcile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "capi-machine",
 					Labels: map[string]string{
-						capiv1beta1.MachineControlPlaneLabelName: "capi-control-plane-machine",
+						capiv1beta1.MachineControlPlaneNameLabel: "capi-control-plane-machine",
 					},
 				},
 			},
@@ -356,6 +356,7 @@ func TestIBMVPCMachineLBReconciler_reconcile(t *testing.T) {
 					},
 				},
 			},
+			Cluster:      &capiv1beta1.Cluster{},
 			IBMVPCClient: mockvpc,
 		}
 		return gomock.NewController(t), mockvpc, machineScope, reconciler
@@ -530,7 +531,7 @@ func TestIBMVPCMachineLBReconciler_Delete(t *testing.T) {
 					Name:       "capi-machine",
 					Finalizers: []string{infrav1beta2.MachineFinalizer},
 					Labels: map[string]string{
-						capiv1beta1.MachineControlPlaneLabelName: "capi-control-plane-machine",
+						capiv1beta1.MachineControlPlaneNameLabel: "capi-control-plane-machine",
 					},
 				},
 				Status: infrav1beta2.IBMVPCMachineStatus{

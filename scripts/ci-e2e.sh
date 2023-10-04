@@ -23,13 +23,14 @@ cd "${REPO_ROOT}" || exit 1
 GOPATH_BIN="$(go env GOPATH)/bin/"
 export PATH="${GOPATH_BIN}:${PATH}"
 RESOURCE_TYPE="${RESOURCE_TYPE:-"powervs-service"}"
+NO_OF_RETRY=${NO_OF_RETRY:-"3"}
 
 # shellcheck source=../hack/ensure-go.sh
 source "${REPO_ROOT}/hack/ensure-go.sh"
 # shellcheck source=../hack/ensure-kubectl.sh
 source "${REPO_ROOT}/hack/ensure-kubectl.sh"
 # shellcheck source=../hack/boskos.sh
-source ${REPO_ROOT}/hack/boskos.sh
+source "${REPO_ROOT}/hack/boskos.sh"
 # shellcheck source=../hack/kind-network-fix.sh
 source "${REPO_ROOT}/hack/kind-network-fix.sh"
 
@@ -38,10 +39,9 @@ mkdir -p "${ARTIFACTS}/logs/"
 
 ARCH=$(uname -m)
 OS=$(uname -s)
-IBMCLOUD_CLI_VERSION=${IBMCLOUD_CLI_VERSION:-"2.14.0"}
-PVSADM_VERSION=${PVSADM_VERSION:-"v0.1.9"}
+IBMCLOUD_CLI_VERSION=${IBMCLOUD_CLI_VERSION:-"2.16.0"}
 E2E_FLAVOR=${E2E_FLAVOR:-}
-REGION=${REGION:-"jp-osa"}
+capibmadm=$(pwd)/bin/capibmadm
 
 [ "${ARCH}" == "x86_64" ] && ARCH="amd64"
 
@@ -52,12 +52,21 @@ cleanup(){
     [[ -z ${HEART_BEAT_PID:-} ]] || kill -9 "${HEART_BEAT_PID}" || true
 }
 
-# Installing binaries from github releases
-install_pvsadm(){
-    platform="$(echo ${OS} | tr '[:upper:]' '[:lower:]')-${ARCH}"
-
-    curl -fsL https://github.com/ppc64le-cloud/pvsadm/releases/download/${PVSADM_VERSION}/pvsadm-${platform} -o pvsadm
-    chmod +x ./pvsadm
+retry() {
+  cmd=$1
+  for i in $(seq 1 "$NO_OF_RETRY"); do
+    echo "Attempt: $i/$NO_OF_RETRY"
+    ret_code=0
+    $cmd || ret_code=$?
+    if [ $ret_code = 0 ]; then
+      break
+    elif [ "$i" == "$NO_OF_RETRY" ]; then
+      echo "All retry attempts failed!"
+      exit $ret_code
+    else
+      sleep 1
+    fi
+  done
 }
 
 install_ibmcloud_cli(){
@@ -78,7 +87,7 @@ create_powervs_network_instance(){
 
     ibmcloud config --check-version=false
     # Login to IBM Cloud using the API Key
-    ibmcloud login -a cloud.ibm.com -r ${REGION}
+    retry "ibmcloud login -a cloud.ibm.com --no-region"
 
     # Install power-iaas command-line plug-in and target the required service instance
     ibmcloud plugin install power-iaas -f
@@ -86,31 +95,38 @@ create_powervs_network_instance(){
     ibmcloud pi service-target ${CRN}
 
     # Create the network instance
-    ibmcloud pi network-create-public ${IBMPOWERVS_NETWORK_NAME} --dns-servers "8.8.8.8 9.9.9.9"
+    ${capibmadm} powervs network create --name ${IBMPOWERVS_NETWORK_NAME} --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE}
 
 }
 
 init_network_powervs(){
-    install_pvsadm
+    # Builds the capibmadm binary 
+    make capibmadm
+
     create_powervs_network_instance
 
-    # Creating ports using the pvsadm tool
-    ./pvsadm create port --description "capi-port-e2e" --network ${IBMPOWERVS_NETWORK_NAME} --instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID}
+    # Creating PowerVS network port 
+    ${capibmadm} powervs port create --network ${IBMPOWERVS_NETWORK_NAME} --description "capi-e2e" --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE}
 
     # Get and assign the IPs to the required variables
-    NEW_PORT=$(./pvsadm get ports --network ${IBMPOWERVS_NETWORK_NAME} --instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} | sed -n '4 p')
-    PORT_ID="$(echo ${NEW_PORT} | cut -d'|' -f6 | xargs )"
-    export IBMPOWERVS_VIP="$(echo ${NEW_PORT} | cut -d'|' -f4 | xargs )"
-    export IBMPOWERVS_VIP_EXTERNAL="$(echo ${NEW_PORT} | cut -d'|' -f3 | xargs )"
+    NEW_PORT=$(${capibmadm} powervs port list --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE} --network ${IBMPOWERVS_NETWORK_NAME} -o json)
+    no_of_ports=$(echo ${NEW_PORT} | jq '.items | length')
+    if [[ ${no_of_ports} != 1 ]]; then
+        echo "Failed to get the required number or ports, got - ${no_of_ports}"
+        exit 1
+    fi
+    export IBMPOWERVS_VIP="$(echo ${NEW_PORT} | jq -r '.items[0].ipAddress')"
+    export IBMPOWERVS_VIP_EXTERNAL="$(echo ${NEW_PORT} | jq -r '.items[0].externalIP')"
     export IBMPOWERVS_VIP_CIDR=${IBMPOWERVS_VIP_CIDR:="29"}
 }
 
 prerequisites_powervs(){
     # Assigning PowerVS variables
     export IBMPOWERVS_SSHKEY_NAME=${IBMPOWERVS_SSHKEY_NAME:-"powercloud-bot-key"}
-    export IBMPOWERVS_IMAGE_NAME=${IBMPOWERVS_IMAGE_NAME:-"capibm-powervs-centos-streams8-1-25-1"}
+    export IBMPOWERVS_IMAGE_NAME=${IBMPOWERVS_IMAGE_NAME:-"capibm-powervs-centos-streams8-1-27-2"}
     export IBMPOWERVS_SERVICE_INSTANCE_ID=${BOSKOS_RESOURCE_ID:-"d53da3bf-1f4a-42fa-9735-acf16b1a05cd"}
     export IBMPOWERVS_NETWORK_NAME="capi-net-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head --bytes 5)"
+    export ZONE=${BOSKOS_ZONE:-"osa21"}
 }
 
 prerequisites_vpc(){
@@ -119,7 +135,7 @@ prerequisites_vpc(){
     export IBMVPC_ZONE="${IBMVPC_REGION}-1"
     export IBMVPC_RESOURCEGROUP=${BOSKOS_RESOURCE_GROUP:-"fa5405a58226402f9a5818cb9b8a5a8a"}
     export IBMVPC_NAME=${BOSKOS_RESOURCE_NAME:-"capi-vpc-e2e"}
-    export IBMVPC_IMAGE_NAME=${IBMVPC_IMAGE_NAME:-"capibm-vpc-ubuntu-2004-kube-v1-25-2"}
+    export IBMVPC_IMAGE_NAME=${IBMVPC_IMAGE_NAME:-"capibm-vpc-ubuntu-2004-kube-v1-27-2"}
     export IBMVPC_PROFILE=${IBMVPC_PROFILE:-"bx2-4x16"}
     export IBMVPC_SSHKEY_NAME=${IBMVPC_SSHKEY_NAME:-"vpc-cloud-bot-key"}
 }
@@ -164,10 +180,9 @@ main(){
     fi
 
     # Set common variables
-    export LOGLEVEL=5
-    # Setting controller loglevel to allow debug logs from the VPC/PowerVS client
     export DOCKER_BUILDKIT=1
-
+    # Setting controller loglevel to allow debug logs from the VPC/PowerVS client
+    export LOGLEVEL=5
 
     if [[ "${E2E_FLAVOR}" == "powervs" || "${E2E_FLAVOR}" == "powervs-md-remediation" ]]; then
         prerequisites_powervs

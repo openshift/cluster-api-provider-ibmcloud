@@ -30,7 +30,7 @@ func (o *ServiceBrokerTestTimeoutReader) ReadResponse(response runtime.ClientRes
 		}
 		return result, nil
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /broker/v1/test/timeout] serviceBroker.test.timeout", response, response.Code())
 	}
 }
 
@@ -39,7 +39,8 @@ func NewServiceBrokerTestTimeoutOK() *ServiceBrokerTestTimeoutOK {
 	return &ServiceBrokerTestTimeoutOK{}
 }
 
-/* ServiceBrokerTestTimeoutOK describes a response with status code 200, with default header values.
+/*
+ServiceBrokerTestTimeoutOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -47,9 +48,44 @@ type ServiceBrokerTestTimeoutOK struct {
 	Payload models.Object
 }
 
+// IsSuccess returns true when this service broker test timeout o k response has a 2xx status code
+func (o *ServiceBrokerTestTimeoutOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this service broker test timeout o k response has a 3xx status code
+func (o *ServiceBrokerTestTimeoutOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker test timeout o k response has a 4xx status code
+func (o *ServiceBrokerTestTimeoutOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service broker test timeout o k response has a 5xx status code
+func (o *ServiceBrokerTestTimeoutOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker test timeout o k response a status code equal to that given
+func (o *ServiceBrokerTestTimeoutOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the service broker test timeout o k response
+func (o *ServiceBrokerTestTimeoutOK) Code() int {
+	return 200
+}
+
 func (o *ServiceBrokerTestTimeoutOK) Error() string {
 	return fmt.Sprintf("[GET /broker/v1/test/timeout][%d] serviceBrokerTestTimeoutOK  %+v", 200, o.Payload)
 }
+
+func (o *ServiceBrokerTestTimeoutOK) String() string {
+	return fmt.Sprintf("[GET /broker/v1/test/timeout][%d] serviceBrokerTestTimeoutOK  %+v", 200, o.Payload)
+}
+
 func (o *ServiceBrokerTestTimeoutOK) GetPayload() models.Object {
 	return o.Payload
 }

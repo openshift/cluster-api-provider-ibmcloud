@@ -42,7 +42,7 @@ func (o *ServiceBindingLastOperationGetReader) ReadResponse(response runtime.Cli
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /v2/service_instances/{instance_id}/service_bindings/{binding_id}/last_operation] serviceBinding.lastOperation.get", response, response.Code())
 	}
 }
 
@@ -51,7 +51,8 @@ func NewServiceBindingLastOperationGetOK() *ServiceBindingLastOperationGetOK {
 	return &ServiceBindingLastOperationGetOK{}
 }
 
-/* ServiceBindingLastOperationGetOK describes a response with status code 200, with default header values.
+/*
+ServiceBindingLastOperationGetOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -59,9 +60,44 @@ type ServiceBindingLastOperationGetOK struct {
 	Payload *models.LastOperationResource
 }
 
+// IsSuccess returns true when this service binding last operation get o k response has a 2xx status code
+func (o *ServiceBindingLastOperationGetOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this service binding last operation get o k response has a 3xx status code
+func (o *ServiceBindingLastOperationGetOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service binding last operation get o k response has a 4xx status code
+func (o *ServiceBindingLastOperationGetOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service binding last operation get o k response has a 5xx status code
+func (o *ServiceBindingLastOperationGetOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service binding last operation get o k response a status code equal to that given
+func (o *ServiceBindingLastOperationGetOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the service binding last operation get o k response
+func (o *ServiceBindingLastOperationGetOK) Code() int {
+	return 200
+}
+
 func (o *ServiceBindingLastOperationGetOK) Error() string {
 	return fmt.Sprintf("[GET /v2/service_instances/{instance_id}/service_bindings/{binding_id}/last_operation][%d] serviceBindingLastOperationGetOK  %+v", 200, o.Payload)
 }
+
+func (o *ServiceBindingLastOperationGetOK) String() string {
+	return fmt.Sprintf("[GET /v2/service_instances/{instance_id}/service_bindings/{binding_id}/last_operation][%d] serviceBindingLastOperationGetOK  %+v", 200, o.Payload)
+}
+
 func (o *ServiceBindingLastOperationGetOK) GetPayload() *models.LastOperationResource {
 	return o.Payload
 }
@@ -83,7 +119,8 @@ func NewServiceBindingLastOperationGetBadRequest() *ServiceBindingLastOperationG
 	return &ServiceBindingLastOperationGetBadRequest{}
 }
 
-/* ServiceBindingLastOperationGetBadRequest describes a response with status code 400, with default header values.
+/*
+ServiceBindingLastOperationGetBadRequest describes a response with status code 400, with default header values.
 
 Bad Request
 */
@@ -91,9 +128,44 @@ type ServiceBindingLastOperationGetBadRequest struct {
 	Payload *models.Error
 }
 
+// IsSuccess returns true when this service binding last operation get bad request response has a 2xx status code
+func (o *ServiceBindingLastOperationGetBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service binding last operation get bad request response has a 3xx status code
+func (o *ServiceBindingLastOperationGetBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service binding last operation get bad request response has a 4xx status code
+func (o *ServiceBindingLastOperationGetBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service binding last operation get bad request response has a 5xx status code
+func (o *ServiceBindingLastOperationGetBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service binding last operation get bad request response a status code equal to that given
+func (o *ServiceBindingLastOperationGetBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the service binding last operation get bad request response
+func (o *ServiceBindingLastOperationGetBadRequest) Code() int {
+	return 400
+}
+
 func (o *ServiceBindingLastOperationGetBadRequest) Error() string {
 	return fmt.Sprintf("[GET /v2/service_instances/{instance_id}/service_bindings/{binding_id}/last_operation][%d] serviceBindingLastOperationGetBadRequest  %+v", 400, o.Payload)
 }
+
+func (o *ServiceBindingLastOperationGetBadRequest) String() string {
+	return fmt.Sprintf("[GET /v2/service_instances/{instance_id}/service_bindings/{binding_id}/last_operation][%d] serviceBindingLastOperationGetBadRequest  %+v", 400, o.Payload)
+}
+
 func (o *ServiceBindingLastOperationGetBadRequest) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -115,7 +187,8 @@ func NewServiceBindingLastOperationGetGone() *ServiceBindingLastOperationGetGone
 	return &ServiceBindingLastOperationGetGone{}
 }
 
-/* ServiceBindingLastOperationGetGone describes a response with status code 410, with default header values.
+/*
+ServiceBindingLastOperationGetGone describes a response with status code 410, with default header values.
 
 Gone
 */
@@ -123,9 +196,44 @@ type ServiceBindingLastOperationGetGone struct {
 	Payload *models.Error
 }
 
+// IsSuccess returns true when this service binding last operation get gone response has a 2xx status code
+func (o *ServiceBindingLastOperationGetGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service binding last operation get gone response has a 3xx status code
+func (o *ServiceBindingLastOperationGetGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service binding last operation get gone response has a 4xx status code
+func (o *ServiceBindingLastOperationGetGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service binding last operation get gone response has a 5xx status code
+func (o *ServiceBindingLastOperationGetGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service binding last operation get gone response a status code equal to that given
+func (o *ServiceBindingLastOperationGetGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the service binding last operation get gone response
+func (o *ServiceBindingLastOperationGetGone) Code() int {
+	return 410
+}
+
 func (o *ServiceBindingLastOperationGetGone) Error() string {
 	return fmt.Sprintf("[GET /v2/service_instances/{instance_id}/service_bindings/{binding_id}/last_operation][%d] serviceBindingLastOperationGetGone  %+v", 410, o.Payload)
 }
+
+func (o *ServiceBindingLastOperationGetGone) String() string {
+	return fmt.Sprintf("[GET /v2/service_instances/{instance_id}/service_bindings/{binding_id}/last_operation][%d] serviceBindingLastOperationGetGone  %+v", 410, o.Payload)
+}
+
 func (o *ServiceBindingLastOperationGetGone) GetPayload() *models.Error {
 	return o.Payload
 }

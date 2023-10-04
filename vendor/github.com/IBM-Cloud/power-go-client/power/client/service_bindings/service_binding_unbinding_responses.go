@@ -48,7 +48,7 @@ func (o *ServiceBindingUnbindingReader) ReadResponse(response runtime.ClientResp
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}] serviceBinding.unbinding", response, response.Code())
 	}
 }
 
@@ -57,7 +57,8 @@ func NewServiceBindingUnbindingOK() *ServiceBindingUnbindingOK {
 	return &ServiceBindingUnbindingOK{}
 }
 
-/* ServiceBindingUnbindingOK describes a response with status code 200, with default header values.
+/*
+ServiceBindingUnbindingOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -65,9 +66,44 @@ type ServiceBindingUnbindingOK struct {
 	Payload models.Object
 }
 
+// IsSuccess returns true when this service binding unbinding o k response has a 2xx status code
+func (o *ServiceBindingUnbindingOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this service binding unbinding o k response has a 3xx status code
+func (o *ServiceBindingUnbindingOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service binding unbinding o k response has a 4xx status code
+func (o *ServiceBindingUnbindingOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service binding unbinding o k response has a 5xx status code
+func (o *ServiceBindingUnbindingOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service binding unbinding o k response a status code equal to that given
+func (o *ServiceBindingUnbindingOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the service binding unbinding o k response
+func (o *ServiceBindingUnbindingOK) Code() int {
+	return 200
+}
+
 func (o *ServiceBindingUnbindingOK) Error() string {
 	return fmt.Sprintf("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}][%d] serviceBindingUnbindingOK  %+v", 200, o.Payload)
 }
+
+func (o *ServiceBindingUnbindingOK) String() string {
+	return fmt.Sprintf("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}][%d] serviceBindingUnbindingOK  %+v", 200, o.Payload)
+}
+
 func (o *ServiceBindingUnbindingOK) GetPayload() models.Object {
 	return o.Payload
 }
@@ -87,7 +123,8 @@ func NewServiceBindingUnbindingAccepted() *ServiceBindingUnbindingAccepted {
 	return &ServiceBindingUnbindingAccepted{}
 }
 
-/* ServiceBindingUnbindingAccepted describes a response with status code 202, with default header values.
+/*
+ServiceBindingUnbindingAccepted describes a response with status code 202, with default header values.
 
 Accepted
 */
@@ -95,9 +132,44 @@ type ServiceBindingUnbindingAccepted struct {
 	Payload *models.AsyncOperation
 }
 
+// IsSuccess returns true when this service binding unbinding accepted response has a 2xx status code
+func (o *ServiceBindingUnbindingAccepted) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this service binding unbinding accepted response has a 3xx status code
+func (o *ServiceBindingUnbindingAccepted) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service binding unbinding accepted response has a 4xx status code
+func (o *ServiceBindingUnbindingAccepted) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service binding unbinding accepted response has a 5xx status code
+func (o *ServiceBindingUnbindingAccepted) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service binding unbinding accepted response a status code equal to that given
+func (o *ServiceBindingUnbindingAccepted) IsCode(code int) bool {
+	return code == 202
+}
+
+// Code gets the status code for the service binding unbinding accepted response
+func (o *ServiceBindingUnbindingAccepted) Code() int {
+	return 202
+}
+
 func (o *ServiceBindingUnbindingAccepted) Error() string {
 	return fmt.Sprintf("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}][%d] serviceBindingUnbindingAccepted  %+v", 202, o.Payload)
 }
+
+func (o *ServiceBindingUnbindingAccepted) String() string {
+	return fmt.Sprintf("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}][%d] serviceBindingUnbindingAccepted  %+v", 202, o.Payload)
+}
+
 func (o *ServiceBindingUnbindingAccepted) GetPayload() *models.AsyncOperation {
 	return o.Payload
 }
@@ -119,7 +191,8 @@ func NewServiceBindingUnbindingBadRequest() *ServiceBindingUnbindingBadRequest {
 	return &ServiceBindingUnbindingBadRequest{}
 }
 
-/* ServiceBindingUnbindingBadRequest describes a response with status code 400, with default header values.
+/*
+ServiceBindingUnbindingBadRequest describes a response with status code 400, with default header values.
 
 Bad Request
 */
@@ -127,9 +200,44 @@ type ServiceBindingUnbindingBadRequest struct {
 	Payload *models.Error
 }
 
+// IsSuccess returns true when this service binding unbinding bad request response has a 2xx status code
+func (o *ServiceBindingUnbindingBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service binding unbinding bad request response has a 3xx status code
+func (o *ServiceBindingUnbindingBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service binding unbinding bad request response has a 4xx status code
+func (o *ServiceBindingUnbindingBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service binding unbinding bad request response has a 5xx status code
+func (o *ServiceBindingUnbindingBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service binding unbinding bad request response a status code equal to that given
+func (o *ServiceBindingUnbindingBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the service binding unbinding bad request response
+func (o *ServiceBindingUnbindingBadRequest) Code() int {
+	return 400
+}
+
 func (o *ServiceBindingUnbindingBadRequest) Error() string {
 	return fmt.Sprintf("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}][%d] serviceBindingUnbindingBadRequest  %+v", 400, o.Payload)
 }
+
+func (o *ServiceBindingUnbindingBadRequest) String() string {
+	return fmt.Sprintf("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}][%d] serviceBindingUnbindingBadRequest  %+v", 400, o.Payload)
+}
+
 func (o *ServiceBindingUnbindingBadRequest) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -151,7 +259,8 @@ func NewServiceBindingUnbindingGone() *ServiceBindingUnbindingGone {
 	return &ServiceBindingUnbindingGone{}
 }
 
-/* ServiceBindingUnbindingGone describes a response with status code 410, with default header values.
+/*
+ServiceBindingUnbindingGone describes a response with status code 410, with default header values.
 
 Gone
 */
@@ -159,9 +268,44 @@ type ServiceBindingUnbindingGone struct {
 	Payload *models.Error
 }
 
+// IsSuccess returns true when this service binding unbinding gone response has a 2xx status code
+func (o *ServiceBindingUnbindingGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service binding unbinding gone response has a 3xx status code
+func (o *ServiceBindingUnbindingGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service binding unbinding gone response has a 4xx status code
+func (o *ServiceBindingUnbindingGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service binding unbinding gone response has a 5xx status code
+func (o *ServiceBindingUnbindingGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service binding unbinding gone response a status code equal to that given
+func (o *ServiceBindingUnbindingGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the service binding unbinding gone response
+func (o *ServiceBindingUnbindingGone) Code() int {
+	return 410
+}
+
 func (o *ServiceBindingUnbindingGone) Error() string {
 	return fmt.Sprintf("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}][%d] serviceBindingUnbindingGone  %+v", 410, o.Payload)
 }
+
+func (o *ServiceBindingUnbindingGone) String() string {
+	return fmt.Sprintf("[DELETE /v2/service_instances/{instance_id}/service_bindings/{binding_id}][%d] serviceBindingUnbindingGone  %+v", 410, o.Payload)
+}
+
 func (o *ServiceBindingUnbindingGone) GetPayload() *models.Error {
 	return o.Payload
 }

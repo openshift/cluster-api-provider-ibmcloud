@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/cluster-api/feature"
 )
@@ -58,6 +59,12 @@ func DefaultKubeadmConfigSpec(r *KubeadmConfigSpec) {
 	if r.Format == "" {
 		r.Format = CloudConfig
 	}
+	if r.InitConfiguration != nil && r.InitConfiguration.NodeRegistration.ImagePullPolicy == "" {
+		r.InitConfiguration.NodeRegistration.ImagePullPolicy = "IfNotPresent"
+	}
+	if r.JoinConfiguration != nil && r.JoinConfiguration.NodeRegistration.ImagePullPolicy == "" {
+		r.JoinConfiguration.NodeRegistration.ImagePullPolicy = "IfNotPresent"
+	}
 }
 
 // +kubebuilder:webhook:verbs=create;update,path=/validate-bootstrap-cluster-x-k8s-io-v1beta1-kubeadmconfig,mutating=false,failurePolicy=fail,matchPolicy=Equivalent,groups=bootstrap.cluster.x-k8s.io,resources=kubeadmconfigs,versions=v1beta1,name=validation.kubeadmconfig.bootstrap.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1;v1beta1
@@ -65,18 +72,18 @@ func DefaultKubeadmConfigSpec(r *KubeadmConfigSpec) {
 var _ webhook.Validator = &KubeadmConfig{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
-func (c *KubeadmConfig) ValidateCreate() error {
-	return c.Spec.validate(c.Name)
+func (c *KubeadmConfig) ValidateCreate() (admission.Warnings, error) {
+	return nil, c.Spec.validate(c.Name)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
-func (c *KubeadmConfig) ValidateUpdate(old runtime.Object) error {
-	return c.Spec.validate(c.Name)
+func (c *KubeadmConfig) ValidateUpdate(_ runtime.Object) (admission.Warnings, error) {
+	return nil, c.Spec.validate(c.Name)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
-func (c *KubeadmConfig) ValidateDelete() error {
-	return nil
+func (c *KubeadmConfig) ValidateDelete() (admission.Warnings, error) {
+	return nil, nil
 }
 
 func (c *KubeadmConfigSpec) validate(name string) error {

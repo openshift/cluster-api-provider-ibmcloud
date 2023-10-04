@@ -36,7 +36,7 @@ func (o *ServiceBrokerHardwareplatformsGetReader) ReadResponse(response runtime.
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /broker/v1/hardware-platforms] serviceBroker.hardwareplatforms.get", response, response.Code())
 	}
 }
 
@@ -45,7 +45,8 @@ func NewServiceBrokerHardwareplatformsGetOK() *ServiceBrokerHardwareplatformsGet
 	return &ServiceBrokerHardwareplatformsGetOK{}
 }
 
-/* ServiceBrokerHardwareplatformsGetOK describes a response with status code 200, with default header values.
+/*
+ServiceBrokerHardwareplatformsGetOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -53,9 +54,44 @@ type ServiceBrokerHardwareplatformsGetOK struct {
 	Payload models.HardwarePlatforms
 }
 
+// IsSuccess returns true when this service broker hardwareplatforms get o k response has a 2xx status code
+func (o *ServiceBrokerHardwareplatformsGetOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this service broker hardwareplatforms get o k response has a 3xx status code
+func (o *ServiceBrokerHardwareplatformsGetOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker hardwareplatforms get o k response has a 4xx status code
+func (o *ServiceBrokerHardwareplatformsGetOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service broker hardwareplatforms get o k response has a 5xx status code
+func (o *ServiceBrokerHardwareplatformsGetOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker hardwareplatforms get o k response a status code equal to that given
+func (o *ServiceBrokerHardwareplatformsGetOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the service broker hardwareplatforms get o k response
+func (o *ServiceBrokerHardwareplatformsGetOK) Code() int {
+	return 200
+}
+
 func (o *ServiceBrokerHardwareplatformsGetOK) Error() string {
 	return fmt.Sprintf("[GET /broker/v1/hardware-platforms][%d] serviceBrokerHardwareplatformsGetOK  %+v", 200, o.Payload)
 }
+
+func (o *ServiceBrokerHardwareplatformsGetOK) String() string {
+	return fmt.Sprintf("[GET /broker/v1/hardware-platforms][%d] serviceBrokerHardwareplatformsGetOK  %+v", 200, o.Payload)
+}
+
 func (o *ServiceBrokerHardwareplatformsGetOK) GetPayload() models.HardwarePlatforms {
 	return o.Payload
 }
@@ -75,7 +111,8 @@ func NewServiceBrokerHardwareplatformsGetInternalServerError() *ServiceBrokerHar
 	return &ServiceBrokerHardwareplatformsGetInternalServerError{}
 }
 
-/* ServiceBrokerHardwareplatformsGetInternalServerError describes a response with status code 500, with default header values.
+/*
+ServiceBrokerHardwareplatformsGetInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -83,9 +120,44 @@ type ServiceBrokerHardwareplatformsGetInternalServerError struct {
 	Payload *models.Error
 }
 
+// IsSuccess returns true when this service broker hardwareplatforms get internal server error response has a 2xx status code
+func (o *ServiceBrokerHardwareplatformsGetInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service broker hardwareplatforms get internal server error response has a 3xx status code
+func (o *ServiceBrokerHardwareplatformsGetInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker hardwareplatforms get internal server error response has a 4xx status code
+func (o *ServiceBrokerHardwareplatformsGetInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service broker hardwareplatforms get internal server error response has a 5xx status code
+func (o *ServiceBrokerHardwareplatformsGetInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this service broker hardwareplatforms get internal server error response a status code equal to that given
+func (o *ServiceBrokerHardwareplatformsGetInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the service broker hardwareplatforms get internal server error response
+func (o *ServiceBrokerHardwareplatformsGetInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ServiceBrokerHardwareplatformsGetInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /broker/v1/hardware-platforms][%d] serviceBrokerHardwareplatformsGetInternalServerError  %+v", 500, o.Payload)
 }
+
+func (o *ServiceBrokerHardwareplatformsGetInternalServerError) String() string {
+	return fmt.Sprintf("[GET /broker/v1/hardware-platforms][%d] serviceBrokerHardwareplatformsGetInternalServerError  %+v", 500, o.Payload)
+}
+
 func (o *ServiceBrokerHardwareplatformsGetInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }

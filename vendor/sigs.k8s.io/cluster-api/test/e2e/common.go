@@ -22,9 +22,11 @@ import (
 	"path/filepath"
 
 	"github.com/blang/semver"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/test/framework"
@@ -77,8 +79,18 @@ func dumpSpecResourcesAndCleanup(ctx context.Context, specName string, clusterPr
 		LogPath:   filepath.Join(artifactFolder, "clusters", clusterProxy.GetName(), "resources"),
 	})
 
+	// If the cluster still exists, dump kube-system pods of the workload cluster before deleting the cluster.
+	if err := clusterProxy.GetClient().Get(ctx, client.ObjectKeyFromObject(cluster), &clusterv1.Cluster{}); err == nil {
+		Byf("Dumping kube-system Pods of Cluster %s", klog.KObj(cluster))
+		framework.DumpKubeSystemPodsForCluster(ctx, framework.DumpKubeSystemPodsForClusterInput{
+			Lister:  clusterProxy.GetWorkloadCluster(ctx, cluster.Namespace, cluster.Name).GetClient(),
+			Cluster: cluster,
+			LogPath: filepath.Join(artifactFolder, "clusters", cluster.Name, "resources"),
+		})
+	}
+
 	if !skipCleanup {
-		Byf("Deleting cluster %s/%s", cluster.Namespace, cluster.Name)
+		Byf("Deleting cluster %s", klog.KObj(cluster))
 		// While https://github.com/kubernetes-sigs/cluster-api/issues/2955 is addressed in future iterations, there is a chance
 		// that cluster variable is not set even if the cluster exists, so we are calling DeleteAllClustersAndWait
 		// instead of DeleteClusterAndWait
@@ -103,17 +115,17 @@ func HaveValidVersion(version string) types.GomegaMatcher {
 
 type validVersionMatcher struct{ version string }
 
-func (m *validVersionMatcher) Match(actual interface{}) (success bool, err error) {
+func (m *validVersionMatcher) Match(_ interface{}) (success bool, err error) {
 	if _, err := semver.ParseTolerant(m.version); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func (m *validVersionMatcher) FailureMessage(actual interface{}) (message string) {
+func (m *validVersionMatcher) FailureMessage(_ interface{}) (message string) {
 	return fmt.Sprintf("Expected\n%s\n%s", m.version, " to be a valid version ")
 }
 
-func (m *validVersionMatcher) NegatedFailureMessage(actual interface{}) (message string) {
+func (m *validVersionMatcher) NegatedFailureMessage(_ interface{}) (message string) {
 	return fmt.Sprintf("Expected\n%s\n%s", m.version, " not to be a valid version ")
 }

@@ -25,7 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-var errNotFound = errors.New("not found")
+// ErrFieldNotFound is returned when a field is not found in the object.
+var ErrFieldNotFound = errors.New("field not found")
 
 // Path defines a how to access a field in an Unstructured object.
 type Path []string
@@ -88,7 +89,7 @@ func (i *Int64) Get(obj *unstructured.Unstructured) (*int64, error) {
 		return nil, errors.Wrapf(err, "failed to get %s from object", "."+strings.Join(i.path, "."))
 	}
 	if !ok {
-		return nil, errors.Wrapf(errNotFound, "path %s", "."+strings.Join(i.path, "."))
+		return nil, errors.Wrapf(ErrFieldNotFound, "path %s", "."+strings.Join(i.path, "."))
 	}
 	return &value, nil
 }
@@ -97,6 +98,36 @@ func (i *Int64) Get(obj *unstructured.Unstructured) (*int64, error) {
 func (i *Int64) Set(obj *unstructured.Unstructured, value int64) error {
 	if err := unstructured.SetNestedField(obj.UnstructuredContent(), value, i.path...); err != nil {
 		return errors.Wrapf(err, "failed to set path %s of object %v", "."+strings.Join(i.path, "."), obj.GroupVersionKind())
+	}
+	return nil
+}
+
+// Bool represents an accessor to an bool path value.
+type Bool struct {
+	path Path
+}
+
+// Path returns the path to the bool value.
+func (b *Bool) Path() Path {
+	return b.path
+}
+
+// Get gets the bool value.
+func (b *Bool) Get(obj *unstructured.Unstructured) (*bool, error) {
+	value, ok, err := unstructured.NestedBool(obj.UnstructuredContent(), b.path...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get %s from object", "."+strings.Join(b.path, "."))
+	}
+	if !ok {
+		return nil, errors.Wrapf(ErrFieldNotFound, "path %s", "."+strings.Join(b.path, "."))
+	}
+	return &value, nil
+}
+
+// Set sets the bool value in the path.
+func (b *Bool) Set(obj *unstructured.Unstructured, value bool) error {
+	if err := unstructured.SetNestedField(obj.UnstructuredContent(), value, b.path...); err != nil {
+		return errors.Wrapf(err, "failed to set path %s of object %v", "."+strings.Join(b.path, "."), obj.GroupVersionKind())
 	}
 	return nil
 }
@@ -118,7 +149,7 @@ func (s *String) Get(obj *unstructured.Unstructured) (*string, error) {
 		return nil, errors.Wrapf(err, "failed to get %s from object", "."+strings.Join(s.path, "."))
 	}
 	if !ok {
-		return nil, errors.Wrapf(errNotFound, "path %s", "."+strings.Join(s.path, "."))
+		return nil, errors.Wrapf(ErrFieldNotFound, "path %s", "."+strings.Join(s.path, "."))
 	}
 	return &value, nil
 }
@@ -148,7 +179,7 @@ func (i *Duration) Get(obj *unstructured.Unstructured) (*metav1.Duration, error)
 		return nil, errors.Wrapf(err, "failed to get %s from object", "."+strings.Join(i.path, "."))
 	}
 	if !ok {
-		return nil, errors.Wrapf(errNotFound, "path %s", "."+strings.Join(i.path, "."))
+		return nil, errors.Wrapf(ErrFieldNotFound, "path %s", "."+strings.Join(i.path, "."))
 	}
 
 	d := &metav1.Duration{}

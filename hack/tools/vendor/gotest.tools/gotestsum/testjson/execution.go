@@ -109,6 +109,11 @@ type Package struct {
 	// shuffleSeed is the seed used to shuffle the tests. The value is set when
 	// tests are run with -shuffle
 	shuffleSeed string
+
+	// testTimeoutPanicInTest stores the name of a test that received the panic
+	// output caused by a test timeout. This is necessary to work around a race
+	// condition in test2json. See https://github.com/golang/go/issues/57305.
+	testTimeoutPanicInTest string
 }
 
 // Result returns if the package passed, failed, or was skipped because there
@@ -146,11 +151,22 @@ func (p *Package) LastFailedByName(name string) TestCase {
 	return TestCase{}
 }
 
-// Output returns the full test output for a test.
+// Output returns the full test output for a test. Unlike OutputLines() it does
+// not return lines from subtests in some cases.
 //
-// Unlike OutputLines() it does not return lines from subtests in some cases.
+// Deprecated: use WriteOutputTo to avoid lots of allocation
 func (p *Package) Output(id int) string {
 	return strings.Join(p.output[id], "")
+}
+
+// WriteOutputTo writes the output for TestCase with id to out.
+func (p *Package) WriteOutputTo(out io.StringWriter, id int) error {
+	for _, v := range p.output[id] {
+		if _, err := out.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // OutputLines returns the full test output for a test as a slice of strings.
@@ -230,6 +246,11 @@ func tcIDSet(skipped []TestCase) map[int]struct{} {
 // This may occur if the package init() or TestMain exited non-zero.
 func (p *Package) TestMainFailed() bool {
 	return p.action == ActionFail && len(p.Failed) == 0
+}
+
+// IsEmpty returns true if this package contains no tests.
+func (p *Package) IsEmpty() bool {
+	return p.Total == 0 && !p.TestMainFailed()
 }
 
 const neverFinished time.Duration = -1
@@ -344,8 +365,8 @@ func (p *Package) addEvent(event TestEvent) {
 		p.action = event.Action
 		p.elapsed = elapsedDuration(event.Elapsed)
 	case ActionOutput:
-		if isCoverageOutput(event.Output) {
-			p.coverage = strings.TrimRight(event.Output, "\n")
+		if coverage, ok := isCoverageOutput(event.Output); ok {
+			p.coverage = coverage
 		}
 		if strings.Contains(event.Output, "\t(cached)") {
 			p.cached = true
@@ -393,6 +414,14 @@ func (p *Package) addTestEvent(event TestEvent) {
 
 	switch event.Action {
 	case ActionOutput, ActionBench:
+		if strings.HasPrefix(event.Output, "panic: test timed out") {
+			p.testTimeoutPanicInTest = event.Test
+		}
+		if p.testTimeoutPanicInTest == event.Test {
+			p.addOutput(0, event.Output)
+			return
+		}
+
 		tc := p.running[event.Test]
 		p.addOutput(tc.ID, event.Output)
 		return
@@ -437,10 +466,22 @@ func elapsedDuration(elapsed float64) time.Duration {
 	return time.Duration(elapsed*1000) * time.Millisecond
 }
 
-func isCoverageOutput(output string) bool {
-	return all(
-		strings.HasPrefix(output, "coverage:"),
-		strings.Contains(output, "% of statements"))
+func isCoverageOutput(output string) (string, bool) {
+	start := strings.Index(output, "coverage:")
+	if start < 0 {
+		return "", false
+	}
+
+	if !strings.Contains(output[start:], "% of statements") {
+		return "", false
+	}
+
+	return strings.TrimRight(output[start:], "\n"), true
+}
+
+func isCoverageOutputPreGo119(output string) bool {
+	return strings.HasPrefix(output, "coverage:") &&
+		strings.HasSuffix(output, "% of statements\n")
 }
 
 func isShuffleSeedOutput(output string) bool {
@@ -486,8 +527,10 @@ func (e *Execution) Failed() []TestCase {
 	for _, name := range sortedKeys(e.packages) {
 		pkg := e.packages[name]
 
-		// Add package-level failure output if there were no failed tests.
-		if pkg.TestMainFailed() {
+		// Add package-level failure output if there were no failed tests, or
+		// if the test timeout was reached (because we now have to store that
+		// output on the package).
+		if pkg.TestMainFailed() || pkg.testTimeoutPanicInTest != "" {
 			failed = append(failed, TestCase{Package: name})
 		}
 		failed = append(failed, pkg.Failed...)
@@ -703,7 +746,7 @@ func readStderr(config ScanConfig, execution *Execution) error {
 		if err := config.Handler.Err(line); err != nil {
 			return fmt.Errorf("failed to handle stderr: %v", err)
 		}
-		if isGoModuleOutput(line) {
+		if isGoModuleOutput(line) || isGoDebugOutput(line) {
 			continue
 		}
 		if strings.HasPrefix(line, "warning:") {
@@ -711,6 +754,7 @@ func readStderr(config ScanConfig, execution *Execution) error {
 		}
 		execution.addError(line)
 	}
+
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("failed to scan stderr: %v", err)
 	}
@@ -724,6 +768,20 @@ func isGoModuleOutput(scannerText string) bool {
 		"go: downloading",
 		"go: extracting",
 		"go: finding",
+	}
+
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(scannerText, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isGoDebugOutput(scannerText string) bool {
+	prefixes := []string{
+		"HASH",       // Printed when tests are running with `GODEBUG=gocachehash=1`.
+		"testcache:", // Printed when tests are running with `GODEBUG=gocachetest=1`.
 	}
 
 	for _, prefix := range prefixes {

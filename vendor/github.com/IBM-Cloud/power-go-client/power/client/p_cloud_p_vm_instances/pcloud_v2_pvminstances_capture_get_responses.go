@@ -48,7 +48,7 @@ func (o *PcloudV2PvminstancesCaptureGetReader) ReadResponse(response runtime.Cli
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture] pcloud.v2.pvminstances.capture.get", response, response.Code())
 	}
 }
 
@@ -57,7 +57,8 @@ func NewPcloudV2PvminstancesCaptureGetOK() *PcloudV2PvminstancesCaptureGetOK {
 	return &PcloudV2PvminstancesCaptureGetOK{}
 }
 
-/* PcloudV2PvminstancesCaptureGetOK describes a response with status code 200, with default header values.
+/*
+PcloudV2PvminstancesCaptureGetOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -65,9 +66,44 @@ type PcloudV2PvminstancesCaptureGetOK struct {
 	Payload *models.Job
 }
 
+// IsSuccess returns true when this pcloud v2 pvminstances capture get o k response has a 2xx status code
+func (o *PcloudV2PvminstancesCaptureGetOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this pcloud v2 pvminstances capture get o k response has a 3xx status code
+func (o *PcloudV2PvminstancesCaptureGetOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud v2 pvminstances capture get o k response has a 4xx status code
+func (o *PcloudV2PvminstancesCaptureGetOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud v2 pvminstances capture get o k response has a 5xx status code
+func (o *PcloudV2PvminstancesCaptureGetOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud v2 pvminstances capture get o k response a status code equal to that given
+func (o *PcloudV2PvminstancesCaptureGetOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the pcloud v2 pvminstances capture get o k response
+func (o *PcloudV2PvminstancesCaptureGetOK) Code() int {
+	return 200
+}
+
 func (o *PcloudV2PvminstancesCaptureGetOK) Error() string {
 	return fmt.Sprintf("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudV2PvminstancesCaptureGetOK  %+v", 200, o.Payload)
 }
+
+func (o *PcloudV2PvminstancesCaptureGetOK) String() string {
+	return fmt.Sprintf("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudV2PvminstancesCaptureGetOK  %+v", 200, o.Payload)
+}
+
 func (o *PcloudV2PvminstancesCaptureGetOK) GetPayload() *models.Job {
 	return o.Payload
 }
@@ -89,7 +125,8 @@ func NewPcloudV2PvminstancesCaptureGetUnauthorized() *PcloudV2PvminstancesCaptur
 	return &PcloudV2PvminstancesCaptureGetUnauthorized{}
 }
 
-/* PcloudV2PvminstancesCaptureGetUnauthorized describes a response with status code 401, with default header values.
+/*
+PcloudV2PvminstancesCaptureGetUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized
 */
@@ -97,9 +134,44 @@ type PcloudV2PvminstancesCaptureGetUnauthorized struct {
 	Payload *models.Error
 }
 
+// IsSuccess returns true when this pcloud v2 pvminstances capture get unauthorized response has a 2xx status code
+func (o *PcloudV2PvminstancesCaptureGetUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud v2 pvminstances capture get unauthorized response has a 3xx status code
+func (o *PcloudV2PvminstancesCaptureGetUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud v2 pvminstances capture get unauthorized response has a 4xx status code
+func (o *PcloudV2PvminstancesCaptureGetUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud v2 pvminstances capture get unauthorized response has a 5xx status code
+func (o *PcloudV2PvminstancesCaptureGetUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud v2 pvminstances capture get unauthorized response a status code equal to that given
+func (o *PcloudV2PvminstancesCaptureGetUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the pcloud v2 pvminstances capture get unauthorized response
+func (o *PcloudV2PvminstancesCaptureGetUnauthorized) Code() int {
+	return 401
+}
+
 func (o *PcloudV2PvminstancesCaptureGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudV2PvminstancesCaptureGetUnauthorized  %+v", 401, o.Payload)
 }
+
+func (o *PcloudV2PvminstancesCaptureGetUnauthorized) String() string {
+	return fmt.Sprintf("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudV2PvminstancesCaptureGetUnauthorized  %+v", 401, o.Payload)
+}
+
 func (o *PcloudV2PvminstancesCaptureGetUnauthorized) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -121,7 +193,8 @@ func NewPcloudV2PvminstancesCaptureGetNotFound() *PcloudV2PvminstancesCaptureGet
 	return &PcloudV2PvminstancesCaptureGetNotFound{}
 }
 
-/* PcloudV2PvminstancesCaptureGetNotFound describes a response with status code 404, with default header values.
+/*
+PcloudV2PvminstancesCaptureGetNotFound describes a response with status code 404, with default header values.
 
 Not Found
 */
@@ -129,9 +202,44 @@ type PcloudV2PvminstancesCaptureGetNotFound struct {
 	Payload *models.Error
 }
 
+// IsSuccess returns true when this pcloud v2 pvminstances capture get not found response has a 2xx status code
+func (o *PcloudV2PvminstancesCaptureGetNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud v2 pvminstances capture get not found response has a 3xx status code
+func (o *PcloudV2PvminstancesCaptureGetNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud v2 pvminstances capture get not found response has a 4xx status code
+func (o *PcloudV2PvminstancesCaptureGetNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud v2 pvminstances capture get not found response has a 5xx status code
+func (o *PcloudV2PvminstancesCaptureGetNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud v2 pvminstances capture get not found response a status code equal to that given
+func (o *PcloudV2PvminstancesCaptureGetNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the pcloud v2 pvminstances capture get not found response
+func (o *PcloudV2PvminstancesCaptureGetNotFound) Code() int {
+	return 404
+}
+
 func (o *PcloudV2PvminstancesCaptureGetNotFound) Error() string {
 	return fmt.Sprintf("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudV2PvminstancesCaptureGetNotFound  %+v", 404, o.Payload)
 }
+
+func (o *PcloudV2PvminstancesCaptureGetNotFound) String() string {
+	return fmt.Sprintf("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudV2PvminstancesCaptureGetNotFound  %+v", 404, o.Payload)
+}
+
 func (o *PcloudV2PvminstancesCaptureGetNotFound) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -153,7 +261,8 @@ func NewPcloudV2PvminstancesCaptureGetInternalServerError() *PcloudV2Pvminstance
 	return &PcloudV2PvminstancesCaptureGetInternalServerError{}
 }
 
-/* PcloudV2PvminstancesCaptureGetInternalServerError describes a response with status code 500, with default header values.
+/*
+PcloudV2PvminstancesCaptureGetInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -161,9 +270,44 @@ type PcloudV2PvminstancesCaptureGetInternalServerError struct {
 	Payload *models.Error
 }
 
+// IsSuccess returns true when this pcloud v2 pvminstances capture get internal server error response has a 2xx status code
+func (o *PcloudV2PvminstancesCaptureGetInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud v2 pvminstances capture get internal server error response has a 3xx status code
+func (o *PcloudV2PvminstancesCaptureGetInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud v2 pvminstances capture get internal server error response has a 4xx status code
+func (o *PcloudV2PvminstancesCaptureGetInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud v2 pvminstances capture get internal server error response has a 5xx status code
+func (o *PcloudV2PvminstancesCaptureGetInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud v2 pvminstances capture get internal server error response a status code equal to that given
+func (o *PcloudV2PvminstancesCaptureGetInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the pcloud v2 pvminstances capture get internal server error response
+func (o *PcloudV2PvminstancesCaptureGetInternalServerError) Code() int {
+	return 500
+}
+
 func (o *PcloudV2PvminstancesCaptureGetInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudV2PvminstancesCaptureGetInternalServerError  %+v", 500, o.Payload)
 }
+
+func (o *PcloudV2PvminstancesCaptureGetInternalServerError) String() string {
+	return fmt.Sprintf("[GET /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudV2PvminstancesCaptureGetInternalServerError  %+v", 500, o.Payload)
+}
+
 func (o *PcloudV2PvminstancesCaptureGetInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }

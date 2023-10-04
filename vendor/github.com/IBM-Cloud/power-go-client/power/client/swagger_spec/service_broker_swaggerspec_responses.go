@@ -30,7 +30,7 @@ func (o *ServiceBrokerSwaggerspecReader) ReadResponse(response runtime.ClientRes
 		}
 		return result, nil
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /v1/swagger.json] serviceBroker.swaggerspec", response, response.Code())
 	}
 }
 
@@ -39,7 +39,8 @@ func NewServiceBrokerSwaggerspecOK() *ServiceBrokerSwaggerspecOK {
 	return &ServiceBrokerSwaggerspecOK{}
 }
 
-/* ServiceBrokerSwaggerspecOK describes a response with status code 200, with default header values.
+/*
+ServiceBrokerSwaggerspecOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -47,9 +48,44 @@ type ServiceBrokerSwaggerspecOK struct {
 	Payload models.Object
 }
 
+// IsSuccess returns true when this service broker swaggerspec o k response has a 2xx status code
+func (o *ServiceBrokerSwaggerspecOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this service broker swaggerspec o k response has a 3xx status code
+func (o *ServiceBrokerSwaggerspecOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker swaggerspec o k response has a 4xx status code
+func (o *ServiceBrokerSwaggerspecOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service broker swaggerspec o k response has a 5xx status code
+func (o *ServiceBrokerSwaggerspecOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker swaggerspec o k response a status code equal to that given
+func (o *ServiceBrokerSwaggerspecOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the service broker swaggerspec o k response
+func (o *ServiceBrokerSwaggerspecOK) Code() int {
+	return 200
+}
+
 func (o *ServiceBrokerSwaggerspecOK) Error() string {
 	return fmt.Sprintf("[GET /v1/swagger.json][%d] serviceBrokerSwaggerspecOK  %+v", 200, o.Payload)
 }
+
+func (o *ServiceBrokerSwaggerspecOK) String() string {
+	return fmt.Sprintf("[GET /v1/swagger.json][%d] serviceBrokerSwaggerspecOK  %+v", 200, o.Payload)
+}
+
 func (o *ServiceBrokerSwaggerspecOK) GetPayload() models.Object {
 	return o.Payload
 }

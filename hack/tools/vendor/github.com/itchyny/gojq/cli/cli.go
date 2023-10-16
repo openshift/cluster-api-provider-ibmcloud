@@ -17,7 +17,7 @@ import (
 
 const name = "gojq"
 
-const version = "0.12.9"
+const version = "0.12.13"
 
 var revision = "HEAD"
 
@@ -35,51 +35,51 @@ type cli struct {
 	outStream io.Writer
 	errStream io.Writer
 
-	outputCompact bool
 	outputRaw     bool
 	outputJoin    bool
 	outputNul     bool
-	outputYAML    bool
+	outputCompact bool
 	outputIndent  *int
 	outputTab     bool
+	outputYAML    bool
 	inputRaw      bool
-	inputSlurp    bool
 	inputStream   bool
 	inputYAML     bool
+	inputSlurp    bool
 
 	argnames  []string
-	argvalues []interface{}
+	argvalues []any
 
 	outputYAMLSeparator bool
 	exitCodeError       error
 }
 
 type flagopts struct {
-	OutputCompact bool              `short:"c" long:"compact-output" description:"compact output"`
 	OutputRaw     bool              `short:"r" long:"raw-output" description:"output raw strings"`
-	OutputJoin    bool              `short:"j" long:"join-output" description:"stop printing a newline after each output"`
-	OutputNul     bool              `short:"0" long:"nul-output" description:"print NUL after each output"`
-	OutputColor   bool              `short:"C" long:"color-output" description:"colorize output even if piped"`
-	OutputMono    bool              `short:"M" long:"monochrome-output" description:"stop colorizing output"`
-	OutputYAML    bool              `long:"yaml-output" description:"output by YAML"`
+	OutputJoin    bool              `short:"j" long:"join-output" description:"output without newlines"`
+	OutputNul     bool              `short:"0" long:"nul-output" description:"output with NUL character"`
+	OutputCompact bool              `short:"c" long:"compact-output" description:"output without pretty-printing"`
 	OutputIndent  *int              `long:"indent" description:"number of spaces for indentation"`
 	OutputTab     bool              `long:"tab" description:"use tabs for indentation"`
+	OutputYAML    bool              `long:"yaml-output" description:"output in YAML format"`
+	OutputColor   bool              `short:"C" long:"color-output" description:"output with colors even if piped"`
+	OutputMono    bool              `short:"M" long:"monochrome-output" description:"output without colors"`
 	InputNull     bool              `short:"n" long:"null-input" description:"use null as input value"`
 	InputRaw      bool              `short:"R" long:"raw-input" description:"read input as raw strings"`
-	InputSlurp    bool              `short:"s" long:"slurp" description:"read all inputs into an array"`
 	InputStream   bool              `long:"stream" description:"parse input in stream fashion"`
-	InputYAML     bool              `long:"yaml-input" description:"read input as YAML"`
+	InputYAML     bool              `long:"yaml-input" description:"read input as YAML format"`
+	InputSlurp    bool              `short:"s" long:"slurp" description:"read all inputs into an array"`
 	FromFile      string            `short:"f" long:"from-file" description:"load query from file"`
 	ModulePaths   []string          `short:"L" description:"directory to search modules from"`
-	Arg           map[string]string `long:"arg" description:"set variable to string value"`
-	ArgJSON       map[string]string `long:"argjson" description:"set variable to JSON value"`
-	SlurpFile     map[string]string `long:"slurpfile" description:"set variable to the JSON contents of the file"`
-	RawFile       map[string]string `long:"rawfile" description:"set variable to the contents of the file"`
-	Args          []interface{}     `long:"args" positional:"" description:"consume remaining arguments as positional string values"`
-	JSONArgs      []interface{}     `long:"jsonargs" positional:"" description:"consume remaining arguments as positional JSON values"`
+	Arg           map[string]string `long:"arg" description:"set a string value to a variable"`
+	ArgJSON       map[string]string `long:"argjson" description:"set a JSON value to a variable"`
+	SlurpFile     map[string]string `long:"slurpfile" description:"set the JSON contents of a file to a variable"`
+	RawFile       map[string]string `long:"rawfile" description:"set the contents of a file to a variable"`
+	Args          []any             `long:"args" positional:"" description:"consume remaining arguments as positional string values"`
+	JSONArgs      []any             `long:"jsonargs" positional:"" description:"consume remaining arguments as positional JSON values"`
 	ExitStatus    bool              `short:"e" long:"exit-status" description:"exit 1 when the last value is false or null"`
-	Version       bool              `short:"v" long:"version" description:"print version"`
-	Help          bool              `short:"h" long:"help" description:"print this help"`
+	Version       bool              `short:"v" long:"version" description:"display version information"`
+	Help          bool              `short:"h" long:"help" description:"display this help information"`
 }
 
 var addDefaultModulePaths = true
@@ -121,10 +121,10 @@ Usage:
 		fmt.Fprintf(cli.outStream, "%s %s (rev: %s/%s)\n", name, version, revision, runtime.Version())
 		return nil
 	}
-	cli.outputCompact, cli.outputRaw, cli.outputJoin, cli.outputNul,
-		cli.outputYAML, cli.outputIndent, cli.outputTab =
-		opts.OutputCompact, opts.OutputRaw, opts.OutputJoin, opts.OutputNul,
-		opts.OutputYAML, opts.OutputIndent, opts.OutputTab
+	cli.outputRaw, cli.outputJoin, cli.outputNul,
+		cli.outputCompact, cli.outputIndent, cli.outputTab, cli.outputYAML =
+		opts.OutputRaw, opts.OutputJoin, opts.OutputNul,
+		opts.OutputCompact, opts.OutputIndent, opts.OutputTab, opts.OutputYAML
 	defer func(x bool) { noColor = x }(noColor)
 	if opts.OutputColor || opts.OutputMono {
 		noColor = opts.OutputMono
@@ -151,8 +151,8 @@ Usage:
 	if opts.OutputYAML && opts.OutputTab {
 		return errors.New("cannot use tabs for YAML output")
 	}
-	cli.inputRaw, cli.inputSlurp, cli.inputStream, cli.inputYAML =
-		opts.InputRaw, opts.InputSlurp, opts.InputStream, opts.InputYAML
+	cli.inputRaw, cli.inputStream, cli.inputYAML, cli.inputSlurp =
+		opts.InputRaw, opts.InputStream, opts.InputYAML, opts.InputSlurp
 	for k, v := range opts.Arg {
 		cli.argnames = append(cli.argnames, "$"+k)
 		cli.argvalues = append(cli.argvalues, v)
@@ -181,7 +181,7 @@ Usage:
 		cli.argnames = append(cli.argnames, "$"+k)
 		cli.argvalues = append(cli.argvalues, string(val))
 	}
-	named := make(map[string]interface{}, len(cli.argnames))
+	named := make(map[string]any, len(cli.argnames))
 	for i, name := range cli.argnames {
 		named[name[1:]] = cli.argvalues[i]
 	}
@@ -200,7 +200,7 @@ Usage:
 		}
 	}
 	cli.argnames = append(cli.argnames, "$ARGS")
-	cli.argvalues = append(cli.argvalues, map[string]interface{}{
+	cli.argvalues = append(cli.argvalues, map[string]any{
 		"named":      named,
 		"positional": positional,
 	})
@@ -242,8 +242,8 @@ Usage:
 		gojq.WithFunction("debug", 0, 0, cli.funcDebug),
 		gojq.WithFunction("stderr", 0, 0, cli.funcStderr),
 		gojq.WithFunction("input_filename", 0, 0,
-			func(iter inputIter) func(interface{}, []interface{}) interface{} {
-				return func(interface{}, []interface{}) interface{} {
+			func(iter inputIter) func(any, []any) any {
+				return func(any, []any) any {
 					if fname := iter.Name(); fname != "" && (len(args) > 0 || !opts.InputNull) {
 						return fname
 					}
@@ -291,7 +291,7 @@ func listDefaultModulePaths() []string {
 	return modulePaths
 }
 
-func slurpFile(name string) (interface{}, error) {
+func slurpFile(name string) (any, error) {
 	iter := newSlurpInputIter(
 		newFilesInputIter(newJSONInputIter, []string{name}, nil),
 	)
@@ -408,14 +408,20 @@ func (cli *cli) createMarshaler() marshaler {
 	return f
 }
 
-func (cli *cli) funcDebug(v interface{}, _ []interface{}) interface{} {
-	newEncoder(false, 0).marshal([]interface{}{"DEBUG:", v}, cli.errStream)
-	cli.errStream.Write([]byte{'\n'})
+func (cli *cli) funcDebug(v any, _ []any) any {
+	if err := newEncoder(false, 0).marshal([]any{"DEBUG:", v}, cli.errStream); err != nil {
+		return err
+	}
+	if _, err := cli.errStream.Write([]byte{'\n'}); err != nil {
+		return err
+	}
 	return v
 }
 
-func (cli *cli) funcStderr(v interface{}, _ []interface{}) interface{} {
-	newEncoder(false, 0).marshal(v, cli.errStream)
+func (cli *cli) funcStderr(v any, _ []any) any {
+	if err := newEncoder(false, 0).marshal(v, cli.errStream); err != nil {
+		return err
+	}
 	return v
 }
 

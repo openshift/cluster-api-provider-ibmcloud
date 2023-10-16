@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.1-experimental
+# syntax=docker/dockerfile:1.5
 
 # Copyright 2022 The Kubernetes Authors.
 #
@@ -18,7 +18,7 @@ ARG TARGETPLATFORM=linux/amd64
 ARG ARCH=amd64
 
 # Build IBM cloud controller manager binary
-FROM golang:1.20.4 AS ccm-builder
+FROM golang:1.20.7 AS ccm-builder
 ARG ARCH
 ARG POWERVS_CLOUD_CONTROLLER_COMMIT
 WORKDIR /build

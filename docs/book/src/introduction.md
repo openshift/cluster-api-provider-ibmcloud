@@ -1,8 +1,7 @@
 # Kubernetes Cluster API Provider IBM Cloud
 
 <p align="center">
-<img src="https://github.com/kubernetes/kubernetes/raw/master/logo/logo.png"  width="100x"> 
-<img src="../images/ibm-cloud.svg" height="100x" width="200x" alt="IBM Cloud">
+<img src="../images/k8s-ibm-cloud.png" alt="Kubernetes Cluster API Provider IBM Cloud">
 </p>
 
 ------
@@ -10,13 +9,31 @@
 
 ## What is the Cluster API Provider IBM Cloud
 
-
 The [Cluster API](https://github.com/kubernetes-sigs/cluster-api) brings declarative, Kubernetes-style APIs to cluster creation, configuration and management.
 
 The API itself is shared across multiple cloud providers allowing for true IBM Cloud
 hybrid deployments of Kubernetes.  It is built atop the lessons learned from
 previous cluster managers such as [kops](https://github.com/kubernetes/kops) and
 [kubicorn](http://kubicorn.io/).
+
+<aside class="note">
+
+<h1>Cluster API Provider IBM Cloud documentation versions</h1>
+
+This book documents Cluster API Provider IBM Cloud v0.5. For other versions please see the corresponding documentation:
+* [main.cluster-api-ibmcloud.sigs.k8s.io](https://main.cluster-api-ibmcloud.sigs.k8s.io)
+* [release-0-5.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-5.cluster-api-ibmcloud.sigs.k8s.io/)
+* [release-0-4.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-4.cluster-api-ibmcloud.sigs.k8s.io/)
+
+</aside>
+
+## CAPIBM Supported Infrastructure-as-a-Service (IaaS)
+
+<p align="center">
+<img src="../images/ibm-cloud-iaas.png" alt="Supported IBM Cloud IaaS">
+</p>
+
+Currently, the CAPIBM project exclusively facilitates the deployment of Kubernetes (K8s) clusters solely on two IBM infrastructure offerings, namely [IBM VPC (Virtual Server Instances)](https://cloud.ibm.com/docs/vpc?topic=vpc-about-advanced-virtual-servers) and [IBM PowerVS](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-about-virtual-server).
 
 ## Quick Start
 

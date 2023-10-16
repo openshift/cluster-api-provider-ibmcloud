@@ -32,6 +32,7 @@ TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
 GO_INSTALL = ./scripts/go_install.sh
 E2E_CONF_FILE_ENVSUBST := $(REPO_ROOT)/test/e2e/config/ibmcloud-e2e-envsubst.yaml
 E2E_TEMPLATES := $(REPO_ROOT)/test/e2e/data/templates
+TEMPLATES_DIR := $(REPO_ROOT)/templates
 
 GO_APIDIFF := $(TOOLS_BIN_DIR)/go-apidiff
 GOLANGCI_LINT := $(TOOLS_BIN_DIR)/golangci-lint
@@ -55,19 +56,24 @@ RELEASE_TAG ?= $(shell git describe --abbrev=0 2>/dev/null)
 PULL_BASE_REF ?= $(RELEASE_TAG) # PULL_BASE_REF will be provided by Prow
 RELEASE_ALIAS_TAG ?= $(PULL_BASE_REF)
 RELEASE_DIR := out
+OUTPUT_TYPE ?= type=registry
+
+# kind
+CAPI_KIND_CLUSTER_NAME ?= capi-test
 
 # image name used to build the cmd/capibmadm
 TOOLCHAIN_IMAGE := toolchain
 
 TAG ?= dev
-ARCH ?= amd64
+ARCH ?= $(shell go env GOARCH)
 ALL_ARCH ?= amd64 ppc64le arm64
+BUILDX_PLATFORMS ?= linux/amd64,linux/arm64,linux/ppc64le
 PULL_POLICY ?= Always
 
 # Set build time variables including version details
 LDFLAGS := $(shell ./hack/version.sh)
 
-KUBEBUILDER_ENVTEST_KUBERNETES_VERSION ?= 1.24.1
+KUBEBUILDER_ENVTEST_KUBERNETES_VERSION ?= 1.27.1
 
 # main controller
 CORE_IMAGE_NAME ?= cluster-api-ibmcloud-controller
@@ -148,8 +154,8 @@ help:  # Display this help
 
 # Generate code
 .PHONY: generate
-generate: ## Run all generate-go generate-modules generate-manifests generate-go-deepcopy generate-go-conversions
-	$(MAKE) generate-go generate-modules generate-manifests generate-go-deepcopy generate-go-conversions
+generate: ## Run all generate-go generate-modules generate-manifests generate-go-deepcopy generate-go-conversions generate-templates
+	$(MAKE) generate-go generate-modules generate-manifests generate-go-deepcopy generate-go-conversions generate-templates
 
 generate-go-deepcopy: $(CONTROLLER_GEN) ## Generate deepcopy go code
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
@@ -172,6 +178,14 @@ generate-go-conversions: $(CONVERSION_GEN) ## Generate conversions go code
 		--output-file-base=zz_generated.conversion $(CONVERSION_GEN_OUTPUT_BASE) \
 		--go-header-file=./hack/boilerplate/boilerplate.generatego.txt
 
+.PHONY: generate-templates
+generate-templates: $(KUSTOMIZE)
+	$(KUSTOMIZE) build $(TEMPLATES_DIR)/cluster-template --load-restrictor LoadRestrictionsNone > $(TEMPLATES_DIR)/cluster-template.yaml
+	$(KUSTOMIZE) build $(TEMPLATES_DIR)/cluster-template-powervs --load-restrictor LoadRestrictionsNone > $(TEMPLATES_DIR)/cluster-template-powervs.yaml
+	$(KUSTOMIZE) build $(TEMPLATES_DIR)/cluster-template-powervs-cloud-provider --load-restrictor LoadRestrictionsNone > $(TEMPLATES_DIR)/cluster-template-powervs-cloud-provider.yaml
+	$(KUSTOMIZE) build $(TEMPLATES_DIR)/cluster-template-powervs-clusterclass --load-restrictor LoadRestrictionsNone > $(TEMPLATES_DIR)/cluster-template-powervs-clusterclass.yaml
+	$(KUSTOMIZE) build $(TEMPLATES_DIR)/cluster-template-vpc-load-balancer --load-restrictor LoadRestrictionsNone > $(TEMPLATES_DIR)/cluster-template-vpc-load-balancer.yaml
+	
 .PHONY: generate-e2e-templates
 generate-e2e-templates: $(KUSTOMIZE)
 ifeq ($(E2E_FLAVOR), powervs-md-remediation)
@@ -300,7 +314,7 @@ release-manifests: ## Build the manifests to publish with a release
 .PHONY: release-staging
 release-staging: ## Build and push container images to the staging bucket
 	$(MAKE) docker-build-all
-	$(MAKE) docker-push-all
+	$(MAKE) docker-build-core-image
 	$(MAKE) release-alias-tag
 	$(MAKE) staging-manifests
 	$(MAKE) release-templates
@@ -390,22 +404,22 @@ image-patch-kustomization-without-webhook: $(IMAGE_PATCH_DIR) $(GOJQ)
 ## Docker
 ## --------------------------------------
 
-.PHONY: docker-build
-docker-build: docker-pull-prerequisites ## Build the docker image for controller-manager
-	docker build --build-arg ARCH=$(ARCH) --build-arg LDFLAGS="$(LDFLAGS)" . -t $(CORE_CONTROLLER_IMG)-$(ARCH):$(TAG)
+.PHONY: ensure-buildx
+ensure-buildx:
+	./hack/init-buildx.sh
 
-.PHONY: docker-push
-docker-push: ## Push the docker image
-	docker push $(CORE_CONTROLLER_IMG)-$(ARCH):$(TAG)
+.PHONY: docker-build
+docker-build: docker-pull-prerequisites ensure-buildx ## Build the docker image for controller-manager
+	docker buildx build --platform linux/$(ARCH) --output=$(OUTPUT_TYPE) --pull --build-arg LDFLAGS="$(LDFLAGS)" -t $(CORE_CONTROLLER_IMG)-$(ARCH):$(TAG) .
 
 .PHONY: docker-pull-prerequisites
 docker-pull-prerequisites:
-	docker pull docker.io/docker/dockerfile:1.1-experimental
+	docker pull docker.io/docker/dockerfile:1.5
 	docker pull gcr.io/distroless/static:latest
 
 .PHONY: e2e-image
-e2e-image: docker-pull-prerequisites
-	docker build --tag=$(CORE_CONTROLLER_ORIGINAL_IMG):e2e .
+e2e-image: docker-pull-prerequisites ensure-buildx
+	docker buildx build --platform linux/$(ARCH) --load --tag=$(CORE_CONTROLLER_ORIGINAL_IMG):e2e .
 	$(MAKE) set-manifest-image MANIFEST_IMG=$(CORE_CONTROLLER_ORIGINAL_IMG):e2e TARGET_RESOURCE="./config/default/manager_image_patch.yaml"
 	$(MAKE) set-manifest-pull-policy PULL_POLICY=Never TARGET_RESOURCE="./config/default/manager_pull_policy.yaml"
 
@@ -429,23 +443,11 @@ docker-build-all: $(addprefix docker-build-,$(ALL_ARCH))
 docker-build-%:
 	$(MAKE) ARCH=$* docker-build
 
-.PHONY: docker-push-all ## Push all the architecture docker images
-docker-push-all: $(addprefix docker-push-,$(ALL_ARCH))
-	$(MAKE) docker-push-core-manifest
-
-docker-push-%:
-	$(MAKE) ARCH=$* docker-push
-
-.PHONY: docker-push-core-manifest
-docker-push-core-manifest: ## Push the multiarch manifest for the core docker images
-	## Minimum docker version 18.06.0 is required for creating and pushing manifest images.
-	$(MAKE) docker-push-manifest CONTROLLER_IMG=$(CORE_CONTROLLER_IMG) MANIFEST_FILE=$(CORE_MANIFEST_FILE)
-
-.PHONY: docker-push-manifest
-docker-push-manifest:
-	docker manifest create --amend $(CONTROLLER_IMG):$(TAG) $(shell echo $(ALL_ARCH) | sed -e "s~[^ ]*~$(CONTROLLER_IMG)\-&:$(TAG)~g")
-	@for arch in $(ALL_ARCH); do docker manifest annotate --arch $${arch} ${CONTROLLER_IMG}:${TAG} ${CONTROLLER_IMG}-$${arch}:${TAG}; done
-	docker manifest push --purge ${CONTROLLER_IMG}:${TAG}
+.PHONY: docker-build-core-image
+docker-build-core-image: ensure-buildx ## Build the multiarch core docker image
+	docker buildx build --builder capibm --platform $(BUILDX_PLATFORMS) --output=$(OUTPUT_TYPE) \
+		--pull --build-arg ldflags="$(LDFLAGS)" \
+		-t $(CORE_CONTROLLER_IMG):$(TAG) .
 
 ## --------------------------------------
 ## Lint / Verify
@@ -475,14 +477,10 @@ define checkdiff
 	git --no-pager diff --name-only FETCH_HEAD
 endef
 
-ALL_VERIFY_CHECKS = doctoc boilerplate shellcheck modules gen conversions
+ALL_VERIFY_CHECKS = boilerplate shellcheck modules gen conversions
 
 .PHONY: verify
 verify: $(addprefix verify-,$(ALL_VERIFY_CHECKS)) ## Run all verify-* targets
-
-.PHONY: verify-doctoc
-verify-doctoc:
-	./hack/verify-doctoc.sh
 
 .PHONY: verify-boilerplate
 verify-boilerplate: ## Verify boilerplate text exists in each file
@@ -548,3 +546,18 @@ clean-release: ## Remove the release folder
 .PHONY: clean-generated-conversions
 clean-generated-conversions: ## Remove files generated by conversion-gen from the mentioned dirs
 	(IFS=','; for i in $(SRC_DIRS); do find $$i -type f -name 'zz_generated.conversion*' -exec rm -f {} \;; done)
+
+.PHONY: clean-kind
+clean-kind: ## Cleans up the kind cluster with the name $CAPI_KIND_CLUSTER_NAME
+	kind delete cluster --name="$(CAPI_KIND_CLUSTER_NAME)" || true
+
+## --------------------------------------
+## Kind
+## --------------------------------------
+
+##@ kind:
+
+.PHONY: kind-cluster
+kind-cluster: ## Create a new kind cluster designed for development with Tilt
+	hack/kind-install.sh
+

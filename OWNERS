@@ -3,6 +3,7 @@
 # to be added to the owners-gen input data.
 approvers:
 - JoelSpeed
+- RadekManak
 - damdo
 - mkumatag
 reviewers:
@@ -11,8 +12,10 @@ reviewers:
 - damdo
 - elmiko
 - karthik-k-n
-- lobziik
 - mkumatag
+- nrb
 - odvarkadaniel
+- racheljpg
+- vincepri
 component: Cloud Compute
 subcomponent: Other Provider

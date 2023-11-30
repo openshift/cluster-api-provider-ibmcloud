@@ -170,7 +170,7 @@ github.com/munnerz/goautoneg
 # github.com/opencontainers/go-digest v1.0.0
 ## explicit; go 1.13
 github.com/opencontainers/go-digest
-# github.com/openshift/cluster-capi-operator/manifests-gen v0.0.0-00010101000000-000000000000 => github.com/openshift-cloud-team/cluster-capi-operator/manifests-gen v0.0.0-20231123101243-4833685b1e3b
+# github.com/openshift/cluster-capi-operator/manifests-gen v0.0.0-20231129212918-dcb7a56ab14c
 ## explicit; go 1.18
 github.com/openshift/cluster-capi-operator/manifests-gen
 # github.com/pelletier/go-toml/v2 v2.0.8
@@ -795,4 +795,3 @@ sigs.k8s.io/structured-merge-diff/v4/value
 # sigs.k8s.io/yaml v1.3.0
 ## explicit; go 1.12
 sigs.k8s.io/yaml
-# github.com/openshift/cluster-capi-operator/manifests-gen => github.com/openshift-cloud-team/cluster-capi-operator/manifests-gen v0.0.0-20231123101243-4833685b1e3b

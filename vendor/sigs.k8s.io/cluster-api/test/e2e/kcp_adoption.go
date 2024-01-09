@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -47,6 +47,13 @@ type KCPAdoptionSpecInput struct {
 	BootstrapClusterProxy framework.ClusterProxy
 	ArtifactFolder        string
 	SkipCleanup           bool
+
+	// InfrastructureProviders specifies the infrastructure to use for clusterctl
+	// operations (Example: get cluster templates).
+	// Note: In most cases this need not be specified. It only needs to be specified when
+	// multiple infrastructure providers (ex: CAPD + in-memory) are installed on the cluster as clusterctl will not be
+	// able to identify the default.
+	InfrastructureProvider *string
 
 	// Flavor, if specified, must refer to a template that is
 	// specially crafted with individual control plane machines
@@ -75,7 +82,7 @@ func KCPAdoptionSpec(ctx context.Context, inputGetter func() KCPAdoptionSpecInpu
 		namespace     *corev1.Namespace
 		cancelWatches context.CancelFunc
 		cluster       *clusterv1.Cluster
-		replicas      = pointer.Int64Ptr(1)
+		replicas      = pointer.Int64(1)
 	)
 
 	SetDefaultEventuallyTimeout(15 * time.Minute)
@@ -102,6 +109,11 @@ func KCPAdoptionSpec(ctx context.Context, inputGetter func() KCPAdoptionSpecInpu
 		WaitForClusterIntervals := input.E2EConfig.GetIntervals(specName, "wait-cluster")
 		WaitForControlPlaneIntervals := input.E2EConfig.GetIntervals(specName, "wait-control-plane")
 
+		infrastructureProvider := clusterctl.DefaultInfrastructureProvider
+		if input.InfrastructureProvider != nil {
+			infrastructureProvider = *input.InfrastructureProvider
+		}
+
 		workloadClusterTemplate := clusterctl.ConfigCluster(ctx, clusterctl.ConfigClusterInput{
 			// pass reference to the management cluster hosting this test
 			KubeconfigPath: input.BootstrapClusterProxy.GetKubeconfigPath(),
@@ -113,9 +125,9 @@ func KCPAdoptionSpec(ctx context.Context, inputGetter func() KCPAdoptionSpecInpu
 			Namespace:                namespace.Name,
 			ClusterName:              clusterName,
 			KubernetesVersion:        input.E2EConfig.GetVariable(KubernetesVersion),
-			InfrastructureProvider:   clusterctl.DefaultInfrastructureProvider,
+			InfrastructureProvider:   infrastructureProvider,
 			ControlPlaneMachineCount: replicas,
-			WorkerMachineCount:       pointer.Int64Ptr(0),
+			WorkerMachineCount:       pointer.Int64(0),
 			// setup clusterctl logs folder
 			LogFolder: filepath.Join(input.ArtifactFolder, "clusters", input.BootstrapClusterProxy.GetName()),
 		})
@@ -172,8 +184,8 @@ func KCPAdoptionSpec(ctx context.Context, inputGetter func() KCPAdoptionSpecInpu
 			ctrlclient.InNamespace(namespace.Name),
 			ctrlclient.MatchingLabelsSelector{
 				Selector: labels.NewSelector().
-					Add(must(labels.NewRequirement(clusterv1.MachineControlPlaneLabelName, selection.Exists, []string{}))).
-					Add(must(labels.NewRequirement(clusterv1.ClusterLabelName, selection.Equals, []string{clusterName}))),
+					Add(must(labels.NewRequirement(clusterv1.MachineControlPlaneLabel, selection.Exists, []string{}))).
+					Add(must(labels.NewRequirement(clusterv1.ClusterNameLabel, selection.Equals, []string{clusterName}))),
 			},
 		)).To(Succeed())
 
@@ -196,13 +208,13 @@ func KCPAdoptionSpec(ctx context.Context, inputGetter func() KCPAdoptionSpecInpu
 		Expect(client.List(ctx, &bootstrap,
 			ctrlclient.InNamespace(namespace.Name),
 			ctrlclient.MatchingLabels{
-				clusterv1.ClusterLabelName: clusterName,
+				clusterv1.ClusterNameLabel: clusterName,
 			})).To(Succeed())
 
 		By("Taking ownership of the cluster's PKI material")
 		secrets := corev1.SecretList{}
 		Expect(client.List(ctx, &secrets, ctrlclient.InNamespace(namespace.Name), ctrlclient.MatchingLabels{
-			clusterv1.ClusterLabelName: cluster.Name,
+			clusterv1.ClusterNameLabel: cluster.Name,
 		})).To(Succeed())
 
 		bootstrapSecrets := map[string]bootstrapv1.KubeadmConfig{}

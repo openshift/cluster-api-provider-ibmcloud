@@ -10,6 +10,9 @@ import (
 	"github.com/golangci/golangci-lint/pkg/logutils"
 )
 
+// EnvTestRun value: "1"
+const EnvTestRun = "GL_TEST_RUN"
+
 type EnabledSet struct {
 	m      *Manager
 	v      *Validator
@@ -24,12 +27,14 @@ func NewEnabledSet(m *Manager, v *Validator, log logutils.Log, cfg *config.Confi
 		v:      v,
 		log:    log,
 		cfg:    cfg,
-		debugf: logutils.Debug("enabled_linters"),
+		debugf: logutils.Debug(logutils.DebugKeyEnabledLinters),
 	}
 }
 
+//nolint:gocyclo // the complexity cannot be reduced.
 func (es EnabledSet) build(lcfg *config.Linters, enabledByDefaultLinters []*linter.Config) map[string]*linter.Config {
 	es.debugf("Linters config: %#v", lcfg)
+
 	resultLintersSet := map[string]*linter.Config{}
 	switch {
 	case len(lcfg.Presets) != 0:
@@ -75,6 +80,14 @@ func (es EnabledSet) build(lcfg *config.Linters, enabledByDefaultLinters []*lint
 		}
 	}
 
+	// typecheck is not a real linter and cannot be disabled.
+	if _, ok := resultLintersSet["typecheck"]; !ok && (es.cfg == nil || !es.cfg.InternalCmdTest) {
+		for _, lc := range es.m.GetLinterConfigs("typecheck") {
+			// it's important to use lc.Name() nor name because name can be alias
+			resultLintersSet[lc.Name()] = lc
+		}
+	}
+
 	return resultLintersSet
 }
 
@@ -84,7 +97,7 @@ func (es EnabledSet) GetEnabledLintersMap() (map[string]*linter.Config, error) {
 	}
 
 	enabledLinters := es.build(&es.cfg.Linters, es.m.GetAllEnabledByDefaultLinters())
-	if os.Getenv("GL_TEST_RUN") == "1" {
+	if os.Getenv(EnvTestRun) == "1" {
 		es.verbosePrintLintersStatus(enabledLinters)
 	}
 	return enabledLinters, nil
@@ -131,8 +144,8 @@ func (es EnabledSet) GetOptimizedLinters() ([]*linter.Config, error) {
 func (es EnabledSet) combineGoAnalysisLinters(linters map[string]*linter.Config) {
 	var goanalysisLinters []*goanalysis.Linter
 	goanalysisPresets := map[string]bool{}
-	for _, linter := range linters {
-		lnt, ok := linter.Linter.(*goanalysis.Linter)
+	for _, lc := range linters {
+		lnt, ok := lc.Linter.(*goanalysis.Linter)
 		if !ok {
 			continue
 		}
@@ -141,7 +154,7 @@ func (es EnabledSet) combineGoAnalysisLinters(linters map[string]*linter.Config)
 			continue
 		}
 		goanalysisLinters = append(goanalysisLinters, lnt)
-		for _, p := range linter.InPresets {
+		for _, p := range lc.InPresets {
 			goanalysisPresets[p] = true
 		}
 	}
@@ -194,6 +207,10 @@ func (es EnabledSet) combineGoAnalysisLinters(linters map[string]*linter.Config)
 func (es EnabledSet) verbosePrintLintersStatus(lcs map[string]*linter.Config) {
 	var linterNames []string
 	for _, lc := range lcs {
+		if lc.Internal {
+			continue
+		}
+
 		linterNames = append(linterNames, lc.Name())
 	}
 	sort.StringSlice(linterNames).Sort()

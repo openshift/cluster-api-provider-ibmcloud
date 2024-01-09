@@ -23,6 +23,7 @@ import (
 
 	runtimecatalog "sigs.k8s.io/cluster-api/exp/runtime/catalog"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
+	"sigs.k8s.io/cluster-api/util"
 )
 
 // HookResponseTracker is a helper to capture the responses of the various lifecycle hooks.
@@ -43,12 +44,32 @@ func (h *HookResponseTracker) Add(hook runtimecatalog.Hook, response runtimehook
 	h.responses[hookName] = response
 }
 
+// IsBlocking returns true if the hook returned a blocking response.
+// If the hook is not called or did not return a blocking response it returns false.
+func (h *HookResponseTracker) IsBlocking(hook runtimecatalog.Hook) bool {
+	hookName := runtimecatalog.HookName(hook)
+	response, ok := h.responses[hookName]
+	if !ok {
+		return false
+	}
+	retryableResponse, ok := response.(runtimehooksv1.RetryResponseObject)
+	if !ok {
+		// Not a retryable response. Cannot be blocking.
+		return false
+	}
+	if retryableResponse.GetRetryAfterSeconds() == 0 {
+		// Not a blocking response.
+		return false
+	}
+	return true
+}
+
 // AggregateRetryAfter calculates the lowest non-zero retryAfterSeconds time from all the tracked responses.
 func (h *HookResponseTracker) AggregateRetryAfter() time.Duration {
 	res := int32(0)
 	for _, resp := range h.responses {
 		if retryResponse, ok := resp.(runtimehooksv1.RetryResponseObject); ok {
-			res = lowestNonZeroRetryAfterSeconds(res, retryResponse.GetRetryAfterSeconds())
+			res = util.LowestNonZeroInt32(res, retryResponse.GetRetryAfterSeconds())
 		}
 	}
 	return time.Duration(res) * time.Second
@@ -56,29 +77,21 @@ func (h *HookResponseTracker) AggregateRetryAfter() time.Duration {
 
 // AggregateMessage returns a human friendly message about the blocking status of hooks.
 func (h *HookResponseTracker) AggregateMessage() string {
-	blockingHooks := []string{}
+	blockingHooks := map[string]string{}
 	for hook, resp := range h.responses {
 		if retryResponse, ok := resp.(runtimehooksv1.RetryResponseObject); ok {
 			if retryResponse.GetRetryAfterSeconds() != 0 {
-				blockingHooks = append(blockingHooks, hook)
+				blockingHooks[hook] = resp.GetMessage()
 			}
 		}
 	}
 	if len(blockingHooks) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("hooks %q are blocking", strings.Join(blockingHooks, ","))
-}
 
-func lowestNonZeroRetryAfterSeconds(i, j int32) int32 {
-	if i == 0 {
-		return j
+	hookAndMessages := []string{}
+	for hook, message := range blockingHooks {
+		hookAndMessages = append(hookAndMessages, fmt.Sprintf("hook %q is blocking: %s", hook, message))
 	}
-	if j == 0 {
-		return i
-	}
-	if i < j {
-		return i
-	}
-	return j
+	return strings.Join(hookAndMessages, "; ")
 }

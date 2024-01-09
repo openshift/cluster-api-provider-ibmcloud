@@ -3,6 +3,7 @@
 package junitxml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -72,6 +73,7 @@ type Config struct {
 	ProjectName             string
 	FormatTestSuiteName     FormatFunc
 	FormatTestCaseClassname FormatFunc
+	HideEmptyPackages       bool
 	// This is used for tests to have a consistent timestamp
 	customTimestamp string
 	customElapsed   string
@@ -104,6 +106,9 @@ func generate(exec *testjson.Execution, cfg Config) JUnitTestSuites {
 	}
 	for _, pkgname := range exec.Packages() {
 		pkg := exec.Package(pkgname)
+		if cfg.HideEmptyPackages && pkg.IsEmpty() {
+			continue
+		}
 		junitpkg := JUnitTestSuite{
 			Name:       cfg.FormatTestSuiteName(pkgname),
 			Tests:      pkg.Total,
@@ -168,10 +173,12 @@ func packageTestCases(pkg *testjson.Package, formatClassname FormatFunc) []JUnit
 	cases := []JUnitTestCase{}
 
 	if pkg.TestMainFailed() {
+		var buf bytes.Buffer
+		pkg.WriteOutputTo(&buf, 0) //nolint:errcheck
 		jtc := newJUnitTestCase(testjson.TestCase{Test: "TestMain"}, formatClassname)
 		jtc.Failure = &JUnitFailure{
 			Message:  "Failed",
-			Contents: pkg.Output(0),
+			Contents: buf.String(),
 		}
 		cases = append(cases, jtc)
 	}

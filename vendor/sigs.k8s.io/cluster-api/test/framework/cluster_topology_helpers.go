@@ -23,10 +23,12 @@ import (
 	. "github.com/onsi/gomega"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
+	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	"sigs.k8s.io/cluster-api/test/framework/internal/log"
 	"sigs.k8s.io/cluster-api/util/patch"
 )
@@ -52,25 +54,27 @@ func GetClusterClassByName(ctx context.Context, input GetClusterClassByNameInput
 	}
 	Eventually(func() error {
 		return input.Getter.Get(ctx, key, clusterClass)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to get ClusterClass object %s/%s", input.Namespace, input.Name)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to get ClusterClass object %s", klog.KRef(input.Namespace, input.Name))
 	return clusterClass
 }
 
 // UpgradeClusterTopologyAndWaitForUpgradeInput is the input type for UpgradeClusterTopologyAndWaitForUpgrade.
 type UpgradeClusterTopologyAndWaitForUpgradeInput struct {
-	ClusterProxy                            ClusterProxy
-	Cluster                                 *clusterv1.Cluster
-	ControlPlane                            *controlplanev1.KubeadmControlPlane
-	EtcdImageTag                            string
-	DNSImageTag                             string
-	MachineDeployments                      []*clusterv1.MachineDeployment
-	KubernetesUpgradeVersion                string
-	WaitForMachinesToBeUpgraded             []interface{}
-	WaitForKubeProxyUpgrade                 []interface{}
-	WaitForDNSUpgrade                       []interface{}
-	WaitForEtcdUpgrade                      []interface{}
-	PreWaitForControlPlaneToBeUpgraded      func()
-	PreWaitForMachineDeploymentToBeUpgraded func()
+	ClusterProxy                       ClusterProxy
+	Cluster                            *clusterv1.Cluster
+	ControlPlane                       *controlplanev1.KubeadmControlPlane
+	EtcdImageTag                       string
+	DNSImageTag                        string
+	MachineDeployments                 []*clusterv1.MachineDeployment
+	MachinePools                       []*expv1.MachinePool
+	KubernetesUpgradeVersion           string
+	WaitForMachinesToBeUpgraded        []interface{}
+	WaitForMachinePoolToBeUpgraded     []interface{}
+	WaitForKubeProxyUpgrade            []interface{}
+	WaitForDNSUpgrade                  []interface{}
+	WaitForEtcdUpgrade                 []interface{}
+	PreWaitForControlPlaneToBeUpgraded func()
+	PreWaitForWorkersToBeUpgraded      func()
 }
 
 // UpgradeClusterTopologyAndWaitForUpgrade upgrades a Cluster topology and waits for it to be upgraded.
@@ -81,6 +85,7 @@ func UpgradeClusterTopologyAndWaitForUpgrade(ctx context.Context, input UpgradeC
 	Expect(input.Cluster).ToNot(BeNil(), "Invalid argument. input.Cluster can't be nil when calling UpgradeClusterTopologyAndWaitForUpgrade")
 	Expect(input.ControlPlane).ToNot(BeNil(), "Invalid argument. input.ControlPlane can't be nil when calling UpgradeClusterTopologyAndWaitForUpgrade")
 	Expect(input.MachineDeployments).ToNot(BeEmpty(), "Invalid argument. input.MachineDeployments can't be empty when calling UpgradeClusterTopologyAndWaitForUpgrade")
+	Expect(input.MachinePools).ToNot(BeEmpty(), "Invalid argument. input.MachinePools can't be empty when calling UpgradeClusterTopologyAndWaitForUpgrade")
 	Expect(input.KubernetesUpgradeVersion).ToNot(BeNil(), "Invalid argument. input.KubernetesUpgradeVersion can't be empty when calling UpgradeClusterTopologyAndWaitForUpgrade")
 
 	mgmtClient := input.ClusterProxy.GetClient()
@@ -102,7 +107,7 @@ func UpgradeClusterTopologyAndWaitForUpgrade(ctx context.Context, input UpgradeC
 	}
 	Eventually(func() error {
 		return patchHelper.Patch(ctx, input.Cluster)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed())
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to patch Cluster topology %s with version %s", klog.KObj(input.Cluster), input.KubernetesUpgradeVersion)
 
 	// Once we have patched the Kubernetes Cluster we can run PreWaitForControlPlaneToBeUpgraded.
 	// Note: This can e.g. be used to verify the BeforeClusterUpgrade lifecycle hook is executed
@@ -149,18 +154,18 @@ func UpgradeClusterTopologyAndWaitForUpgrade(ctx context.Context, input UpgradeC
 		}, input.WaitForEtcdUpgrade...)
 	}
 
-	// Once the ControlPlane is upgraded we can run PreWaitForMachineDeploymentToBeUpgraded.
+	// Once the ControlPlane is upgraded we can run PreWaitForWorkersToBeUpgraded.
 	// Note: This can e.g. be used to verify the AfterControlPlaneUpgrade lifecycle hook is executed
 	// and blocking correctly.
-	if input.PreWaitForMachineDeploymentToBeUpgraded != nil {
-		log.Logf("Calling PreWaitForMachineDeploymentToBeUpgraded")
-		input.PreWaitForMachineDeploymentToBeUpgraded()
+	if input.PreWaitForWorkersToBeUpgraded != nil {
+		log.Logf("Calling PreWaitForWorkersToBeUpgraded")
+		input.PreWaitForWorkersToBeUpgraded()
 	}
 
 	for _, deployment := range input.MachineDeployments {
 		if *deployment.Spec.Replicas > 0 {
-			log.Logf("Waiting for Kubernetes versions of machines in MachineDeployment %s/%s to be upgraded to %s",
-				deployment.Namespace, deployment.Name, input.KubernetesUpgradeVersion)
+			log.Logf("Waiting for Kubernetes versions of machines in MachineDeployment %s to be upgraded to %s",
+				klog.KObj(deployment), input.KubernetesUpgradeVersion)
 			WaitForMachineDeploymentMachinesToBeUpgraded(ctx, WaitForMachineDeploymentMachinesToBeUpgradedInput{
 				Lister:                   mgmtClient,
 				Cluster:                  input.Cluster,
@@ -168,6 +173,21 @@ func UpgradeClusterTopologyAndWaitForUpgrade(ctx context.Context, input UpgradeC
 				KubernetesUpgradeVersion: input.KubernetesUpgradeVersion,
 				MachineDeployment:        *deployment,
 			}, input.WaitForMachinesToBeUpgraded...)
+		}
+	}
+
+	for _, pool := range input.MachinePools {
+		if *pool.Spec.Replicas > 0 {
+			log.Logf("Waiting for Kubernetes versions of machines in MachinePool %s to be upgraded to %s",
+				klog.KObj(pool), input.KubernetesUpgradeVersion)
+			WaitForMachinePoolInstancesToBeUpgraded(ctx, WaitForMachinePoolInstancesToBeUpgradedInput{
+				Getter:                   mgmtClient,
+				WorkloadClusterGetter:    input.ClusterProxy.GetWorkloadCluster(ctx, input.Cluster.Namespace, input.Cluster.Name).GetClient(),
+				Cluster:                  input.Cluster,
+				MachineCount:             int(*pool.Spec.Replicas),
+				KubernetesUpgradeVersion: input.KubernetesUpgradeVersion,
+				MachinePool:              pool,
+			}, input.WaitForMachinePoolToBeUpgraded...)
 		}
 	}
 }

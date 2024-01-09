@@ -53,7 +53,7 @@ func ValidateClusterClassVariables(ctx context.Context, clusterClassVariables []
 func validateClusterClassVariableNamesUnique(clusterClassVariables []clusterv1.ClusterClassVariable, pathPrefix *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	variableNames := sets.NewString()
+	variableNames := sets.Set[string]{}
 	for i, clusterClassVariable := range clusterClassVariables {
 		if variableNames.Has(clusterClassVariable.Name) {
 			allErrs = append(allErrs,
@@ -101,7 +101,7 @@ func validateClusterClassVariableName(variableName string, fldPath *field.Path) 
 	return allErrs
 }
 
-var validVariableTypes = sets.NewString("object", "array", "string", "number", "integer", "boolean")
+var validVariableTypes = sets.Set[string]{}.Insert("object", "array", "string", "number", "integer", "boolean")
 
 // validateRootSchema validates the schema.
 func validateRootSchema(ctx context.Context, clusterClassVariable *clusterv1.ClusterClassVariable, fldPath *field.Path) field.ErrorList {
@@ -146,9 +146,7 @@ func validateRootSchema(ctx context.Context, clusterClassVariable *clusterv1.Clu
 	}
 
 	// If the structural schema is valid, ensure a schema validator can be constructed.
-	if _, _, err := validation.NewSchemaValidator(&apiextensions.CustomResourceValidation{
-		OpenAPIV3Schema: apiExtensionsSchema,
-	}); err != nil {
+	if _, _, err := validation.NewSchemaValidator(apiExtensionsSchema); err != nil {
 		return append(allErrs, field.Invalid(fldPath, "", fmt.Sprintf("failed to build validator: %v", err)))
 	}
 
@@ -164,13 +162,11 @@ func validateSchema(schema *apiextensions.JSONSchemaProps, fldPath *field.Path) 
 	case schema.Type == "":
 		return field.ErrorList{field.Required(fldPath.Child("type"), "type cannot be empty")}
 	case !validVariableTypes.Has(schema.Type):
-		return field.ErrorList{field.NotSupported(fldPath.Child("type"), schema.Type, validVariableTypes.List())}
+		return field.ErrorList{field.NotSupported(fldPath.Child("type"), schema.Type, sets.List(validVariableTypes))}
 	}
 
 	// If the structural schema is valid, ensure a schema validator can be constructed.
-	validator, _, err := validation.NewSchemaValidator(&apiextensions.CustomResourceValidation{
-		OpenAPIV3Schema: schema,
-	})
+	validator, _, err := validation.NewSchemaValidator(schema)
 	if err != nil {
 		return append(allErrs, field.Invalid(fldPath, "", fmt.Sprintf("failed to build validator: %v", err)))
 	}

@@ -5,6 +5,9 @@ import (
 	"sync"
 
 	"golang.org/x/tools/go/analysis"
+	"honnef.co/go/tools/analysis/facts/directives"
+	"honnef.co/go/tools/analysis/facts/generated"
+	"honnef.co/go/tools/analysis/lint"
 	"honnef.co/go/tools/unused"
 
 	"github.com/golangci/golangci-lint/pkg/config"
@@ -15,11 +18,7 @@ import (
 
 const unusedName = "unused"
 
-type UnusedSettings struct {
-	GoVersion string
-}
-
-func NewUnused(settings *config.StaticCheckSettings) *goanalysis.Linter {
+func NewUnused(settings *config.UnusedSettings, scSettings *config.StaticCheckSettings) *goanalysis.Linter {
 	var mu sync.Mutex
 	var resIssues []goanalysis.Issue
 
@@ -27,12 +26,8 @@ func NewUnused(settings *config.StaticCheckSettings) *goanalysis.Linter {
 		Name:     unusedName,
 		Doc:      unused.Analyzer.Analyzer.Doc,
 		Requires: unused.Analyzer.Analyzer.Requires,
-		Run: func(pass *analysis.Pass) (interface{}, error) {
-			issues, err := runUnused(pass)
-			if err != nil {
-				return nil, err
-			}
-
+		Run: func(pass *analysis.Pass) (any, error) {
+			issues := runUnused(pass, settings)
 			if len(issues) == 0 {
 				return nil, nil
 			}
@@ -45,7 +40,7 @@ func NewUnused(settings *config.StaticCheckSettings) *goanalysis.Linter {
 		},
 	}
 
-	setAnalyzerGoVersion(analyzer, getGoVersion(settings))
+	setAnalyzerGoVersion(analyzer, getGoVersion(scSettings))
 
 	return goanalysis.NewLinter(
 		unusedName,
@@ -57,28 +52,19 @@ func NewUnused(settings *config.StaticCheckSettings) *goanalysis.Linter {
 	}).WithLoadMode(goanalysis.LoadModeTypesInfo)
 }
 
-func runUnused(pass *analysis.Pass) ([]goanalysis.Issue, error) {
-	res, err := unused.Analyzer.Analyzer.Run(pass)
-	if err != nil {
-		return nil, err
-	}
-
-	sr := unused.Serialize(pass, res.(unused.Result), pass.Fset)
+func runUnused(pass *analysis.Pass, cfg *config.UnusedSettings) []goanalysis.Issue {
+	res := getUnusedResults(pass, cfg)
 
 	used := make(map[string]bool)
-	for _, obj := range sr.Used {
+	for _, obj := range res.Used {
 		used[fmt.Sprintf("%s %d %s", obj.Position.Filename, obj.Position.Line, obj.Name)] = true
 	}
 
 	var issues []goanalysis.Issue
 
 	// Inspired by https://github.com/dominikh/go-tools/blob/d694aadcb1f50c2d8ac0a1dd06217ebb9f654764/lintcmd/lint.go#L177-L197
-	for _, object := range sr.Unused {
+	for _, object := range res.Unused {
 		if object.Kind == "type param" {
-			continue
-		}
-
-		if object.InGenerated {
 			continue
 		}
 
@@ -96,5 +82,31 @@ func runUnused(pass *analysis.Pass) ([]goanalysis.Issue, error) {
 		issues = append(issues, issue)
 	}
 
-	return issues, nil
+	return issues
+}
+
+func getUnusedResults(pass *analysis.Pass, settings *config.UnusedSettings) unused.Result {
+	opts := unused.Options{
+		FieldWritesAreUses:     settings.FieldWritesAreUses,
+		PostStatementsAreReads: settings.PostStatementsAreReads,
+		ExportedIsUsed:         settings.ExportedIsUsed,
+		ExportedFieldsAreUsed:  settings.ExportedFieldsAreUsed,
+		ParametersAreUsed:      settings.ParametersAreUsed,
+		LocalVariablesAreUsed:  settings.LocalVariablesAreUsed,
+		GeneratedIsUsed:        settings.GeneratedIsUsed,
+	}
+
+	// ref: https://github.com/dominikh/go-tools/blob/4ec1f474ca6c0feb8e10a8fcca4ab95f5b5b9881/internal/cmd/unused/unused.go#L68
+	nodes := unused.Graph(pass.Fset,
+		pass.Files,
+		pass.Pkg,
+		pass.TypesInfo,
+		pass.ResultOf[directives.Analyzer].([]lint.Directive),
+		pass.ResultOf[generated.Analyzer].(map[string]generated.Generator),
+		opts,
+	)
+
+	sg := unused.SerializedGraph{}
+	sg.Merge(nodes)
+	return sg.Results()
 }

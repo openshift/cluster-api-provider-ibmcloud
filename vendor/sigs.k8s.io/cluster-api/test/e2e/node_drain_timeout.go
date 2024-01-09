@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,6 +44,13 @@ type NodeDrainTimeoutSpecInput struct {
 	ArtifactFolder        string
 	SkipCleanup           bool
 	ControlPlaneWaiters   clusterctl.ControlPlaneWaiters
+
+	// InfrastructureProviders specifies the infrastructure to use for clusterctl
+	// operations (Example: get cluster templates).
+	// Note: In most cases this need not be specified. It only needs to be specified when
+	// multiple infrastructure providers (ex: CAPD + in-memory) are installed on the cluster as clusterctl will not be
+	// able to identify the default.
+	InfrastructureProvider *string
 
 	// Flavor, if specified, must refer to a template that contains
 	// a KubeadmControlPlane resource with spec.machineTemplate.nodeDrainTimeout
@@ -82,6 +89,10 @@ func NodeDrainTimeoutSpec(ctx context.Context, inputGetter func() NodeDrainTimeo
 
 	It("A node should be forcefully removed if it cannot be drained in time", func() {
 		By("Creating a workload cluster")
+		infrastructureProvider := clusterctl.DefaultInfrastructureProvider
+		if input.InfrastructureProvider != nil {
+			infrastructureProvider = *input.InfrastructureProvider
+		}
 		controlPlaneReplicas := 3
 		clusterctl.ApplyClusterTemplateAndWait(ctx, clusterctl.ApplyClusterTemplateAndWaitInput{
 			ClusterProxy: input.BootstrapClusterProxy,
@@ -89,13 +100,13 @@ func NodeDrainTimeoutSpec(ctx context.Context, inputGetter func() NodeDrainTimeo
 				LogFolder:                filepath.Join(input.ArtifactFolder, "clusters", input.BootstrapClusterProxy.GetName()),
 				ClusterctlConfigPath:     input.ClusterctlConfigPath,
 				KubeconfigPath:           input.BootstrapClusterProxy.GetKubeconfigPath(),
-				InfrastructureProvider:   clusterctl.DefaultInfrastructureProvider,
+				InfrastructureProvider:   infrastructureProvider,
 				Flavor:                   pointer.StringDeref(input.Flavor, "node-drain"),
 				Namespace:                namespace.Name,
 				ClusterName:              fmt.Sprintf("%s-%s", specName, util.RandomString(6)),
 				KubernetesVersion:        input.E2EConfig.GetVariable(KubernetesVersion),
-				ControlPlaneMachineCount: pointer.Int64Ptr(int64(controlPlaneReplicas)),
-				WorkerMachineCount:       pointer.Int64Ptr(1),
+				ControlPlaneMachineCount: pointer.Int64(int64(controlPlaneReplicas)),
+				WorkerMachineCount:       pointer.Int64(1),
 			},
 			ControlPlaneWaiters:          input.ControlPlaneWaiters,
 			WaitForClusterIntervals:      input.E2EConfig.GetIntervals(specName, "wait-cluster"),
@@ -105,7 +116,7 @@ func NodeDrainTimeoutSpec(ctx context.Context, inputGetter func() NodeDrainTimeo
 		cluster := clusterResources.Cluster
 		controlplane = clusterResources.ControlPlane
 		machineDeployments = clusterResources.MachineDeployments
-		Expect(machineDeployments[0].Spec.Replicas).To(Equal(pointer.Int32Ptr(1)))
+		Expect(machineDeployments[0].Spec.Replicas).To(Equal(pointer.Int32(1)))
 
 		By("Add a deployment with unevictable pods and podDisruptionBudget to the workload cluster. The deployed pods cannot be evicted in the node draining process.")
 		workloadClusterProxy := input.BootstrapClusterProxy.GetWorkloadCluster(ctx, cluster.Namespace, cluster.Name)
@@ -160,7 +171,7 @@ func NodeDrainTimeoutSpec(ctx context.Context, inputGetter func() NodeDrainTimeo
 
 func getDrainAndDeleteInterval(deleteInterval []interface{}, drainTimeout *metav1.Duration, replicas int) []interface{} {
 	deleteTimeout, err := time.ParseDuration(deleteInterval[0].(string))
-	Expect(err).NotTo(HaveOccurred())
+	Expect(err).ToNot(HaveOccurred())
 	// We add the drain timeout to the specified delete timeout per replica.
 	intervalDuration := (drainTimeout.Duration + deleteTimeout) * time.Duration(replicas)
 	res := []interface{}{intervalDuration.String(), deleteInterval[1]}

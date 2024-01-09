@@ -1,9 +1,9 @@
 package printers
 
 import (
-	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 
 	"github.com/golangci/golangci-lint/pkg/result"
 )
@@ -27,7 +27,12 @@ func formatIssueAsGithub(issue *result.Issue) string {
 		severity = issue.Severity
 	}
 
-	ret := fmt.Sprintf("::%s file=%s,line=%d", severity, issue.FilePath(), issue.Line())
+	// Convert backslashes to forward slashes.
+	// This is needed when running on windows.
+	// Otherwise, GitHub won't be able to show the annotations pointing to the file path with backslashes.
+	file := filepath.ToSlash(issue.FilePath())
+
+	ret := fmt.Sprintf("::%s file=%s,line=%d", severity, file, issue.Line())
 	if issue.Pos.Column != 0 {
 		ret += fmt.Sprintf(",col=%d", issue.Pos.Column)
 	}
@@ -36,7 +41,7 @@ func formatIssueAsGithub(issue *result.Issue) string {
 	return ret
 }
 
-func (p *github) Print(_ context.Context, issues []result.Issue) error {
+func (p *github) Print(issues []result.Issue) error {
 	for ind := range issues {
 		_, err := fmt.Fprintln(p.w, formatIssueAsGithub(&issues[ind]))
 		if err != nil {

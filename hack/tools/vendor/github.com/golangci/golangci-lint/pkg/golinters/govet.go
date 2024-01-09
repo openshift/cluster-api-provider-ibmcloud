@@ -2,6 +2,7 @@ package golinters
 
 import (
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/analysis/passes/appends"
 	"golang.org/x/tools/go/analysis/passes/asmdecl"
 	"golang.org/x/tools/go/analysis/passes/assign"
 	"golang.org/x/tools/go/analysis/passes/atomic"
@@ -14,6 +15,8 @@ import (
 	"golang.org/x/tools/go/analysis/passes/copylock"
 	_ "golang.org/x/tools/go/analysis/passes/ctrlflow" // unused, internal analyzer
 	"golang.org/x/tools/go/analysis/passes/deepequalerrors"
+	"golang.org/x/tools/go/analysis/passes/defers"
+	"golang.org/x/tools/go/analysis/passes/directive"
 	"golang.org/x/tools/go/analysis/passes/errorsas"
 	"golang.org/x/tools/go/analysis/passes/fieldalignment"
 	"golang.org/x/tools/go/analysis/passes/findcall"
@@ -31,12 +34,14 @@ import (
 	"golang.org/x/tools/go/analysis/passes/shadow"
 	"golang.org/x/tools/go/analysis/passes/shift"
 	"golang.org/x/tools/go/analysis/passes/sigchanyzer"
+	"golang.org/x/tools/go/analysis/passes/slog"
 	"golang.org/x/tools/go/analysis/passes/sortslice"
 	"golang.org/x/tools/go/analysis/passes/stdmethods"
 	"golang.org/x/tools/go/analysis/passes/stringintconv"
 	"golang.org/x/tools/go/analysis/passes/structtag"
 	"golang.org/x/tools/go/analysis/passes/testinggoroutine"
 	"golang.org/x/tools/go/analysis/passes/tests"
+	"golang.org/x/tools/go/analysis/passes/timeformat"
 	"golang.org/x/tools/go/analysis/passes/unmarshal"
 	"golang.org/x/tools/go/analysis/passes/unreachable"
 	"golang.org/x/tools/go/analysis/passes/unsafeptr"
@@ -49,6 +54,7 @@ import (
 
 var (
 	allAnalyzers = []*analysis.Analyzer{
+		appends.Analyzer,
 		asmdecl.Analyzer,
 		assign.Analyzer,
 		atomic.Analyzer,
@@ -59,6 +65,8 @@ var (
 		composite.Analyzer,
 		copylock.Analyzer,
 		deepequalerrors.Analyzer,
+		defers.Analyzer,
+		directive.Analyzer,
 		errorsas.Analyzer,
 		fieldalignment.Analyzer,
 		findcall.Analyzer,
@@ -74,12 +82,14 @@ var (
 		shadow.Analyzer,
 		shift.Analyzer,
 		sigchanyzer.Analyzer,
+		slog.Analyzer,
 		sortslice.Analyzer,
 		stdmethods.Analyzer,
 		stringintconv.Analyzer,
 		structtag.Analyzer,
 		testinggoroutine.Analyzer,
 		tests.Analyzer,
+		timeformat.Analyzer,
 		unmarshal.Analyzer,
 		unreachable.Analyzer,
 		unsafeptr.Analyzer,
@@ -87,8 +97,9 @@ var (
 		unusedwrite.Analyzer,
 	}
 
-	// https://github.com/golang/go/blob/879db69ce2de814bc3203c39b45617ba51cc5366/src/cmd/vet/main.go#L40-L68
+	// https://github.com/golang/go/blob/b56645a87b28840a180d64077877cb46570b4176/src/cmd/vet/main.go#L49-L81
 	defaultAnalyzers = []*analysis.Analyzer{
+		appends.Analyzer,
 		asmdecl.Analyzer,
 		assign.Analyzer,
 		atomic.Analyzer,
@@ -97,6 +108,8 @@ var (
 		cgocall.Analyzer,
 		composite.Analyzer,
 		copylock.Analyzer,
+		defers.Analyzer,
+		directive.Analyzer,
 		errorsas.Analyzer,
 		framepointer.Analyzer,
 		httpresponse.Analyzer,
@@ -107,11 +120,13 @@ var (
 		printf.Analyzer,
 		shift.Analyzer,
 		sigchanyzer.Analyzer,
+		slog.Analyzer,
 		stdmethods.Analyzer,
 		stringintconv.Analyzer,
 		structtag.Analyzer,
 		testinggoroutine.Analyzer,
 		tests.Analyzer,
+		timeformat.Analyzer,
 		unmarshal.Analyzer,
 		unreachable.Analyzer,
 		unsafeptr.Analyzer,
@@ -120,7 +135,7 @@ var (
 )
 
 func NewGovet(settings *config.GovetSettings) *goanalysis.Linter {
-	var conf map[string]map[string]interface{}
+	var conf map[string]map[string]any
 	if settings != nil {
 		conf = settings.Settings
 	}

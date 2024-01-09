@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api/internal/contract"
+	"sigs.k8s.io/cluster-api/internal/util/ssa"
 	"sigs.k8s.io/cluster-api/util"
 )
 
@@ -53,19 +54,20 @@ type TwoWaysPatchHelper struct {
 // by the topology controller are going to be preserved without changes.
 // NOTE: TwoWaysPatch is considered a minimal viable replacement for server side apply during topology dry run, with
 // the following limitations:
-// - TwoWaysPatch doesn't consider OpenAPI schema extension like +ListMap this can lead to false positive when topology
-//   dry run is simulating a change to an existing slice
-//   (TwoWaysPatch always revert external changes, like server side apply when +ListMap=atomic).
-// - TwoWaysPatch doesn't consider existing metadata.managedFields, and this can lead to false negative when topology dry run
-//   is simulating a change to an existing object where the topology controller is dropping an opinion for a field
-//   (TwoWaysPatch always preserve dropped fields, like server side apply when the field has more than one manager).
-// - TwoWaysPatch doesn't generate metadata.managedFields as server side apply does.
+//   - TwoWaysPatch doesn't consider OpenAPI schema extension like +ListMap this can lead to false positive when topology
+//     dry run is simulating a change to an existing slice
+//     (TwoWaysPatch always revert external changes, like server side apply when +ListMap=atomic).
+//   - TwoWaysPatch doesn't consider existing metadata.managedFields, and this can lead to false negative when topology dry run
+//     is simulating a change to an existing object where the topology controller is dropping an opinion for a field
+//     (TwoWaysPatch always preserve dropped fields, like server side apply when the field has more than one manager).
+//   - TwoWaysPatch doesn't generate metadata.managedFields as server side apply does.
+//
 // NOTE: NewTwoWaysPatchHelper consider changes only in metadata.labels, metadata.annotation and spec; it also respects
 // the ignorePath option (same as the server side apply helper).
 func NewTwoWaysPatchHelper(original, modified client.Object, c client.Client, opts ...HelperOption) (*TwoWaysPatchHelper, error) {
 	helperOptions := &HelperOptions{}
 	helperOptions = helperOptions.ApplyOptions(opts)
-	helperOptions.allowedPaths = []contract.Path{
+	helperOptions.AllowedPaths = []contract.Path{
 		{"metadata", "labels"},
 		{"metadata", "annotations"},
 		{"spec"}, // NOTE: The handling of managed path requires/assumes spec to be within allowed path.
@@ -74,7 +76,7 @@ func NewTwoWaysPatchHelper(original, modified client.Object, c client.Client, op
 	// metadata.name, metadata.namespace (who are required by the API server) and metadata.ownerReferences
 	// that gets set to avoid orphaned objects.
 	if util.IsNil(original) {
-		helperOptions.allowedPaths = append(helperOptions.allowedPaths,
+		helperOptions.AllowedPaths = append(helperOptions.AllowedPaths,
 			contract.Path{"apiVersion"},
 			contract.Path{"kind"},
 			contract.Path{"metadata", "name"},
@@ -164,24 +166,24 @@ func applyOptions(in *applyOptionsInput) ([]byte, error) {
 
 	// drop changes for exclude paths (fields to not consider, e.g. status);
 	// Note: for everything not allowed it sets modified equal to original, so the generated patch doesn't include this change
-	if len(in.options.allowedPaths) > 0 {
+	if len(in.options.AllowedPaths) > 0 {
 		dropDiff(&dropDiffInput{
 			path:               contract.Path{},
 			original:           originalMap,
 			modified:           modifiedMap,
-			shouldDropDiffFunc: isNotAllowedPath(in.options.allowedPaths),
+			shouldDropDiffFunc: ssa.IsPathNotAllowed(in.options.AllowedPaths),
 		})
 	}
 
 	// drop changes for ignore paths (well known fields owned by something else, e.g.
 	//   spec.controlPlaneEndpoint in the InfrastructureCluster object);
 	// Note: for everything ignored it sets  modified equal to original, so the generated patch doesn't include this change
-	if len(in.options.ignorePaths) > 0 {
+	if len(in.options.IgnorePaths) > 0 {
 		dropDiff(&dropDiffInput{
 			path:               contract.Path{},
 			original:           originalMap,
 			modified:           modifiedMap,
-			shouldDropDiffFunc: isIgnorePath(in.options.ignorePaths),
+			shouldDropDiffFunc: ssa.IsPathIgnored(in.options.IgnorePaths),
 		})
 	}
 

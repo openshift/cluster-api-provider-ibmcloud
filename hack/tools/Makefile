@@ -108,7 +108,7 @@ $(ENVSUBST): $(BIN_DIR) go.mod go.sum ## Build a local copy of envsubst.
 
 MOCKGEN := $(BIN_DIR)/mockgen
 $(MOCKGEN): $(BIN_DIR) go.mod go.sum ## Build a local copy of mockgen.
-	go build -tags=capibmtools -o $@ github.com/golang/mock/mockgen
+	go build -tags=capibmtools -o $@ go.uber.org/mock/mockgen
 
 CONTROLLER_GEN := $(BIN_DIR)/controller-gen
 $(CONTROLLER_GEN): $(BIN_DIR) go.mod go.sum ## Build a local copy of controller-gen.
@@ -121,3 +121,11 @@ $(CONVERSION_VERIFIER): $(BIN_DIR) go.mod go.sum ## Build a local copy of conver
 SETUP_ENVTEST := $(BIN_DIR)/setup-envtest
 $(SETUP_ENVTEST): $(BIN_DIR) go.mod go.sum ## Build a local copy of setup-envtest.
 	go build -tags=capibmtools -o $@ sigs.k8s.io/controller-runtime/tools/setup-envtest
+
+GOVULNCHECK := $(BIN_DIR)/govulncheck
+$(GOVULNCHECK): $(BIN_DIR) go.mod go.sum ## Build a local copy of govulncheck.
+	go build -tags=capibmtools -o $@ golang.org/x/vuln/cmd/govulncheck
+
+TRIVY := $(BIN_DIR)/trivy
+$(TRIVY): $(BIN_DIR) go.mod go.sum ## Build a local copy of trivy.
+	go build -tags=capibmtools -o $@ github.com/aquasecurity/trivy/cmd/trivy

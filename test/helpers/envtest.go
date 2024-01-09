@@ -28,8 +28,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pkg/errors"
-
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -46,6 +44,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	utilyaml "sigs.k8s.io/cluster-api/util/yaml"
@@ -164,10 +164,14 @@ func (t *TestEnvironmentConfiguration) Build() (*TestEnvironment, error) {
 	}
 
 	options := manager.Options{
-		Scheme:             scheme.Scheme,
-		MetricsBindAddress: "0",
-		CertDir:            t.env.WebhookInstallOptions.LocalServingCertDir,
-		Port:               t.env.WebhookInstallOptions.LocalServingPort,
+		Scheme: scheme.Scheme,
+		Metrics: server.Options{
+			BindAddress: "0",
+		},
+		WebhookServer: webhook.NewServer(webhook.Options{
+			CertDir: t.env.WebhookInstallOptions.LocalServingCertDir,
+			Port:    t.env.WebhookInstallOptions.LocalServingPort,
+		}),
 	}
 
 	mgr, err := ctrl.NewManager(t.env.Config, options)
@@ -195,11 +199,11 @@ func buildModifiedWebhook(tag string, relativeFilePath string) (admissionv1.Muta
 	var validatingWebhook admissionv1.ValidatingWebhookConfiguration
 	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, relativeFilePath)))
 	if err != nil {
-		return mutatingWebhook, validatingWebhook, errors.Wrap(err, "failed to read webhook configuration file")
+		return mutatingWebhook, validatingWebhook, fmt.Errorf("failed to read webhook configuration file: %w", err)
 	}
 	objs, err := utilyaml.ToUnstructured(data)
 	if err != nil {
-		return mutatingWebhook, validatingWebhook, errors.Wrap(err, "failed to parse yaml")
+		return mutatingWebhook, validatingWebhook, fmt.Errorf("failed to parse yaml: %w", err)
 	}
 	for i := range objs {
 		o := objs[i]

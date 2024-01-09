@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/IBM-Cloud/power-go-client/power/models"
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -447,7 +447,8 @@ func TestIBMPowerVSMachineReconciler_ReconcileOperations(t *testing.T) {
 				},
 				IBMPowerVSMachine: &infrav1beta2.IBMPowerVSMachine{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: *pointer.String("capi-test-machine"),
+						Name:       *pointer.String("capi-test-machine"),
+						Finalizers: []string{infrav1beta2.IBMPowerVSMachineFinalizer},
 					},
 				},
 				IBMPowerVSImage: &infrav1beta2.IBMPowerVSImage{
@@ -484,7 +485,8 @@ func TestIBMPowerVSMachineReconciler_ReconcileOperations(t *testing.T) {
 
 			pvsmachine := &infrav1beta2.IBMPowerVSMachine{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: *pointer.String("capi-test-machine"),
+					Name:       *pointer.String("capi-test-machine"),
+					Finalizers: []string{infrav1beta2.IBMPowerVSMachineFinalizer},
 				},
 				Spec: infrav1beta2.IBMPowerVSMachineSpec{
 					MemoryGiB:  8,

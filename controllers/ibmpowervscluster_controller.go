@@ -18,10 +18,9 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
-
-	"github.com/pkg/errors"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -88,10 +87,12 @@ func (r *IBMPowerVSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		ServiceEndpoint:   r.ServiceEndpoint,
 	})
 
-	// Always close the scope when exiting this function so we can persist any GCPMachine changes.
+	// Always close the scope when exiting this function so we can persist any IBMPowerVSCluster changes.
 	defer func() {
-		if err := clusterScope.Close(); err != nil && reterr == nil {
-			reterr = err
+		if clusterScope != nil {
+			if err := clusterScope.Close(); err != nil && reterr == nil {
+				reterr = err
+			}
 		}
 	}()
 
@@ -101,14 +102,13 @@ func (r *IBMPowerVSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	if err != nil {
-		return reconcile.Result{}, errors.Errorf("failed to create scope: %+v", err)
+		return reconcile.Result{}, fmt.Errorf("failed to create scope: %w", err)
 	}
 	return r.reconcile(clusterScope), nil
 }
 
 func (r *IBMPowerVSClusterReconciler) reconcile(clusterScope *scope.PowerVSClusterScope) ctrl.Result { //nolint:unparam
-	if !controllerutil.ContainsFinalizer(clusterScope.IBMPowerVSCluster, infrav1beta2.IBMPowerVSClusterFinalizer) {
-		controllerutil.AddFinalizer(clusterScope.IBMPowerVSCluster, infrav1beta2.IBMPowerVSClusterFinalizer)
+	if controllerutil.AddFinalizer(clusterScope.IBMPowerVSCluster, infrav1beta2.IBMPowerVSClusterFinalizer) {
 		return ctrl.Result{}
 	}
 
@@ -147,7 +147,7 @@ func (r *IBMPowerVSClusterReconciler) reconcileDelete(ctx context.Context, clust
 
 			log.Info("Deleting child object", "gvk", gvk, "name", child.GetName())
 			if err := r.Client.Delete(ctx, child); err != nil {
-				err = errors.Wrapf(err, "error deleting cluster %s/%s: failed to delete %s %s", cluster.Namespace, cluster.Name, gvk, child.GetName())
+				err = fmt.Errorf("error deleting cluster %s/%s: failed to delete %s %s: %w", cluster.Namespace, cluster.Name, gvk, child.GetName(), err)
 				log.Error(err, "Error deleting resource", "gvk", gvk, "name", child.GetName())
 				errs = append(errs, err)
 			}
@@ -201,7 +201,7 @@ func (r *IBMPowerVSClusterReconciler) listDescendants(ctx context.Context, clust
 	}
 
 	if err := r.Client.List(ctx, &descendants.ibmPowerVSImages, listOptions...); err != nil {
-		return descendants, errors.Wrapf(err, "failed to list IBMPowerVSImages for cluster %s/%s", cluster.Namespace, cluster.Name)
+		return descendants, fmt.Errorf("failed to list IBMPowerVSImages for cluster %s/%s: %w", cluster.Namespace, cluster.Name, err)
 	}
 
 	return descendants, nil
@@ -231,7 +231,7 @@ func (c clusterDescendants) filterOwnedDescendants(cluster *infrav1beta2.IBMPowe
 
 	for _, list := range lists {
 		if err := meta.EachListItem(list, eachFunc); err != nil {
-			return nil, errors.Wrapf(err, "error finding owned descendants of cluster %s/%s", cluster.Namespace, cluster.Name)
+			return nil, fmt.Errorf("error finding owned descendants of cluster %s/%s: %w", cluster.Namespace, cluster.Name, err)
 		}
 	}
 

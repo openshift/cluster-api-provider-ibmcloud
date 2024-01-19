@@ -19,13 +19,13 @@ package scope
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 
 	"github.com/IBM-Cloud/power-go-client/ibmpisession"
 	"github.com/IBM-Cloud/power-go-client/power/client/p_cloud_p_vm_instances"
@@ -121,7 +121,7 @@ func NewPowerVSMachineScope(params PowerVSMachineScopeParams) (scope *PowerVSMac
 
 	helper, err := patch.NewHelper(params.IBMPowerVSMachine, params.Client)
 	if err != nil {
-		err = errors.Wrap(err, "failed to init patch helper")
+		err = fmt.Errorf("failed to init patch helper: %w", err)
 		return nil, err
 	}
 	scope.patchHelper = helper
@@ -136,7 +136,7 @@ func NewPowerVSMachineScope(params PowerVSMachineScopeParams) (scope *PowerVSMac
 	// Fetch the resource controller endpoint.
 	if rcEndpoint := endpoints.FetchRCEndpoint(params.ServiceEndpoint); rcEndpoint != "" {
 		if err := rc.SetServiceURL(rcEndpoint); err != nil {
-			return nil, errors.Wrap(err, "failed to set resource controller endpoint")
+			return nil, fmt.Errorf("failed to set resource controller endpoint: %w", err)
 		}
 		scope.Logger.V(3).Info("Overriding the default resource controller endpoint")
 	}
@@ -146,7 +146,7 @@ func NewPowerVSMachineScope(params PowerVSMachineScopeParams) (scope *PowerVSMac
 			ID: core.StringPtr(m.Spec.ServiceInstanceID),
 		})
 	if err != nil {
-		err = errors.Wrap(err, "failed to get resource instance")
+		err = fmt.Errorf("failed to get resource instance: %w", err)
 		return nil, err
 	}
 
@@ -304,7 +304,7 @@ func (m *PowerVSMachineScope) GetBootstrapData() (string, error) {
 	secret := &corev1.Secret{}
 	key := types.NamespacedName{Namespace: m.Machine.Namespace, Name: *m.Machine.Spec.Bootstrap.DataSecretName}
 	if err := m.Client.Get(context.TODO(), key, secret); err != nil {
-		return "", errors.Wrapf(err, "failed to retrieve bootstrap data secret for IBMPowerVSMachine %v", klog.KObj(m.Machine))
+		return "", fmt.Errorf("failed to retrieve bootstrap data secret for IBMPowerVSMachine %v: %w", klog.KObj(m.Machine), err)
 	}
 
 	value, ok := secret.Data["value"]
@@ -376,9 +376,8 @@ func getNetworkID(network infrav1beta2.IBMPowerVSResourceReference, m *PowerVSMa
 			}
 		}
 		return nil, fmt.Errorf("failed to find a network ID with RegEx %s", *network.RegEx)
-	} else {
-		return nil, fmt.Errorf("ID, Name and RegEx can't be nil")
 	}
+	return nil, fmt.Errorf("ID, Name and RegEx can't be nil")
 }
 
 // GetNetworks will get list of networks for the powervs service instance.
@@ -589,8 +588,7 @@ func (m *PowerVSMachineScope) GetZone() string {
 // SetProviderID will set the provider id for the machine.
 func (m *PowerVSMachineScope) SetProviderID(id *string) {
 	// Based on the ProviderIDFormat version the providerID format will be decided.
-	if options.ProviderIDFormatType(options.PowerVSProviderIDFormat) == options.PowerVSProviderIDFormatV2 ||
-		options.ProviderIDFormatType(options.ProviderIDFormat) == options.ProviderIDFormatV2 {
+	if options.ProviderIDFormatType(options.ProviderIDFormat) == options.ProviderIDFormatV2 {
 		if id != nil {
 			m.IBMPowerVSMachine.Spec.ProviderID = pointer.String(fmt.Sprintf("ibmpowervs://%s/%s/%s/%s", m.GetRegion(), m.GetZone(), m.IBMPowerVSMachine.Spec.ServiceInstanceID, *id))
 		}

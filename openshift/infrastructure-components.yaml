@@ -11,7 +11,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-ibmcloud-system/capi-ibmcloud-serving-cert
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   labels:
     cluster.x-k8s.io/provider: infrastructure-ibmcloud
     cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
@@ -224,7 +224,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   labels:
     cluster.x-k8s.io/provider: infrastructure-ibmcloud
     cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
@@ -426,7 +426,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-ibmcloud-system/capi-ibmcloud-serving-cert
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   labels:
     cluster.x-k8s.io/provider: infrastructure-ibmcloud
     cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
@@ -684,7 +684,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-ibmcloud-system/capi-ibmcloud-serving-cert
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   labels:
     cluster.x-k8s.io/provider: infrastructure-ibmcloud
     cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
@@ -1129,7 +1129,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-ibmcloud-system/capi-ibmcloud-serving-cert
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   labels:
     cluster.x-k8s.io/provider: infrastructure-ibmcloud
     cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
@@ -1400,7 +1400,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-ibmcloud-system/capi-ibmcloud-serving-cert
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   labels:
     cluster.x-k8s.io/provider: infrastructure-ibmcloud
     cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
@@ -1565,6 +1565,7 @@ spec:
                   address:
                     type: string
                   floatingIPID:
+                    description: 'Deprecated: This field has no function and is going to be removed in the next release.'
                     type: string
                   loadBalancerIPID:
                     type: string
@@ -1714,6 +1715,7 @@ spec:
                   address:
                     type: string
                   floatingIPID:
+                    description: 'Deprecated: This field has no function and is going to be removed in the next release.'
                     type: string
                   loadBalancerIPID:
                     type: string
@@ -1731,8 +1733,119 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+  labels:
+    cluster.x-k8s.io/provider: infrastructure-ibmcloud
+    cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
+  name: ibmvpcclustertemplates.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: IBMVPCClusterTemplate
+    listKind: IBMVPCClusterTemplateList
+    plural: ibmvpcclustertemplates
+    shortNames:
+    - ibmvpcct
+    singular: ibmvpcclustertemplate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Time duration since creation of IBMVPCClusterTemplate
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta2
+    schema:
+      openAPIV3Schema:
+        description: IBMVPCClusterTemplate is the Schema for the ibmvpcclustertemplates API.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: IBMVPCClusterTemplateSpec defines the desired state of IBMVPCClusterTemplate.
+            properties:
+              template:
+                description: IBMVPCClusterTemplateResource describes the data needed to create an IBMVPCCluster from a template.
+                properties:
+                  metadata:
+                    description: 'Standard object''s metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata'
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: 'Annotations is an unstructured key value map stored with a resource that may be set by external tools to store and retrieve arbitrary metadata. They are not queryable and should be preserved when modifying objects. More info: http://kubernetes.io/docs/user-guide/annotations'
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: 'Map of string keys and values that can be used to organize and categorize (scope and select) objects. May match selectors of replication controllers and services. More info: http://kubernetes.io/docs/user-guide/labels'
+                        type: object
+                    type: object
+                  spec:
+                    description: IBMVPCClusterSpec defines the desired state of IBMVPCCluster.
+                    properties:
+                      controlPlaneEndpoint:
+                        description: ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.
+                        properties:
+                          host:
+                            description: The hostname on which the API server is serving.
+                            type: string
+                          port:
+                            description: The port on which the API server is serving.
+                            format: int32
+                            type: integer
+                        required:
+                        - host
+                        - port
+                        type: object
+                      controlPlaneLoadBalancer:
+                        description: ControlPlaneLoadBalancer is optional configuration for customizing control plane behavior.
+                        properties:
+                          name:
+                            description: Name sets the name of the VPC load balancer.
+                            maxLength: 63
+                            pattern: ^([a-z]|[a-z][-a-z0-9]*[a-z0-9])$
+                            type: string
+                        type: object
+                      region:
+                        description: The IBM Cloud Region the cluster lives in.
+                        type: string
+                      resourceGroup:
+                        description: The VPC resources should be created under the resource group.
+                        type: string
+                      vpc:
+                        description: The Name of VPC.
+                        type: string
+                      zone:
+                        description: The Name of availability zone.
+                        type: string
+                    required:
+                    - region
+                    - resourceGroup
+                    type: object
+                required:
+                - spec
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
     cert-manager.io/inject-ca-from: capi-ibmcloud-system/capi-ibmcloud-serving-cert
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   labels:
     cluster.x-k8s.io/provider: infrastructure-ibmcloud
     cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
@@ -2024,7 +2137,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-ibmcloud-system/capi-ibmcloud-serving-cert
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   labels:
     cluster.x-k8s.io/provider: infrastructure-ibmcloud
     cluster.x-k8s.io/v1beta1: v1beta1_v1beta2
@@ -2347,6 +2460,18 @@ rules:
   - list
   - watch
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - cluster.x-k8s.io
   resources:
   - clusters
@@ -2632,9 +2757,8 @@ spec:
       containers:
       - args:
         - --leader-elect
-        - --metrics-bind-addr=127.0.0.1:8080
-        - --powervs-provider-id-fmt=${POWERVS_PROVIDER_ID_FORMAT:=v1}
         - --provider-id-fmt=${PROVIDER_ID_FORMAT:=v1}
+        - --metrics-bind-addr=127.0.0.1:8080
         - --service-endpoint=${SERVICE_ENDPOINT:=none}
         - --v=${LOGLEVEL:=0}
         command:

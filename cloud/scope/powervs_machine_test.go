@@ -25,8 +25,8 @@ import (
 
 	"github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -217,7 +217,7 @@ func TestCreateMachinePVS(t *testing.T) {
 			Images: []*models.ImageReference{
 				{
 					Name:    core.StringPtr(pvsImage),
-					ImageID: core.StringPtr(pvsImage + "-id"),
+					ImageID: core.StringPtr(pvsImage + idSuffix),
 				},
 			},
 		}
@@ -225,7 +225,7 @@ func TestCreateMachinePVS(t *testing.T) {
 			Networks: []*models.NetworkReference{
 				{
 					Name:      core.StringPtr(pvsNetwork),
-					NetworkID: core.StringPtr(pvsNetwork + "-id"),
+					NetworkID: core.StringPtr(pvsNetwork + idSuffix),
 				},
 			},
 		}
@@ -445,7 +445,7 @@ func TestDeleteMachinePVS(t *testing.T) {
 			setup(t)
 			t.Cleanup(teardown)
 			scope := setupPowerVSMachineScope(clusterName, machineName, core.StringPtr(pvsImage), core.StringPtr(pvsNetwork), true, mockpowervs)
-			scope.IBMPowerVSMachine.Status.InstanceID = machineName + "-id"
+			scope.IBMPowerVSMachine.Status.InstanceID = machineName + idSuffix
 			mockpowervs.EXPECT().DeleteInstance(gomock.AssignableToTypeOf(id)).Return(nil)
 			err := scope.DeleteMachine()
 			g.Expect(err).To(BeNil())
@@ -456,7 +456,7 @@ func TestDeleteMachinePVS(t *testing.T) {
 			setup(t)
 			t.Cleanup(teardown)
 			scope := setupPowerVSMachineScope(clusterName, machineName, core.StringPtr(pvsImage), core.StringPtr(pvsNetwork), true, mockpowervs)
-			scope.IBMPowerVSMachine.Status.InstanceID = machineName + "-id"
+			scope.IBMPowerVSMachine.Status.InstanceID = machineName + idSuffix
 			mockpowervs.EXPECT().DeleteInstance(gomock.AssignableToTypeOf(id)).Return(errors.New("Failed to delete machine"))
 			err := scope.DeleteMachine()
 			g.Expect(err).To(Not(BeNil()))

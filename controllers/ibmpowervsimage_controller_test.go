@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/IBM-Cloud/power-go-client/power/models"
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -192,6 +192,7 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 							UID:        "1",
 						},
 					},
+					Finalizers: []string{infrav1beta2.IBMPowerVSImageFinalizer},
 				},
 				Spec: infrav1beta2.IBMPowerVSImageSpec{
 					ClusterName: "capi-powervs-cluster",

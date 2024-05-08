@@ -3398,6 +3398,7 @@ data:
               requests:
                 cpu: 10m
                 memory: 50Mi
+            terminationMessagePolicy: FallbackToLogsOnError
             volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: cert
@@ -3418,6 +3419,7 @@ data:
               requests:
                 cpu: 10m
                 memory: 50Mi
+            terminationMessagePolicy: FallbackToLogsOnError
           priorityClassName: system-cluster-critical
           serviceAccountName: capi-ibmcloud-manager
           terminationGracePeriodSeconds: 10

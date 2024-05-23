@@ -33,11 +33,17 @@ const (
 	PowerVS serviceID = "powervs"
 	// RC used to identify Resource-Controller service.
 	RC serviceID = "rc"
+	// TransitGateway  service.
+	TransitGateway serviceID = "transitgateway"
+	// COS service.
+	COS serviceID = "cos"
+	// RM used to identify Resource-Manager service.
+	RM serviceID = "rm"
 )
 
 type serviceID string
 
-var serviceIDs = []serviceID{VPC, PowerVS, RC}
+var serviceIDs = []serviceID{VPC, PowerVS, RC, TransitGateway, COS}
 
 // ServiceEndpoint holds the Service endpoint specific information.
 type ServiceEndpoint struct {
@@ -125,6 +131,7 @@ func FetchVPCEndpoint(region string, serviceEndpoint []ServiceEndpoint) string {
 }
 
 // FetchPVSEndpoint will return PowerVS service endpoint.
+// Deprecated: User FetchEndpoints instead.
 func FetchPVSEndpoint(region string, serviceEndpoint []ServiceEndpoint) string {
 	for _, powervsEndpoint := range serviceEndpoint {
 		if powervsEndpoint.Region == region && powervsEndpoint.ID == string(PowerVS) {
@@ -135,6 +142,7 @@ func FetchPVSEndpoint(region string, serviceEndpoint []ServiceEndpoint) string {
 }
 
 // FetchRCEndpoint will return resource controller endpoint.
+// Deprecated: User FetchEndpoints instead.
 func FetchRCEndpoint(serviceEndpoint []ServiceEndpoint) string {
 	for _, rcEndpoint := range serviceEndpoint {
 		if rcEndpoint.ID == string(RC) {
@@ -144,8 +152,18 @@ func FetchRCEndpoint(serviceEndpoint []ServiceEndpoint) string {
 	return ""
 }
 
-// CostructRegionFromZone Calculate region based on location/zone.
-func CostructRegionFromZone(zone string) string {
+// FetchEndpoints returns the endpoint associated with serviceID otherwise empty string.
+func FetchEndpoints(serviceID string, serviceEndpoint []ServiceEndpoint) string {
+	for _, endpoint := range serviceEndpoint {
+		if endpoint.ID == serviceID {
+			return endpoint.URL
+		}
+	}
+	return ""
+}
+
+// ConstructRegionFromZone Calculate region based on location/zone.
+func ConstructRegionFromZone(zone string) string {
 	var regex string
 	if strings.Contains(zone, "-") {
 		// it's a region or AZ

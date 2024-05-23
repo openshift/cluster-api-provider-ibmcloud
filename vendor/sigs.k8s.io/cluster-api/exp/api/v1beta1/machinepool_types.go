@@ -49,6 +49,7 @@ type MachinePoolSpec struct {
 	// be ready.
 	// Defaults to 0 (machine instance will be considered available as soon as it
 	// is ready)
+	// NOTE: No logic is implemented for this field and it currently has no behaviour.
 	// +optional
 	MinReadySeconds *int32 `json:"minReadySeconds,omitempty"`
 
@@ -163,6 +164,11 @@ const (
 	// MachinePool infrastructure is scaling down.
 	MachinePoolPhaseScalingDown = MachinePoolPhase("ScalingDown")
 
+	// MachinePoolPhaseScaling is the MachinePool state when the
+	// MachinePool infrastructure is scaling.
+	// This phase value is appropriate to indicate an active state of scaling by an external autoscaler.
+	MachinePoolPhaseScaling = MachinePoolPhase("Scaling")
+
 	// MachinePoolPhaseDeleting is the MachinePool state when a delete
 	// request has been sent to the API Server,
 	// but its infrastructure has not yet been fully deleted.
@@ -192,6 +198,7 @@ func (m *MachinePoolStatus) GetTypedPhase() MachinePoolPhase {
 		MachinePoolPhaseRunning,
 		MachinePoolPhaseScalingUp,
 		MachinePoolPhaseScalingDown,
+		MachinePoolPhaseScaling,
 		MachinePoolPhaseDeleting,
 		MachinePoolPhaseFailed:
 		return phase
@@ -242,5 +249,5 @@ type MachinePoolList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&MachinePool{}, &MachinePoolList{})
+	objectTypes = append(objectTypes, &MachinePool{}, &MachinePoolList{})
 }

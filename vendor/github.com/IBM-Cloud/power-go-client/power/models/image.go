@@ -37,6 +37,10 @@ type Image struct {
 	// Format: date-time
 	LastUpdateDate *strfmt.DateTime `json:"lastUpdateDate"`
 
+	// Maximum image volume size for multi-volume image
+	// Required: true
+	MaxImageVolumeSize *float64 `json:"maxImageVolumeSize"`
+
 	// Image Name
 	// Required: true
 	Name *string `json:"name"`
@@ -82,6 +86,10 @@ func (m *Image) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateLastUpdateDate(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateMaxImageVolumeSize(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -148,6 +156,15 @@ func (m *Image) validateLastUpdateDate(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("lastUpdateDate", "body", "date-time", m.LastUpdateDate.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Image) validateMaxImageVolumeSize(formats strfmt.Registry) error {
+
+	if err := validate.Required("maxImageVolumeSize", "body", m.MaxImageVolumeSize); err != nil {
 		return err
 	}
 
@@ -279,6 +296,11 @@ func (m *Image) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 func (m *Image) contextValidateSpecifications(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Specifications != nil {
+
+		if swag.IsZero(m.Specifications) { // not required
+			return nil
+		}
+
 		if err := m.Specifications.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("specifications")
@@ -295,6 +317,11 @@ func (m *Image) contextValidateSpecifications(ctx context.Context, formats strfm
 func (m *Image) contextValidateTaskref(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Taskref != nil {
+
+		if swag.IsZero(m.Taskref) { // not required
+			return nil
+		}
+
 		if err := m.Taskref.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("taskref")
@@ -313,6 +340,11 @@ func (m *Image) contextValidateVolumes(ctx context.Context, formats strfmt.Regis
 	for i := 0; i < len(m.Volumes); i++ {
 
 		if m.Volumes[i] != nil {
+
+			if swag.IsZero(m.Volumes[i]) { // not required
+				return nil
+			}
+
 			if err := m.Volumes[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("volumes" + "." + strconv.Itoa(i))

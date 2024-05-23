@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"strings"
 )
 
 // KubectlApply shells out to kubectl apply.
@@ -29,24 +31,23 @@ func KubectlApply(ctx context.Context, kubeconfigPath string, resources []byte, 
 	aargs := append([]string{"apply", "--kubeconfig", kubeconfigPath, "-f", "-"}, args...)
 	rbytes := bytes.NewReader(resources)
 	applyCmd := NewCommand(
-		WithCommand("kubectl"),
+		WithCommand(kubectlPath()),
 		WithArgs(aargs...),
 		WithStdin(rbytes),
 	)
+
+	fmt.Printf("Running kubectl %s\n", strings.Join(aargs, " "))
 	stdout, stderr, err := applyCmd.Run(ctx)
-	if err != nil {
-		fmt.Println(string(stderr))
-		return err
-	}
-	fmt.Println(string(stdout))
-	return nil
+	fmt.Printf("stderr:\n%s\n", string(stderr))
+	fmt.Printf("stdout:\n%s\n", string(stdout))
+	return err
 }
 
 // KubectlWait shells out to kubectl wait.
 func KubectlWait(ctx context.Context, kubeconfigPath string, args ...string) error {
 	wargs := append([]string{"wait", "--kubeconfig", kubeconfigPath}, args...)
 	wait := NewCommand(
-		WithCommand("kubectl"),
+		WithCommand(kubectlPath()),
 		WithArgs(wargs...),
 	)
 	_, stderr, err := wait.Run(ctx)
@@ -55,4 +56,11 @@ func KubectlWait(ctx context.Context, kubeconfigPath string, args ...string) err
 		return err
 	}
 	return nil
+}
+
+func kubectlPath() string {
+	if kubectlPath, ok := os.LookupEnv("CAPI_KUBECTL_PATH"); ok {
+		return kubectlPath
+	}
+	return "kubectl"
 }

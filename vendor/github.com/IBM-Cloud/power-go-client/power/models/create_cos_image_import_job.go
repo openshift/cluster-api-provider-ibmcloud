@@ -53,10 +53,10 @@ type CreateCosImageImportJob struct {
 	// Storage affinity data used for storage pool selection
 	StorageAffinity *StorageAffinity `json:"storageAffinity,omitempty"`
 
-	// Storage pool where the image will be loaded, if provided then storageType and storageAffinity will be ignored
+	// Storage pool where the image will be loaded, if provided then storageAffinity will be ignored
 	StoragePool string `json:"storagePool,omitempty"`
 
-	// Type of storage; will be ignored if storagePool or storageAffinity is provided. If only using storageType for storage selection then the storage pool with the most available space will be selected
+	// Type of storage; If only using storageType for storage selection then the storage pool with the most available space will be selected if storageType is not provided the storage type will default to 'tier3'.
 	StorageType string `json:"storageType,omitempty"`
 }
 
@@ -260,6 +260,11 @@ func (m *CreateCosImageImportJob) ContextValidate(ctx context.Context, formats s
 func (m *CreateCosImageImportJob) contextValidateStorageAffinity(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.StorageAffinity != nil {
+
+		if swag.IsZero(m.StorageAffinity) { // not required
+			return nil
+		}
+
 		if err := m.StorageAffinity.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("storageAffinity")

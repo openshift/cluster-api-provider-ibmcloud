@@ -35,6 +35,11 @@ import (
 	logf "sigs.k8s.io/cluster-api/cmd/clusterctl/log"
 )
 
+// CRDMigrator interface defines methods for migrating CRs to the storage version of new CRDs.
+type CRDMigrator interface {
+	Run(ctx context.Context, objs []unstructured.Unstructured) error
+}
+
 // crdMigrator migrates CRs to the storage version of new CRDs.
 // This is necessary when the new CRD drops a version which
 // was previously used as a storage version.
@@ -42,8 +47,8 @@ type crdMigrator struct {
 	Client client.Client
 }
 
-// newCRDMigrator creates a new CRD migrator.
-func newCRDMigrator(client client.Client) *crdMigrator {
+// NewCRDMigrator creates a new CRD migrator.
+func NewCRDMigrator(client client.Client) CRDMigrator {
 	return &crdMigrator{
 		Client: client,
 	}
@@ -71,20 +76,24 @@ func (m *crdMigrator) Run(ctx context.Context, objs []unstructured.Unstructured)
 }
 
 // run migrates CRs of a new CRD.
-// This is necessary when the new CRD drops a version which
-// was previously used as a storage version.
+// This is necessary when the new CRD drops or stops serving
+// a version which was previously used as a storage version.
 func (m *crdMigrator) run(ctx context.Context, newCRD *apiextensionsv1.CustomResourceDefinition) (bool, error) {
 	log := logf.Log
 
 	// Gets the list of version supported by the new CRD
-	newVersions := sets.NewString()
+	newVersions := sets.Set[string]{}
+	servedVersions := sets.Set[string]{}
 	for _, version := range newCRD.Spec.Versions {
 		newVersions.Insert(version.Name)
+		if version.Served {
+			servedVersions.Insert(version.Name)
+		}
 	}
 
 	// Get the current CRD.
 	currentCRD := &apiextensionsv1.CustomResourceDefinition{}
-	if err := retryWithExponentialBackoff(newReadBackoff(), func() error {
+	if err := retryWithExponentialBackoff(ctx, newReadBackoff(), func(ctx context.Context) error {
 		return m.Client.Get(ctx, client.ObjectKeyFromObject(newCRD), currentCRD)
 	}); err != nil {
 		// Return if the CRD doesn't exist yet. We only have to migrate if the CRD exists already.
@@ -105,11 +114,10 @@ func (m *crdMigrator) run(ctx context.Context, newCRD *apiextensionsv1.CustomRes
 		return false, errors.Errorf("unable to upgrade CRD %q because the new CRD does not contain the storage version %q of the current CRD, thus not allowing CR migration", newCRD.Name, currentStorageVersion)
 	}
 
-	currentStatusStoredVersions := sets.NewString(currentCRD.Status.StoredVersions...)
-
+	currentStatusStoredVersions := sets.Set[string]{}.Insert(currentCRD.Status.StoredVersions...)
 	// If the new CRD still contains all current stored versions, nothing to do
 	// as no previous storage version will be dropped.
-	if newVersions.HasAll(currentStatusStoredVersions.List()...) {
+	if servedVersions.HasAll(currentStatusStoredVersions.UnsortedList()...) {
 		log.V(2).Info("CRD migration check passed", "name", newCRD.Name)
 		return false, nil
 	}
@@ -121,9 +129,9 @@ func (m *crdMigrator) run(ctx context.Context, newCRD *apiextensionsv1.CustomRes
 	// This way we can make sure that all CR objects are now stored in the current storage version.
 	// Alternatively, we would have to figure out which objects are stored in which version but this information is not
 	// exposed by the apiserver.
-	storedVersionsToDelete := currentStatusStoredVersions.Difference(newVersions)
-	storedVersionsToPreserve := currentStatusStoredVersions.Intersection(newVersions)
-	log.Info("CR migration required", "kind", newCRD.Spec.Names.Kind, "storedVersionsToDelete", strings.Join(storedVersionsToDelete.List(), ","), "storedVersionsToPreserve", strings.Join(storedVersionsToPreserve.List(), ","))
+	storedVersionsToDelete := currentStatusStoredVersions.Difference(servedVersions)
+	storedVersionsToPreserve := currentStatusStoredVersions.Intersection(servedVersions)
+	log.Info("CR migration required", "kind", newCRD.Spec.Names.Kind, "storedVersionsToDelete", strings.Join(sets.List(storedVersionsToDelete), ","), "storedVersionsToPreserve", strings.Join(sets.List(storedVersionsToPreserve), ","))
 
 	if err := m.migrateResourcesForCRD(ctx, currentCRD, currentStorageVersion); err != nil {
 		return false, err
@@ -149,7 +157,7 @@ func (m *crdMigrator) migrateResourcesForCRD(ctx context.Context, crd *apiextens
 
 	var i int
 	for {
-		if err := retryWithExponentialBackoff(newReadBackoff(), func() error {
+		if err := retryWithExponentialBackoff(ctx, newReadBackoff(), func(ctx context.Context) error {
 			return m.Client.List(ctx, list, client.Continue(list.GetContinue()))
 		}); err != nil {
 			return errors.Wrapf(err, "failed to list %q", list.GetKind())
@@ -159,7 +167,7 @@ func (m *crdMigrator) migrateResourcesForCRD(ctx context.Context, crd *apiextens
 			obj := list.Items[i]
 
 			log.V(5).Info("Migrating", logf.UnstructuredToValues(obj)...)
-			if err := retryWithExponentialBackoff(newWriteBackoff(), func() error {
+			if err := retryWithExponentialBackoff(ctx, newWriteBackoff(), func(ctx context.Context) error {
 				return handleMigrateErr(m.Client.Update(ctx, &obj))
 			}); err != nil {
 				return errors.Wrapf(err, "failed to migrate %s/%s", obj.GetNamespace(), obj.GetName())
@@ -184,7 +192,7 @@ func (m *crdMigrator) migrateResourcesForCRD(ctx context.Context, crd *apiextens
 
 func (m *crdMigrator) patchCRDStoredVersions(ctx context.Context, crd *apiextensionsv1.CustomResourceDefinition, currentStorageVersion string) error {
 	crd.Status.StoredVersions = []string{currentStorageVersion}
-	if err := retryWithExponentialBackoff(newWriteBackoff(), func() error {
+	if err := retryWithExponentialBackoff(ctx, newWriteBackoff(), func(ctx context.Context) error {
 		return m.Client.Status().Update(ctx, crd)
 	}); err != nil {
 		return errors.Wrapf(err, "failed to update status.storedVersions for CRD %q", crd.Name)

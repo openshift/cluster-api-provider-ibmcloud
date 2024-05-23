@@ -22,7 +22,7 @@ import (
 	"golang.org/x/tools/go/analysis/passes/internal/analysisutil"
 )
 
-const Doc = "check that +build tags are well-formed and correctly located"
+const Doc = "check // +build directives"
 
 var Analyzer = &analysis.Analyzer{
 	Name: "buildtag",
@@ -83,7 +83,7 @@ func checkGoFile(pass *analysis.Pass, f *ast.File) {
 }
 
 func checkOtherFile(pass *analysis.Pass, filename string) error {
-	content, tf, err := analysisutil.ReadFile(pass.Fset, filename)
+	content, tf, err := analysisutil.ReadFile(pass, filename)
 	if err != nil {
 		return err
 	}

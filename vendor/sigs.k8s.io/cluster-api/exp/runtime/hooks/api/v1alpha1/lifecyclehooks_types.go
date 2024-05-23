@@ -28,6 +28,9 @@ import (
 type BeforeClusterCreateRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
 	// Cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
@@ -50,6 +53,9 @@ func BeforeClusterCreate(*BeforeClusterCreateRequest, *BeforeClusterCreateRespon
 // +kubebuilder:object:root=true
 type AfterControlPlaneInitializedRequest struct {
 	metav1.TypeMeta `json:",inline"`
+
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
 
 	// Cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
@@ -74,6 +80,9 @@ func AfterControlPlaneInitialized(*AfterControlPlaneInitializedRequest, *AfterCo
 // +kubebuilder:object:root=true
 type BeforeClusterUpgradeRequest struct {
 	metav1.TypeMeta `json:",inline"`
+
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
 
 	// Cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
@@ -105,6 +114,9 @@ func BeforeClusterUpgrade(*BeforeClusterUpgradeRequest, *BeforeClusterUpgradeRes
 type AfterControlPlaneUpgradeRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
 	// Cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 
@@ -131,6 +143,9 @@ func AfterControlPlaneUpgrade(*AfterControlPlaneUpgradeRequest, *AfterControlPla
 // +kubebuilder:object:root=true
 type AfterClusterUpgradeRequest struct {
 	metav1.TypeMeta `json:",inline"`
+
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
 
 	// Cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
@@ -159,6 +174,9 @@ func AfterClusterUpgrade(*AfterClusterUpgradeRequest, *AfterClusterUpgradeRespon
 type BeforeClusterDeleteRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
 	// Cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
@@ -186,7 +204,7 @@ func init() {
 			"all the objects which are part of a Cluster's topology are going to be created.\n" +
 			"\n" +
 			"Notes:\n" +
-			"- This hook will be called only for Clusters with a managed topology\n" +
+			"- This hook will be called only for Clusters with a managed topology\n" + //nolint:goconst
 			"- The call's request contains the Cluster object\n" +
 			"- This is a blocking hook; Runtime Extension implementers can use this hook to execute\n" +
 			"tasks before the objects which are part of a Cluster's topology are created",

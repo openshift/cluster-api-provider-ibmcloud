@@ -29,14 +29,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blang/semver/v4"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/version"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	clusterctlconfig "sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
+	"sigs.k8s.io/cluster-api/internal/goproxy"
 	"sigs.k8s.io/cluster-api/util"
 )
 
@@ -57,6 +59,7 @@ func LoadE2EConfig(ctx context.Context, input LoadE2EConfigInput) *E2EConfig {
 	config := &E2EConfig{}
 	Expect(yaml.Unmarshal(configData, config)).To(Succeed(), "Failed to convert the e2e test config file to yaml")
 
+	Expect(config.ResolveReleases(ctx)).To(Succeed(), "Failed to resolve release markers in e2e test config file")
 	config.Defaults()
 	config.AbsPaths(filepath.Dir(input.ConfigPath))
 
@@ -101,7 +104,7 @@ type ProviderConfig struct {
 	Type string `json:"type"`
 
 	// Versions is a list of component YAML to be added to the local repository, one for each release.
-	// Please note that the first source will be used a a default release for this provider.
+	// Please note that the first source will be used a default release for this provider.
 	Versions []ProviderVersionSource `json:"versions,omitempty"`
 
 	// Files is a list of files to be copied into the local repository for all the releases.
@@ -243,6 +246,115 @@ type Files struct {
 	// TargetName name of the file copied into the local repository. if empty, the source name
 	// Will be preserved
 	TargetName string `json:"targetName,omitempty"`
+}
+
+func (c *E2EConfig) DeepCopy() *E2EConfig {
+	if c == nil {
+		return nil
+	}
+	out := new(E2EConfig)
+	out.ManagementClusterName = c.ManagementClusterName
+	out.Images = make([]ContainerImage, len(c.Images))
+	copy(out.Images, c.Images)
+	out.Providers = make([]ProviderConfig, len(c.Providers))
+	copy(out.Providers, c.Providers)
+	out.Variables = make(map[string]string, len(c.Variables))
+	for key, val := range c.Variables {
+		out.Variables[key] = val
+	}
+	out.Intervals = make(map[string][]string, len(c.Intervals))
+	for key, val := range c.Intervals {
+		out.Intervals[key] = val
+	}
+	return out
+}
+
+// ResolveReleases converts release markers to release version.
+func (c *E2EConfig) ResolveReleases(ctx context.Context) error {
+	for i := range c.Providers {
+		provider := &c.Providers[i]
+		for j := range provider.Versions {
+			version := &provider.Versions[j]
+			if version.Type != URLSource {
+				continue
+			}
+			// Skipping versions that are not a resolvable marker. Resolvable markers are surrounded by `{}`
+			if !strings.HasPrefix(version.Name, "{") || !strings.HasSuffix(version.Name, "}") {
+				continue
+			}
+			releaseMarker := strings.TrimLeft(strings.TrimRight(version.Name, "}"), "{")
+			ver, err := ResolveRelease(ctx, releaseMarker)
+			if err != nil {
+				return errors.Wrapf(err, "failed resolving release url %q", version.Name)
+			}
+			ver = "v" + ver
+			version.Value = strings.Replace(version.Value, version.Name, ver, 1)
+			version.Name = ver
+		}
+	}
+	return nil
+}
+
+func ResolveRelease(ctx context.Context, releaseMarker string) (string, error) {
+	scheme, host, err := goproxy.GetSchemeAndHost(os.Getenv("GOPROXY"))
+	if err != nil {
+		return "", err
+	}
+	if scheme == "" || host == "" {
+		return "", errors.Errorf("releasemarker does not support disabling the go proxy: GOPROXY=%q", os.Getenv("GOPROXY"))
+	}
+	goproxyClient := goproxy.NewClient(scheme, host)
+	return resolveReleaseMarker(ctx, releaseMarker, goproxyClient)
+}
+
+// resolveReleaseMarker resolves releaseMarker string to verion string e.g.
+// - Resolves "go://sigs.k8s.io/cluster-api@v1.0" to the latest stable patch release of v1.0.
+// - Resolves "go://sigs.k8s.io/cluster-api@latest-v1.0" to the latest patch release of v1.0 including rc and pre releases.
+func resolveReleaseMarker(ctx context.Context, releaseMarker string, goproxyClient *goproxy.Client) (string, error) {
+	if !strings.HasPrefix(releaseMarker, "go://") {
+		return "", errors.Errorf("unknown release marker scheme")
+	}
+
+	releaseMarker = strings.TrimPrefix(releaseMarker, "go://")
+	if releaseMarker == "" {
+		return "", errors.New("empty release url")
+	}
+
+	gomoduleParts := strings.Split(releaseMarker, "@")
+	if len(gomoduleParts) < 2 {
+		return "", errors.Errorf("go module or version missing")
+	}
+	gomodule := gomoduleParts[0]
+
+	includePrereleases := false
+	if strings.HasPrefix(gomoduleParts[1], "latest-") {
+		includePrereleases = true
+	}
+	version := strings.TrimPrefix(gomoduleParts[1], "latest-") + ".0"
+	version = strings.TrimPrefix(version, "v")
+	semVersion, err := semver.Parse(version)
+	if err != nil {
+		return "", errors.Wrapf(err, "parsing semver for %s", version)
+	}
+
+	parsedTags, err := goproxyClient.GetVersions(ctx, gomodule)
+	if err != nil {
+		return "", err
+	}
+
+	var picked semver.Version
+	for i, tag := range parsedTags {
+		if !includePrereleases && len(tag.Pre) > 0 {
+			continue
+		}
+		if tag.Major == semVersion.Major && tag.Minor == semVersion.Minor {
+			picked = parsedTags[i]
+		}
+	}
+	if picked.Major == 0 && picked.Minor == 0 && picked.Patch == 0 {
+		return "", errors.Errorf("no suitable release available for release marker %s", releaseMarker)
+	}
+	return picked.String(), nil
 }
 
 // Defaults assigns default values to the object. More specifically:
@@ -395,20 +507,23 @@ func (c *E2EConfig) Validate() error {
 // - Providers files should be an existing file and have a target name.
 func (c *E2EConfig) validateProviders() error {
 	providersByType := map[clusterctlv1.ProviderType][]string{
-		clusterctlv1.CoreProviderType:           nil,
-		clusterctlv1.BootstrapProviderType:      nil,
-		clusterctlv1.ControlPlaneProviderType:   nil,
-		clusterctlv1.InfrastructureProviderType: nil,
+		clusterctlv1.CoreProviderType:             nil,
+		clusterctlv1.BootstrapProviderType:        nil,
+		clusterctlv1.ControlPlaneProviderType:     nil,
+		clusterctlv1.InfrastructureProviderType:   nil,
+		clusterctlv1.IPAMProviderType:             nil,
+		clusterctlv1.RuntimeExtensionProviderType: nil,
+		clusterctlv1.AddonProviderType:            nil,
 	}
 	for i, providerConfig := range c.Providers {
 		// Providers name should not be empty.
 		if providerConfig.Name == "" {
 			return errEmptyArg(fmt.Sprintf("Providers[%d].Name", i))
 		}
-		// Providers type should be one of [CoreProvider, BootstrapProvider, ControlPlaneProvider, InfrastructureProvider].
+		// Providers type should be one of the know types.
 		providerType := clusterctlv1.ProviderType(providerConfig.Type)
 		switch providerType {
-		case clusterctlv1.CoreProviderType, clusterctlv1.BootstrapProviderType, clusterctlv1.ControlPlaneProviderType, clusterctlv1.InfrastructureProviderType:
+		case clusterctlv1.CoreProviderType, clusterctlv1.BootstrapProviderType, clusterctlv1.ControlPlaneProviderType, clusterctlv1.InfrastructureProviderType, clusterctlv1.IPAMProviderType, clusterctlv1.RuntimeExtensionProviderType, clusterctlv1.AddonProviderType:
 			providersByType[providerType] = append(providersByType[providerType], providerConfig.Name)
 		default:
 			return errInvalidArg("Providers[%d].Type=%q", i, providerConfig.Type)
@@ -504,9 +619,28 @@ func fileExists(filename string) bool {
 
 // InfrastructureProviders returns the infrastructure provider selected for running this E2E test.
 func (c *E2EConfig) InfrastructureProviders() []string {
+	return c.getProviders(clusterctlv1.InfrastructureProviderType)
+}
+
+// IPAMProviders returns the IPAM provider selected for running this E2E test.
+func (c *E2EConfig) IPAMProviders() []string {
+	return c.getProviders(clusterctlv1.IPAMProviderType)
+}
+
+// RuntimeExtensionProviders returns the runtime extension provider selected for running this E2E test.
+func (c *E2EConfig) RuntimeExtensionProviders() []string {
+	return c.getProviders(clusterctlv1.RuntimeExtensionProviderType)
+}
+
+// AddonProviders returns the add-on provider selected for running this E2E test.
+func (c *E2EConfig) AddonProviders() []string {
+	return c.getProviders(clusterctlv1.AddonProviderType)
+}
+
+func (c *E2EConfig) getProviders(t clusterctlv1.ProviderType) []string {
 	InfraProviders := []string{}
 	for _, provider := range c.Providers {
-		if provider.Type == string(clusterctlv1.InfrastructureProviderType) {
+		if provider.Type == string(t) {
 			InfraProviders = append(InfraProviders, provider.Name)
 		}
 	}
@@ -556,7 +690,7 @@ func (c *E2EConfig) GetVariable(varName string) string {
 	}
 
 	value, ok := c.Variables[varName]
-	Expect(ok).NotTo(BeFalse())
+	Expect(ok).To(BeTrue())
 	return value
 }
 
@@ -568,8 +702,8 @@ func (c *E2EConfig) GetInt64PtrVariable(varName string) *int64 {
 	}
 
 	wCount, err := strconv.ParseInt(wCountStr, 10, 64)
-	Expect(err).NotTo(HaveOccurred())
-	return pointer.Int64Ptr(wCount)
+	Expect(err).ToNot(HaveOccurred())
+	return ptr.To[int64](wCount)
 }
 
 // GetInt32PtrVariable returns an Int32Ptr variable from the e2e config file.
@@ -580,8 +714,8 @@ func (c *E2EConfig) GetInt32PtrVariable(varName string) *int32 {
 	}
 
 	wCount, err := strconv.ParseUint(wCountStr, 10, 32)
-	Expect(err).NotTo(HaveOccurred())
-	return pointer.Int32Ptr(int32(wCount))
+	Expect(err).ToNot(HaveOccurred())
+	return ptr.To[int32](int32(wCount))
 }
 
 // GetProviderVersions returns the sorted list of versions defined for a provider.

@@ -20,10 +20,11 @@ import (
 	"context"
 	"fmt"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -62,7 +63,7 @@ func GetClusterResourceSetBindingByCluster(ctx context.Context, input GetCluster
 	binding := &addonsv1.ClusterResourceSetBinding{}
 	Eventually(func() error {
 		return input.Getter.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: input.ClusterName}, binding)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list ClusterResourceSetBinding objects for Cluster %s/%s", input.Namespace, input.ClusterName)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list ClusterResourceSetBinding objects for Cluster %s", klog.KRef(input.Namespace, input.ClusterName))
 	return binding
 }
 
@@ -149,10 +150,27 @@ func WaitForClusterResourceSetToApplyResources(ctx context.Context, input WaitFo
 				continue
 			}
 
-			if len(binding.Spec.Bindings) == 0 || !binding.Spec.Bindings[0].IsApplied(resource) {
+			// Check relevant ResourceSetBinding to see if the resource is applied. If no ResourceSetBinding is found for
+			// the specified ClusterResourceSet, the resource has not applied.
+			resourceSetBinding := getResourceSetBindingForClusterResourceSet(binding, input.ClusterResourceSet)
+			if resourceSetBinding == nil || !resourceSetBinding.IsApplied(resource) {
 				return false
 			}
 		}
 		return true
 	}, intervals...).Should(BeTrue())
+}
+
+func getResourceSetBindingForClusterResourceSet(
+	clusterResourceSetBinding *addonsv1.ClusterResourceSetBinding, clusterResourceSet *addonsv1.ClusterResourceSet,
+) *addonsv1.ResourceSetBinding {
+	if clusterResourceSetBinding == nil || clusterResourceSet == nil {
+		return nil
+	}
+	for _, binding := range clusterResourceSetBinding.Spec.Bindings {
+		if binding.ClusterResourceSetName == clusterResourceSet.Name {
+			return binding
+		}
+	}
+	return nil
 }

@@ -25,6 +25,8 @@ import (
 	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	structuraldefaulting "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/defaulting"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
@@ -53,7 +55,7 @@ func ValidateClusterClassVariables(ctx context.Context, clusterClassVariables []
 func validateClusterClassVariableNamesUnique(clusterClassVariables []clusterv1.ClusterClassVariable, pathPrefix *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	variableNames := sets.NewString()
+	variableNames := sets.Set[string]{}
 	for i, clusterClassVariable := range clusterClassVariables {
 		if variableNames.Has(clusterClassVariable.Name) {
 			allErrs = append(allErrs,
@@ -76,6 +78,9 @@ func validateClusterClassVariable(ctx context.Context, variable *clusterv1.Clust
 
 	// Validate variable name.
 	allErrs = append(allErrs, validateClusterClassVariableName(variable.Name, fldPath.Child("name"))...)
+
+	// Validate variable metadata.
+	allErrs = append(allErrs, validateClusterClassVariableMetadata(variable.Metadata, fldPath.Child("metadata"))...)
 
 	// Validate schema.
 	allErrs = append(allErrs, validateRootSchema(ctx, variable, fldPath.Child("schema", "openAPIV3Schema"))...)
@@ -101,7 +106,20 @@ func validateClusterClassVariableName(variableName string, fldPath *field.Path) 
 	return allErrs
 }
 
-var validVariableTypes = sets.NewString("object", "array", "string", "number", "integer", "boolean")
+// validateClusterClassVariableMetadata validates a variable metadata.
+func validateClusterClassVariableMetadata(metadata clusterv1.ClusterClassVariableMetadata, fldPath *field.Path) field.ErrorList {
+	allErrs := metav1validation.ValidateLabels(
+		metadata.Labels,
+		fldPath.Child("labels"),
+	)
+	allErrs = append(allErrs, apivalidation.ValidateAnnotations(
+		metadata.Annotations,
+		fldPath.Child("annotations"),
+	)...)
+	return allErrs
+}
+
+var validVariableTypes = sets.Set[string]{}.Insert("object", "array", "string", "number", "integer", "boolean")
 
 // validateRootSchema validates the schema.
 func validateRootSchema(ctx context.Context, clusterClassVariable *clusterv1.ClusterClassVariable, fldPath *field.Path) field.ErrorList {
@@ -146,9 +164,7 @@ func validateRootSchema(ctx context.Context, clusterClassVariable *clusterv1.Clu
 	}
 
 	// If the structural schema is valid, ensure a schema validator can be constructed.
-	if _, _, err := validation.NewSchemaValidator(&apiextensions.CustomResourceValidation{
-		OpenAPIV3Schema: apiExtensionsSchema,
-	}); err != nil {
+	if _, _, err := validation.NewSchemaValidator(apiExtensionsSchema); err != nil {
 		return append(allErrs, field.Invalid(fldPath, "", fmt.Sprintf("failed to build validator: %v", err)))
 	}
 
@@ -164,13 +180,11 @@ func validateSchema(schema *apiextensions.JSONSchemaProps, fldPath *field.Path) 
 	case schema.Type == "":
 		return field.ErrorList{field.Required(fldPath.Child("type"), "type cannot be empty")}
 	case !validVariableTypes.Has(schema.Type):
-		return field.ErrorList{field.NotSupported(fldPath.Child("type"), schema.Type, validVariableTypes.List())}
+		return field.ErrorList{field.NotSupported(fldPath.Child("type"), schema.Type, sets.List(validVariableTypes))}
 	}
 
 	// If the structural schema is valid, ensure a schema validator can be constructed.
-	validator, _, err := validation.NewSchemaValidator(&apiextensions.CustomResourceValidation{
-		OpenAPIV3Schema: schema,
-	})
+	validator, _, err := validation.NewSchemaValidator(schema)
 	if err != nil {
 		return append(allErrs, field.Invalid(fldPath, "", fmt.Sprintf("failed to build validator: %v", err)))
 	}

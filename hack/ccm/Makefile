@@ -12,17 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Go
+GO_VERSION ?=1.21.10
+GO_CONTAINER_IMAGE ?= golang:$(GO_VERSION)
+
 REGISTRY=gcr.io/k8s-staging-capi-ibmcloud
 IMG=powervs-cloud-controller-manager
 
 # POWERVS_CLOUD_CONTROLLER_COMMIT can be fetched from here https://github.com/openshift/cloud-provider-powervs/commits/main
-POWERVS_CLOUD_CONTROLLER_COMMIT?=07d19bf
+POWERVS_CLOUD_CONTROLLER_COMMIT?=6c98ec5
 TAG?=$(POWERVS_CLOUD_CONTROLLER_COMMIT)
 
 build-image-linux-amd64: init-buildx
 	{                                                                   \
         set -e ;                                                            \
         docker buildx build \
+                --build-arg golang_image=$(GO_CONTAINER_IMAGE)\
                 --build-arg TARGETPLATFORM=linux/amd64 --build-arg ARCH=amd64 \
                 --build-arg POWERVS_CLOUD_CONTROLLER_COMMIT=$(POWERVS_CLOUD_CONTROLLER_COMMIT)\
                 -t $(REGISTRY)/$(IMG):$(TAG)_linux_amd64 . --target centos-base; \
@@ -32,6 +37,7 @@ build-image-linux-ppc64le: init-buildx
 	{                                                                    \
         set -e ;                                                             \
         docker buildx build \
+                --build-arg golang_image=$(GO_CONTAINER_IMAGE)\
                 --build-arg TARGETPLATFORM=linux/ppc64le --build-arg ARCH=ppc64le\
                 --build-arg POWERVS_CLOUD_CONTROLLER_COMMIT=$(POWERVS_CLOUD_CONTROLLER_COMMIT)\
                 -t $(REGISTRY)/$(IMG):$(TAG)_linux_ppc64le . --target centos-base; \
@@ -41,6 +47,7 @@ build-image-and-push-linux-amd64: init-buildx
 	{                                                                   \
 	set -e ;                                                            \
 	docker buildx build \
+		--build-arg golang_image=$(GO_CONTAINER_IMAGE)\
 		--build-arg TARGETPLATFORM=linux/amd64 --build-arg ARCH=amd64 \
 		--build-arg POWERVS_CLOUD_CONTROLLER_COMMIT=$(POWERVS_CLOUD_CONTROLLER_COMMIT)\
 		-t $(REGISTRY)/$(IMG):$(TAG)_linux_amd64 . --push --target centos-base; \
@@ -50,6 +57,7 @@ build-image-and-push-linux-ppc64le: init-buildx
 	{                                                                    \
 	set -e ;                                                             \
 	docker buildx build \
+		--build-arg golang_image=$(GO_CONTAINER_IMAGE)\
 		--build-arg TARGETPLATFORM=linux/ppc64le --build-arg ARCH=ppc64le\
 		--build-arg POWERVS_CLOUD_CONTROLLER_COMMIT=$(POWERVS_CLOUD_CONTROLLER_COMMIT)\
 		-t $(REGISTRY)/$(IMG):$(TAG)_linux_ppc64le . --push --target centos-base; \

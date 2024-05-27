@@ -28,7 +28,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 
-	"k8s.io/klog/v2/klogr"
+	"k8s.io/klog/v2"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -80,7 +80,7 @@ func NewPowerVSImageScope(params PowerVSImageScopeParams) (scope *PowerVSImageSc
 	scope.IBMPowerVSImage = params.IBMPowerVSImage
 
 	if params.Logger == (logr.Logger{}) {
-		params.Logger = klogr.New()
+		params.Logger = klog.Background()
 	}
 	scope.Logger = params.Logger
 
@@ -91,24 +91,48 @@ func NewPowerVSImageScope(params PowerVSImageScopeParams) (scope *PowerVSImageSc
 	}
 	scope.patchHelper = helper
 
-	spec := params.IBMPowerVSImage.Spec
+	// Create Resource Controller client.
+	var serviceOption resourcecontroller.ServiceOptions
+	// Fetch the resource controller endpoint.
+	rcEndpoint := endpoints.FetchEndpoints(string(endpoints.RC), params.ServiceEndpoint)
+	if rcEndpoint != "" {
+		serviceOption.URL = rcEndpoint
+		params.Logger.V(3).Info("Overriding the default resource controller endpoint", "ResourceControllerEndpoint", rcEndpoint)
+	}
 
-	rc, err := resourcecontroller.NewService(resourcecontroller.ServiceOptions{})
+	rc, err := resourcecontroller.NewService(serviceOption)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch the resource controller endpoint.
-	if rcEndpoint := endpoints.FetchRCEndpoint(params.ServiceEndpoint); rcEndpoint != "" {
-		if err := rc.SetServiceURL(rcEndpoint); err != nil {
-			return nil, fmt.Errorf("failed to set resource controller endpoint: %w", err)
+	var serviceInstanceID string
+	spec := params.IBMPowerVSImage.Spec
+	if spec.ServiceInstanceID != "" {
+		serviceInstanceID = spec.ServiceInstanceID
+	} else if params.IBMPowerVSImage.Spec.ServiceInstance != nil && params.IBMPowerVSImage.Spec.ServiceInstance.ID != nil {
+		serviceInstanceID = *params.IBMPowerVSImage.Spec.ServiceInstance.ID
+	} else {
+		name := fmt.Sprintf("%s-%s", params.IBMPowerVSImage.Spec.ClusterName, "serviceInstance")
+		if params.IBMPowerVSImage.Spec.ServiceInstance != nil && params.IBMPowerVSImage.Spec.ServiceInstance.Name != nil {
+			name = *params.IBMPowerVSImage.Spec.ServiceInstance.Name
 		}
-		scope.Logger.V(3).Info("overriding the default resource controller endpoint")
+		serviceInstance, err := rc.GetServiceInstance("", name)
+		if err != nil {
+			params.Logger.Error(err, "error failed to get service instance id from name", "name", name)
+			return nil, err
+		}
+		if serviceInstance == nil {
+			return nil, fmt.Errorf("service instance %s is not yet created", name)
+		}
+		if *serviceInstance.State != string(infrav1beta2.ServiceInstanceStateActive) {
+			return nil, fmt.Errorf("service instance %s is not in active state", name)
+		}
+		serviceInstanceID = *serviceInstance.GUID
 	}
 
 	res, _, err := rc.GetResourceInstance(
 		&resourcecontrollerv2.GetResourceInstanceOptions{
-			ID: core.StringPtr(spec.ServiceInstanceID),
+			ID: &serviceInstanceID,
 		})
 	if err != nil {
 		err = fmt.Errorf("failed to get resource instance: %w", err)
@@ -120,22 +144,23 @@ func NewPowerVSImageScope(params PowerVSImageScopeParams) (scope *PowerVSImageSc
 			Debug: params.Logger.V(DEBUGLEVEL).Enabled(),
 			Zone:  *res.RegionID,
 		},
-		CloudInstanceID: spec.ServiceInstanceID,
 	}
 
 	// Fetch the service endpoint.
-	if svcEndpoint := endpoints.FetchPVSEndpoint(endpoints.CostructRegionFromZone(*res.RegionID), params.ServiceEndpoint); svcEndpoint != "" {
+	if svcEndpoint := endpoints.FetchPVSEndpoint(endpoints.ConstructRegionFromZone(*res.RegionID), params.ServiceEndpoint); svcEndpoint != "" {
 		options.IBMPIOptions.URL = svcEndpoint
 		scope.Logger.V(3).Info("overriding the default powervs service endpoint")
 	}
 
 	c, err := powervs.NewService(options)
 	if err != nil {
-		err = fmt.Errorf("failed to create NewIBMPowerVSClient")
+		err = fmt.Errorf("failed to create NewIBMPowerVSClient error %w", err)
 		return nil, err
 	}
-	scope.IBMPowerVSClient = c
 
+	options.CloudInstanceID = serviceInstanceID
+	c.WithClients(options)
+	scope.IBMPowerVSClient = c
 	return scope, nil
 }
 

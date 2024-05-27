@@ -13,7 +13,10 @@ import (
 // BoolCompare detects situations like
 //
 //	assert.Equal(t, false, result)
-//	assert.NotEqual(t, result, true)
+//	assert.EqualValues(t, false, result)
+//	assert.Exactly(t, false, result)
+//	assert.NotEqual(t, true, result)
+//	assert.NotEqualValues(t, true, result)
 //	assert.False(t, !result)
 //	assert.True(t, result == true)
 //	...
@@ -22,14 +25,31 @@ import (
 //
 //	assert.False(t, result)
 //	assert.True(t, result)
-type BoolCompare struct{} //
+type BoolCompare struct {
+	ignoreCustomTypes bool
+}
 
 // NewBoolCompare constructs BoolCompare checker.
-func NewBoolCompare() BoolCompare { return BoolCompare{} }
-func (BoolCompare) Name() string  { return "bool-compare" }
+func NewBoolCompare() *BoolCompare { return new(BoolCompare) }
+func (BoolCompare) Name() string   { return "bool-compare" }
+
+func (checker *BoolCompare) SetIgnoreCustomTypes(v bool) *BoolCompare {
+	checker.ignoreCustomTypes = v
+	return checker
+}
 
 func (checker BoolCompare) Check(pass *analysis.Pass, call *CallMeta) *analysis.Diagnostic {
-	newUseFnDiagnostic := func(proposed string, survivingArg ast.Node, replaceStart, replaceEnd token.Pos) *analysis.Diagnostic {
+	newBoolCast := func(e ast.Expr) ast.Expr {
+		return &ast.CallExpr{Fun: &ast.Ident{Name: "bool"}, Args: []ast.Expr{e}}
+	}
+
+	newUseFnDiagnostic := func(proposed string, survivingArg ast.Expr, replaceStart, replaceEnd token.Pos) *analysis.Diagnostic {
+		if !isBuiltinBool(pass, survivingArg) {
+			if checker.ignoreCustomTypes {
+				return nil
+			}
+			survivingArg = newBoolCast(survivingArg)
+		}
 		return newUseFunctionDiagnostic(checker.Name(), call, proposed,
 			newSuggestedFuncReplacement(call, proposed, analysis.TextEdit{
 				Pos:     replaceStart,
@@ -39,15 +59,21 @@ func (checker BoolCompare) Check(pass *analysis.Pass, call *CallMeta) *analysis.
 		)
 	}
 
-	newUseTrueDiagnostic := func(survivingArg ast.Node, replaceStart, replaceEnd token.Pos) *analysis.Diagnostic {
+	newUseTrueDiagnostic := func(survivingArg ast.Expr, replaceStart, replaceEnd token.Pos) *analysis.Diagnostic {
 		return newUseFnDiagnostic("True", survivingArg, replaceStart, replaceEnd)
 	}
 
-	newUseFalseDiagnostic := func(survivingArg ast.Node, replaceStart, replaceEnd token.Pos) *analysis.Diagnostic {
+	newUseFalseDiagnostic := func(survivingArg ast.Expr, replaceStart, replaceEnd token.Pos) *analysis.Diagnostic {
 		return newUseFnDiagnostic("False", survivingArg, replaceStart, replaceEnd)
 	}
 
-	newNeedSimplifyDiagnostic := func(survivingArg ast.Node, replaceStart, replaceEnd token.Pos) *analysis.Diagnostic {
+	newNeedSimplifyDiagnostic := func(survivingArg ast.Expr, replaceStart, replaceEnd token.Pos) *analysis.Diagnostic {
+		if !isBuiltinBool(pass, survivingArg) {
+			if checker.ignoreCustomTypes {
+				return nil
+			}
+			survivingArg = newBoolCast(survivingArg)
+		}
 		return newDiagnostic(checker.Name(), call, "need to simplify the assertion",
 			&analysis.SuggestedFix{
 				Message: "Simplify the assertion",
@@ -60,32 +86,54 @@ func (checker BoolCompare) Check(pass *analysis.Pass, call *CallMeta) *analysis.
 		)
 	}
 
-	switch call.Fn.Name {
-	case "Equal", "Equalf":
+	switch call.Fn.NameFTrimmed {
+	case "Equal", "EqualValues", "Exactly":
 		if len(call.Args) < 2 {
 			return nil
 		}
 
 		arg1, arg2 := call.Args[0], call.Args[1]
+		if anyCondSatisfaction(pass, isEmptyInterface, arg1, arg2) {
+			return nil
+		}
+		if anyCondSatisfaction(pass, isBoolOverride, arg1, arg2) {
+			return nil
+		}
+
 		t1, t2 := isUntypedTrue(pass, arg1), isUntypedTrue(pass, arg2)
 		f1, f2 := isUntypedFalse(pass, arg1), isUntypedFalse(pass, arg2)
 
 		switch {
 		case xor(t1, t2):
 			survivingArg, _ := anyVal([]bool{t1, t2}, arg2, arg1)
+			if call.Fn.NameFTrimmed == "Exactly" && !isBuiltinBool(pass, survivingArg) {
+				// NOTE(a.telyshev): `Exactly` assumes no type casting.
+				return nil
+			}
 			return newUseTrueDiagnostic(survivingArg, arg1.Pos(), arg2.End())
 
 		case xor(f1, f2):
 			survivingArg, _ := anyVal([]bool{f1, f2}, arg2, arg1)
+			if call.Fn.NameFTrimmed == "Exactly" && !isBuiltinBool(pass, survivingArg) {
+				// NOTE(a.telyshev): `Exactly` assumes no type casting.
+				return nil
+			}
 			return newUseFalseDiagnostic(survivingArg, arg1.Pos(), arg2.End())
 		}
 
-	case "NotEqual", "NotEqualf":
+	case "NotEqual", "NotEqualValues":
 		if len(call.Args) < 2 {
 			return nil
 		}
 
 		arg1, arg2 := call.Args[0], call.Args[1]
+		if anyCondSatisfaction(pass, isEmptyInterface, arg1, arg2) {
+			return nil
+		}
+		if anyCondSatisfaction(pass, isBoolOverride, arg1, arg2) {
+			return nil
+		}
+
 		t1, t2 := isUntypedTrue(pass, arg1), isUntypedTrue(pass, arg2)
 		f1, f2 := isUntypedFalse(pass, arg1), isUntypedFalse(pass, arg2)
 
@@ -99,7 +147,7 @@ func (checker BoolCompare) Check(pass *analysis.Pass, call *CallMeta) *analysis.
 			return newUseTrueDiagnostic(survivingArg, arg1.Pos(), arg2.End())
 		}
 
-	case "True", "Truef":
+	case "True":
 		if len(call.Args) < 1 {
 			return nil
 		}
@@ -109,7 +157,8 @@ func (checker BoolCompare) Check(pass *analysis.Pass, call *CallMeta) *analysis.
 			arg1, ok1 := isComparisonWithTrue(pass, expr, token.EQL)
 			arg2, ok2 := isComparisonWithFalse(pass, expr, token.NEQ)
 
-			if survivingArg, ok := anyVal([]bool{ok1, ok2}, arg1, arg2); ok {
+			survivingArg, ok := anyVal([]bool{ok1, ok2}, arg1, arg2)
+			if ok && !isEmptyInterface(pass, survivingArg) {
 				return newNeedSimplifyDiagnostic(survivingArg, expr.Pos(), expr.End())
 			}
 		}
@@ -119,12 +168,13 @@ func (checker BoolCompare) Check(pass *analysis.Pass, call *CallMeta) *analysis.
 			arg2, ok2 := isComparisonWithFalse(pass, expr, token.EQL)
 			arg3, ok3 := isNegation(expr)
 
-			if survivingArg, ok := anyVal([]bool{ok1, ok2, ok3}, arg1, arg2, arg3); ok {
+			survivingArg, ok := anyVal([]bool{ok1, ok2, ok3}, arg1, arg2, arg3)
+			if ok && !isEmptyInterface(pass, survivingArg) {
 				return newUseFalseDiagnostic(survivingArg, expr.Pos(), expr.End())
 			}
 		}
 
-	case "False", "Falsef":
+	case "False":
 		if len(call.Args) < 1 {
 			return nil
 		}
@@ -134,7 +184,8 @@ func (checker BoolCompare) Check(pass *analysis.Pass, call *CallMeta) *analysis.
 			arg1, ok1 := isComparisonWithTrue(pass, expr, token.EQL)
 			arg2, ok2 := isComparisonWithFalse(pass, expr, token.NEQ)
 
-			if survivingArg, ok := anyVal([]bool{ok1, ok2}, arg1, arg2); ok {
+			survivingArg, ok := anyVal([]bool{ok1, ok2}, arg1, arg2)
+			if ok && !isEmptyInterface(pass, survivingArg) {
 				return newNeedSimplifyDiagnostic(survivingArg, expr.Pos(), expr.End())
 			}
 		}
@@ -144,12 +195,33 @@ func (checker BoolCompare) Check(pass *analysis.Pass, call *CallMeta) *analysis.
 			arg2, ok2 := isComparisonWithFalse(pass, expr, token.EQL)
 			arg3, ok3 := isNegation(expr)
 
-			if survivingArg, ok := anyVal([]bool{ok1, ok2, ok3}, arg1, arg2, arg3); ok {
+			survivingArg, ok := anyVal([]bool{ok1, ok2, ok3}, arg1, arg2, arg3)
+			if ok && !isEmptyInterface(pass, survivingArg) {
 				return newUseTrueDiagnostic(survivingArg, expr.Pos(), expr.End())
 			}
 		}
 	}
 	return nil
+}
+
+func isEmptyInterface(pass *analysis.Pass, expr ast.Expr) bool {
+	t, ok := pass.TypesInfo.Types[expr]
+	if !ok {
+		return false
+	}
+
+	iface, ok := t.Type.Underlying().(*types.Interface)
+	return ok && iface.NumMethods() == 0
+}
+
+func isBuiltinBool(pass *analysis.Pass, e ast.Expr) bool {
+	basicType, ok := pass.TypesInfo.TypeOf(e).(*types.Basic)
+	return ok && basicType.Kind() == types.Bool
+}
+
+func isBoolOverride(pass *analysis.Pass, e ast.Expr) bool {
+	namedType, ok := pass.TypesInfo.TypeOf(e).(*types.Named)
+	return ok && namedType.Obj().Name() == "bool"
 }
 
 var (
@@ -220,4 +292,13 @@ func anyVal[T any](bools []bool, vals ...T) (T, bool) {
 
 	var _default T
 	return _default, false
+}
+
+func anyCondSatisfaction(pass *analysis.Pass, p predicate, vals ...ast.Expr) bool {
+	for _, v := range vals {
+		if p(pass, v) {
+			return true
+		}
+	}
+	return false
 }

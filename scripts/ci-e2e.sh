@@ -39,7 +39,8 @@ mkdir -p "${ARTIFACTS}/logs/"
 
 ARCH=$(uname -m)
 OS=$(uname -s)
-IBMCLOUD_CLI_VERSION=${IBMCLOUD_CLI_VERSION:-"2.21.0"}
+IBMCLOUD_CLI_VERSION=${IBMCLOUD_CLI_VERSION:-"2.22.1"}
+POWER_PLUGIN_VERSION=${POWER_PLUGIN_VERSION:-"1.0.0"}
 E2E_FLAVOR=${E2E_FLAVOR:-}
 capibmadm=$(pwd)/bin/capibmadm
 
@@ -90,9 +91,9 @@ create_powervs_network_instance(){
     retry "ibmcloud login -a cloud.ibm.com --no-region"
 
     # Install power-iaas command-line plug-in and target the required service instance
-    ibmcloud plugin install power-iaas -f
+    ibmcloud plugin install power-iaas -f -v ${POWER_PLUGIN_VERSION}
     CRN=$(ibmcloud resource service-instance ${IBMPOWERVS_SERVICE_INSTANCE_ID} --output json | jq -r '.[].crn')
-    ibmcloud pi service-target ${CRN}
+    ibmcloud pi workspace target ${CRN}
 
     # Create the network instance
     ${capibmadm} powervs network create --name ${IBMPOWERVS_NETWORK_NAME} --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE}
@@ -123,7 +124,7 @@ init_network_powervs(){
 prerequisites_powervs(){
     # Assigning PowerVS variables
     export IBMPOWERVS_SSHKEY_NAME=${IBMPOWERVS_SSHKEY_NAME:-"powercloud-bot-key"}
-    export IBMPOWERVS_IMAGE_NAME=${IBMPOWERVS_IMAGE_NAME:-"capibm-powervs-centos-streams8-1-27-2"}
+    export IBMPOWERVS_IMAGE_NAME=${IBMPOWERVS_IMAGE_NAME:-"capibm-powervs-centos-streams8-1-28-4"}
     export IBMPOWERVS_SERVICE_INSTANCE_ID=${BOSKOS_RESOURCE_ID:-"d53da3bf-1f4a-42fa-9735-acf16b1a05cd"}
     export IBMPOWERVS_NETWORK_NAME="capi-net-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head --bytes 5)"
     export ZONE=${BOSKOS_ZONE:-"osa21"}
@@ -135,13 +136,13 @@ prerequisites_vpc(){
     export IBMVPC_ZONE="${IBMVPC_REGION}-1"
     export IBMVPC_RESOURCEGROUP=${BOSKOS_RESOURCE_GROUP:-"fa5405a58226402f9a5818cb9b8a5a8a"}
     export IBMVPC_NAME=${BOSKOS_RESOURCE_NAME:-"capi-vpc-e2e"}
-    export IBMVPC_IMAGE_NAME=${IBMVPC_IMAGE_NAME:-"capibm-vpc-ubuntu-2004-kube-v1-27-2"}
+    export IBMVPC_IMAGE_NAME=${IBMVPC_IMAGE_NAME:-"capibm-vpc-ubuntu-2204-kube-v1-29-3"}
     export IBMVPC_PROFILE=${IBMVPC_PROFILE:-"bx2-4x16"}
     export IBMVPC_SSHKEY_NAME=${IBMVPC_SSHKEY_NAME:-"vpc-cloud-bot-key"}
     export PROVIDER_ID_FORMAT=v2
     export EXP_CLUSTER_RESOURCE_SET=true
     export IBMACCOUNT_ID=${IBMACCOUNT_ID:-"7cfbd5381a434af7a09289e795840d4e"}
-    export BASE64_API_KEY=$(echo -n $IBMCLOUD_API_KEY | base64)
+    export BASE64_API_KEY=$(tr -d '\n' <<<"$IBMCLOUD_API_KEY" | base64)
 }
 
 main(){
@@ -197,6 +198,10 @@ main(){
     # If Boskos is being used then release the IBM Cloud resource back to Boskos.
     [ -z "${BOSKOS_HOST:-}" ] || release_account >> "$ARTIFACTS/logs/boskos.log" 2>&1
 }
+
+if [[ $- =~ x ]]; then
+    set +x
+fi
 
 main "$@"
 exit "${test_status}"

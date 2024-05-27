@@ -6,9 +6,9 @@ type AcceleratorManufacturer string
 
 // Enum values for AcceleratorManufacturer
 const (
-	AcceleratorManufacturerNvidia            AcceleratorManufacturer = "nvidia"
-	AcceleratorManufacturerAmd               AcceleratorManufacturer = "amd"
 	AcceleratorManufacturerAmazonWebServices AcceleratorManufacturer = "amazon-web-services"
+	AcceleratorManufacturerAmd               AcceleratorManufacturer = "amd"
+	AcceleratorManufacturerNvidia            AcceleratorManufacturer = "nvidia"
 	AcceleratorManufacturerXilinx            AcceleratorManufacturer = "xilinx"
 )
 
@@ -17,9 +17,9 @@ const (
 // ordering of this slice is not guaranteed to be stable across updates.
 func (AcceleratorManufacturer) Values() []AcceleratorManufacturer {
 	return []AcceleratorManufacturer{
-		"nvidia",
-		"amd",
 		"amazon-web-services",
+		"amd",
+		"nvidia",
 		"xilinx",
 	}
 }
@@ -29,14 +29,14 @@ type AcceleratorName string
 // Enum values for AcceleratorName
 const (
 	AcceleratorNameA100          AcceleratorName = "a100"
-	AcceleratorNameV100          AcceleratorName = "v100"
-	AcceleratorNameK80           AcceleratorName = "k80"
-	AcceleratorNameT4            AcceleratorName = "t4"
-	AcceleratorNameM60           AcceleratorName = "m60"
-	AcceleratorNameRadeonProV520 AcceleratorName = "radeon-pro-v520"
-	AcceleratorNameVu9p          AcceleratorName = "vu9p"
 	AcceleratorNameInferentia    AcceleratorName = "inferentia"
 	AcceleratorNameK520          AcceleratorName = "k520"
+	AcceleratorNameK80           AcceleratorName = "k80"
+	AcceleratorNameM60           AcceleratorName = "m60"
+	AcceleratorNameRadeonProV520 AcceleratorName = "radeon-pro-v520"
+	AcceleratorNameT4            AcceleratorName = "t4"
+	AcceleratorNameVu9p          AcceleratorName = "vu9p"
+	AcceleratorNameV100          AcceleratorName = "v100"
 )
 
 // Values returns all known values for AcceleratorName. Note that this can be
@@ -45,14 +45,14 @@ const (
 func (AcceleratorName) Values() []AcceleratorName {
 	return []AcceleratorName{
 		"a100",
-		"v100",
-		"k80",
-		"t4",
-		"m60",
-		"radeon-pro-v520",
-		"vu9p",
 		"inferentia",
 		"k520",
+		"k80",
+		"m60",
+		"radeon-pro-v520",
+		"t4",
+		"vu9p",
+		"v100",
 	}
 }
 
@@ -819,6 +819,7 @@ const (
 	CapacityReservationInstancePlatformRhelWithHa                       CapacityReservationInstancePlatform = "RHEL with HA"
 	CapacityReservationInstancePlatformRhelWithHaAndSqlServerStandard   CapacityReservationInstancePlatform = "RHEL with HA and SQL Server Standard"
 	CapacityReservationInstancePlatformRhelWithHaAndSqlServerEnterprise CapacityReservationInstancePlatform = "RHEL with HA and SQL Server Enterprise"
+	CapacityReservationInstancePlatformUbuntuProLinux                   CapacityReservationInstancePlatform = "Ubuntu Pro"
 )
 
 // Values returns all known values for CapacityReservationInstancePlatform. Note
@@ -844,6 +845,7 @@ func (CapacityReservationInstancePlatform) Values() []CapacityReservationInstanc
 		"RHEL with HA",
 		"RHEL with HA and SQL Server Standard",
 		"RHEL with HA and SQL Server Enterprise",
+		"Ubuntu Pro",
 	}
 }
 
@@ -870,11 +872,14 @@ type CapacityReservationState string
 
 // Enum values for CapacityReservationState
 const (
-	CapacityReservationStateActive    CapacityReservationState = "active"
-	CapacityReservationStateExpired   CapacityReservationState = "expired"
-	CapacityReservationStateCancelled CapacityReservationState = "cancelled"
-	CapacityReservationStatePending   CapacityReservationState = "pending"
-	CapacityReservationStateFailed    CapacityReservationState = "failed"
+	CapacityReservationStateActive         CapacityReservationState = "active"
+	CapacityReservationStateExpired        CapacityReservationState = "expired"
+	CapacityReservationStateCancelled      CapacityReservationState = "cancelled"
+	CapacityReservationStatePending        CapacityReservationState = "pending"
+	CapacityReservationStateFailed         CapacityReservationState = "failed"
+	CapacityReservationStateScheduled      CapacityReservationState = "scheduled"
+	CapacityReservationStatePaymentPending CapacityReservationState = "payment-pending"
+	CapacityReservationStatePaymentFailed  CapacityReservationState = "payment-failed"
 )
 
 // Values returns all known values for CapacityReservationState. Note that this
@@ -887,6 +892,9 @@ func (CapacityReservationState) Values() []CapacityReservationState {
 		"cancelled",
 		"pending",
 		"failed",
+		"scheduled",
+		"payment-pending",
+		"payment-failed",
 	}
 }
 
@@ -905,6 +913,24 @@ func (CapacityReservationTenancy) Values() []CapacityReservationTenancy {
 	return []CapacityReservationTenancy{
 		"default",
 		"dedicated",
+	}
+}
+
+type CapacityReservationType string
+
+// Enum values for CapacityReservationType
+const (
+	CapacityReservationTypeDefault       CapacityReservationType = "default"
+	CapacityReservationTypeCapacityBlock CapacityReservationType = "capacity-block"
+)
+
+// Values returns all known values for CapacityReservationType. Note that this can
+// be expanded in the future, and so it is only as up to date as the client. The
+// ordering of this slice is not guaranteed to be stable across updates.
+func (CapacityReservationType) Values() []CapacityReservationType {
+	return []CapacityReservationType{
+		"default",
+		"capacity-block",
 	}
 }
 
@@ -1280,8 +1306,9 @@ type DefaultTargetCapacityType string
 
 // Enum values for DefaultTargetCapacityType
 const (
-	DefaultTargetCapacityTypeSpot     DefaultTargetCapacityType = "spot"
-	DefaultTargetCapacityTypeOnDemand DefaultTargetCapacityType = "on-demand"
+	DefaultTargetCapacityTypeSpot          DefaultTargetCapacityType = "spot"
+	DefaultTargetCapacityTypeOnDemand      DefaultTargetCapacityType = "on-demand"
+	DefaultTargetCapacityTypeCapacityBlock DefaultTargetCapacityType = "capacity-block"
 )
 
 // Values returns all known values for DefaultTargetCapacityType. Note that this
@@ -1291,6 +1318,7 @@ func (DefaultTargetCapacityType) Values() []DefaultTargetCapacityType {
 	return []DefaultTargetCapacityType{
 		"spot",
 		"on-demand",
+		"capacity-block",
 	}
 }
 
@@ -2385,6 +2413,40 @@ func (ImageAttributeName) Values() []ImageAttributeName {
 	}
 }
 
+type ImageBlockPublicAccessDisabledState string
+
+// Enum values for ImageBlockPublicAccessDisabledState
+const (
+	ImageBlockPublicAccessDisabledStateUnblocked ImageBlockPublicAccessDisabledState = "unblocked"
+)
+
+// Values returns all known values for ImageBlockPublicAccessDisabledState. Note
+// that this can be expanded in the future, and so it is only as up to date as the
+// client. The ordering of this slice is not guaranteed to be stable across
+// updates.
+func (ImageBlockPublicAccessDisabledState) Values() []ImageBlockPublicAccessDisabledState {
+	return []ImageBlockPublicAccessDisabledState{
+		"unblocked",
+	}
+}
+
+type ImageBlockPublicAccessEnabledState string
+
+// Enum values for ImageBlockPublicAccessEnabledState
+const (
+	ImageBlockPublicAccessEnabledStateBlockNewSharing ImageBlockPublicAccessEnabledState = "block-new-sharing"
+)
+
+// Values returns all known values for ImageBlockPublicAccessEnabledState. Note
+// that this can be expanded in the future, and so it is only as up to date as the
+// client. The ordering of this slice is not guaranteed to be stable across
+// updates.
+func (ImageBlockPublicAccessEnabledState) Values() []ImageBlockPublicAccessEnabledState {
+	return []ImageBlockPublicAccessEnabledState{
+		"block-new-sharing",
+	}
+}
+
 type ImageState string
 
 // Enum values for ImageState
@@ -2396,6 +2458,7 @@ const (
 	ImageStateTransient    ImageState = "transient"
 	ImageStateFailed       ImageState = "failed"
 	ImageStateError        ImageState = "error"
+	ImageStateDisabled     ImageState = "disabled"
 )
 
 // Values returns all known values for ImageState. Note that this can be expanded
@@ -2410,6 +2473,7 @@ func (ImageState) Values() []ImageState {
 		"transient",
 		"failed",
 		"error",
+		"disabled",
 	}
 }
 
@@ -2632,8 +2696,9 @@ type InstanceLifecycleType string
 
 // Enum values for InstanceLifecycleType
 const (
-	InstanceLifecycleTypeSpot      InstanceLifecycleType = "spot"
-	InstanceLifecycleTypeScheduled InstanceLifecycleType = "scheduled"
+	InstanceLifecycleTypeSpot          InstanceLifecycleType = "spot"
+	InstanceLifecycleTypeScheduled     InstanceLifecycleType = "scheduled"
+	InstanceLifecycleTypeCapacityBlock InstanceLifecycleType = "capacity-block"
 )
 
 // Values returns all known values for InstanceLifecycleType. Note that this can
@@ -2643,6 +2708,7 @@ func (InstanceLifecycleType) Values() []InstanceLifecycleType {
 	return []InstanceLifecycleType{
 		"spot",
 		"scheduled",
+		"capacity-block",
 	}
 }
 
@@ -3508,6 +3574,58 @@ const (
 	InstanceTypeR7gd8xlarge     InstanceType = "r7gd.8xlarge"
 	InstanceTypeR7gd12xlarge    InstanceType = "r7gd.12xlarge"
 	InstanceTypeR7gd16xlarge    InstanceType = "r7gd.16xlarge"
+	InstanceTypeR7aMedium       InstanceType = "r7a.medium"
+	InstanceTypeR7aLarge        InstanceType = "r7a.large"
+	InstanceTypeR7aXlarge       InstanceType = "r7a.xlarge"
+	InstanceTypeR7a2xlarge      InstanceType = "r7a.2xlarge"
+	InstanceTypeR7a4xlarge      InstanceType = "r7a.4xlarge"
+	InstanceTypeR7a8xlarge      InstanceType = "r7a.8xlarge"
+	InstanceTypeR7a12xlarge     InstanceType = "r7a.12xlarge"
+	InstanceTypeR7a16xlarge     InstanceType = "r7a.16xlarge"
+	InstanceTypeR7a24xlarge     InstanceType = "r7a.24xlarge"
+	InstanceTypeR7a32xlarge     InstanceType = "r7a.32xlarge"
+	InstanceTypeR7a48xlarge     InstanceType = "r7a.48xlarge"
+	InstanceTypeC7iLarge        InstanceType = "c7i.large"
+	InstanceTypeC7iXlarge       InstanceType = "c7i.xlarge"
+	InstanceTypeC7i2xlarge      InstanceType = "c7i.2xlarge"
+	InstanceTypeC7i4xlarge      InstanceType = "c7i.4xlarge"
+	InstanceTypeC7i8xlarge      InstanceType = "c7i.8xlarge"
+	InstanceTypeC7i12xlarge     InstanceType = "c7i.12xlarge"
+	InstanceTypeC7i16xlarge     InstanceType = "c7i.16xlarge"
+	InstanceTypeC7i24xlarge     InstanceType = "c7i.24xlarge"
+	InstanceTypeC7i48xlarge     InstanceType = "c7i.48xlarge"
+	InstanceTypeMac2M2proMetal  InstanceType = "mac2-m2pro.metal"
+	InstanceTypeR7izLarge       InstanceType = "r7iz.large"
+	InstanceTypeR7izXlarge      InstanceType = "r7iz.xlarge"
+	InstanceTypeR7iz2xlarge     InstanceType = "r7iz.2xlarge"
+	InstanceTypeR7iz4xlarge     InstanceType = "r7iz.4xlarge"
+	InstanceTypeR7iz8xlarge     InstanceType = "r7iz.8xlarge"
+	InstanceTypeR7iz12xlarge    InstanceType = "r7iz.12xlarge"
+	InstanceTypeR7iz16xlarge    InstanceType = "r7iz.16xlarge"
+	InstanceTypeR7iz32xlarge    InstanceType = "r7iz.32xlarge"
+	InstanceTypeC7aMedium       InstanceType = "c7a.medium"
+	InstanceTypeC7aLarge        InstanceType = "c7a.large"
+	InstanceTypeC7aXlarge       InstanceType = "c7a.xlarge"
+	InstanceTypeC7a2xlarge      InstanceType = "c7a.2xlarge"
+	InstanceTypeC7a4xlarge      InstanceType = "c7a.4xlarge"
+	InstanceTypeC7a8xlarge      InstanceType = "c7a.8xlarge"
+	InstanceTypeC7a12xlarge     InstanceType = "c7a.12xlarge"
+	InstanceTypeC7a16xlarge     InstanceType = "c7a.16xlarge"
+	InstanceTypeC7a24xlarge     InstanceType = "c7a.24xlarge"
+	InstanceTypeC7a32xlarge     InstanceType = "c7a.32xlarge"
+	InstanceTypeC7a48xlarge     InstanceType = "c7a.48xlarge"
+	InstanceTypeC7aMetal48xl    InstanceType = "c7a.metal-48xl"
+	InstanceTypeR7aMetal48xl    InstanceType = "r7a.metal-48xl"
+	InstanceTypeR7iLarge        InstanceType = "r7i.large"
+	InstanceTypeR7iXlarge       InstanceType = "r7i.xlarge"
+	InstanceTypeR7i2xlarge      InstanceType = "r7i.2xlarge"
+	InstanceTypeR7i4xlarge      InstanceType = "r7i.4xlarge"
+	InstanceTypeR7i8xlarge      InstanceType = "r7i.8xlarge"
+	InstanceTypeR7i12xlarge     InstanceType = "r7i.12xlarge"
+	InstanceTypeR7i16xlarge     InstanceType = "r7i.16xlarge"
+	InstanceTypeR7i24xlarge     InstanceType = "r7i.24xlarge"
+	InstanceTypeR7i48xlarge     InstanceType = "r7i.48xlarge"
+	InstanceTypeDl2q24xlarge    InstanceType = "dl2q.24xlarge"
 )
 
 // Values returns all known values for InstanceType. Note that this can be
@@ -4235,6 +4353,58 @@ func (InstanceType) Values() []InstanceType {
 		"r7gd.8xlarge",
 		"r7gd.12xlarge",
 		"r7gd.16xlarge",
+		"r7a.medium",
+		"r7a.large",
+		"r7a.xlarge",
+		"r7a.2xlarge",
+		"r7a.4xlarge",
+		"r7a.8xlarge",
+		"r7a.12xlarge",
+		"r7a.16xlarge",
+		"r7a.24xlarge",
+		"r7a.32xlarge",
+		"r7a.48xlarge",
+		"c7i.large",
+		"c7i.xlarge",
+		"c7i.2xlarge",
+		"c7i.4xlarge",
+		"c7i.8xlarge",
+		"c7i.12xlarge",
+		"c7i.16xlarge",
+		"c7i.24xlarge",
+		"c7i.48xlarge",
+		"mac2-m2pro.metal",
+		"r7iz.large",
+		"r7iz.xlarge",
+		"r7iz.2xlarge",
+		"r7iz.4xlarge",
+		"r7iz.8xlarge",
+		"r7iz.12xlarge",
+		"r7iz.16xlarge",
+		"r7iz.32xlarge",
+		"c7a.medium",
+		"c7a.large",
+		"c7a.xlarge",
+		"c7a.2xlarge",
+		"c7a.4xlarge",
+		"c7a.8xlarge",
+		"c7a.12xlarge",
+		"c7a.16xlarge",
+		"c7a.24xlarge",
+		"c7a.32xlarge",
+		"c7a.48xlarge",
+		"c7a.metal-48xl",
+		"r7a.metal-48xl",
+		"r7i.large",
+		"r7i.xlarge",
+		"r7i.2xlarge",
+		"r7i.4xlarge",
+		"r7i.8xlarge",
+		"r7i.12xlarge",
+		"r7i.16xlarge",
+		"r7i.24xlarge",
+		"r7i.48xlarge",
+		"dl2q.24xlarge",
 	}
 }
 
@@ -5113,6 +5283,7 @@ const (
 	LocationTypeRegion             LocationType = "region"
 	LocationTypeAvailabilityZone   LocationType = "availability-zone"
 	LocationTypeAvailabilityZoneId LocationType = "availability-zone-id"
+	LocationTypeOutpost            LocationType = "outpost"
 )
 
 // Values returns all known values for LocationType. Note that this can be
@@ -5123,6 +5294,47 @@ func (LocationType) Values() []LocationType {
 		"region",
 		"availability-zone",
 		"availability-zone-id",
+		"outpost",
+	}
+}
+
+type LockMode string
+
+// Enum values for LockMode
+const (
+	LockModeCompliance LockMode = "compliance"
+	LockModeGovernance LockMode = "governance"
+)
+
+// Values returns all known values for LockMode. Note that this can be expanded in
+// the future, and so it is only as up to date as the client. The ordering of this
+// slice is not guaranteed to be stable across updates.
+func (LockMode) Values() []LockMode {
+	return []LockMode{
+		"compliance",
+		"governance",
+	}
+}
+
+type LockState string
+
+// Enum values for LockState
+const (
+	LockStateCompliance        LockState = "compliance"
+	LockStateGovernance        LockState = "governance"
+	LockStateComplianceCooloff LockState = "compliance-cooloff"
+	LockStateExpired           LockState = "expired"
+)
+
+// Values returns all known values for LockState. Note that this can be expanded
+// in the future, and so it is only as up to date as the client. The ordering of
+// this slice is not guaranteed to be stable across updates.
+func (LockState) Values() []LockState {
+	return []LockState{
+		"compliance",
+		"governance",
+		"compliance-cooloff",
+		"expired",
 	}
 }
 
@@ -5150,7 +5362,8 @@ type MarketType string
 
 // Enum values for MarketType
 const (
-	MarketTypeSpot MarketType = "spot"
+	MarketTypeSpot          MarketType = "spot"
+	MarketTypeCapacityBlock MarketType = "capacity-block"
 )
 
 // Values returns all known values for MarketType. Note that this can be expanded
@@ -5159,6 +5372,7 @@ const (
 func (MarketType) Values() []MarketType {
 	return []MarketType{
 		"spot",
+		"capacity-block",
 	}
 }
 
@@ -6502,6 +6716,27 @@ func (SnapshotAttributeName) Values() []SnapshotAttributeName {
 	}
 }
 
+type SnapshotBlockPublicAccessState string
+
+// Enum values for SnapshotBlockPublicAccessState
+const (
+	SnapshotBlockPublicAccessStateBlockAllSharing SnapshotBlockPublicAccessState = "block-all-sharing"
+	SnapshotBlockPublicAccessStateBlockNewSharing SnapshotBlockPublicAccessState = "block-new-sharing"
+	SnapshotBlockPublicAccessStateUnblocked       SnapshotBlockPublicAccessState = "unblocked"
+)
+
+// Values returns all known values for SnapshotBlockPublicAccessState. Note that
+// this can be expanded in the future, and so it is only as up to date as the
+// client. The ordering of this slice is not guaranteed to be stable across
+// updates.
+func (SnapshotBlockPublicAccessState) Values() []SnapshotBlockPublicAccessState {
+	return []SnapshotBlockPublicAccessState{
+		"block-all-sharing",
+		"block-new-sharing",
+		"unblocked",
+	}
+}
+
 type SnapshotState string
 
 // Enum values for SnapshotState
@@ -7627,8 +7862,9 @@ type UsageClassType string
 
 // Enum values for UsageClassType
 const (
-	UsageClassTypeSpot     UsageClassType = "spot"
-	UsageClassTypeOnDemand UsageClassType = "on-demand"
+	UsageClassTypeSpot          UsageClassType = "spot"
+	UsageClassTypeOnDemand      UsageClassType = "on-demand"
+	UsageClassTypeCapacityBlock UsageClassType = "capacity-block"
 )
 
 // Values returns all known values for UsageClassType. Note that this can be
@@ -7638,6 +7874,7 @@ func (UsageClassType) Values() []UsageClassType {
 	return []UsageClassType{
 		"spot",
 		"on-demand",
+		"capacity-block",
 	}
 }
 

@@ -28,8 +28,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2/klogr"
-	"k8s.io/utils/pointer"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -80,7 +80,7 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 	}
 
 	if params.Logger == (logr.Logger{}) {
-		params.Logger = klogr.New()
+		params.Logger = klog.Background()
 	}
 
 	helper, err := patch.NewHelper(params.IBMVPCMachine, params.Client)
@@ -323,6 +323,11 @@ func (m *MachineScope) CreateVPCLoadBalancerPoolMember(internalIP *string, targe
 
 // DeleteVPCLoadBalancerPoolMember deletes a pool member from the load balancer pool.
 func (m *MachineScope) DeleteVPCLoadBalancerPoolMember() error {
+	if m.IBMVPCMachine.Status.InstanceID == "" {
+		m.Info("instance is not created, ignore deleting load balancer pool member")
+		return nil
+	}
+
 	loadBalancer, _, err := m.IBMVPCClient.GetLoadBalancer(&vpcv1.GetLoadBalancerOptions{
 		ID: m.IBMVPCCluster.Status.VPCEndpoint.LBID,
 	})
@@ -516,9 +521,9 @@ func (m *MachineScope) SetProviderID(id *string) error {
 			m.Logger.Error(err, "failed to get cloud account id", err.Error())
 			return err
 		}
-		m.IBMVPCMachine.Spec.ProviderID = pointer.String(fmt.Sprintf("ibm://%s///%s/%s", accountID, m.Machine.Spec.ClusterName, *id))
+		m.IBMVPCMachine.Spec.ProviderID = ptr.To(fmt.Sprintf("ibm://%s///%s/%s", accountID, m.Machine.Spec.ClusterName, *id))
 	} else {
-		m.IBMVPCMachine.Spec.ProviderID = pointer.String(fmt.Sprintf("ibmvpc://%s/%s", m.Machine.Spec.ClusterName, m.IBMVPCMachine.Name))
+		m.IBMVPCMachine.Spec.ProviderID = ptr.To(fmt.Sprintf("ibmvpc://%s/%s", m.Machine.Spec.ClusterName, m.IBMVPCMachine.Name))
 	}
 	return nil
 }
@@ -528,5 +533,5 @@ func (m *MachineScope) APIServerPort() int32 {
 	if m.Cluster.Spec.ClusterNetwork != nil && m.Cluster.Spec.ClusterNetwork.APIServerPort != nil {
 		return *m.Cluster.Spec.ClusterNetwork.APIServerPort
 	}
-	return 6443
+	return infrav1beta2.DefaultAPIServerPort
 }

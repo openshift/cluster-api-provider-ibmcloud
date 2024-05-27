@@ -1,3 +1,85 @@
+# v1.134.0 (2023-11-15)
+
+* **Feature**: AWS EBS now supports Snapshot Lock, giving users the ability to lock an EBS Snapshot to prohibit deletion of the snapshot. This release introduces the LockSnapshot, UnlockSnapshot & DescribeLockedSnapshots APIs to manage lock configuration for snapshots. The release also includes the dl2q_24xlarge.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.133.0 (2023-11-13)
+
+* **Feature**: Adds the new EC2 DescribeInstanceTopology API, which you can use to retrieve the network topology of your running instances on select platform types to determine their relative proximity to each other.
+
+# v1.132.0 (2023-11-10)
+
+* **Feature**: EC2 adds API updates to enable ENA Express at instance launch time.
+
+# v1.131.0 (2023-11-09.2)
+
+* **Feature**: AWS EBS now supports Block Public Access for EBS Snapshots. This release introduces the EnableSnapshotBlockPublicAccess, DisableSnapshotBlockPublicAccess and GetSnapshotBlockPublicAccessState APIs to manage account-level public access settings for EBS Snapshots in an AWS Region.
+
+# v1.130.1 (2023-11-09)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.130.0 (2023-11-01)
+
+* **Feature**: Adds support for configured endpoints via environment variables and the AWS shared configuration file.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.129.0 (2023-10-31)
+
+* **Feature**: **BREAKING CHANGE**: Bump minimum go version to 1.19 per the revised [go version support policy](https://aws.amazon.com/blogs/developer/aws-sdk-for-go-aligns-with-go-release-policy-on-supported-runtimes/).
+* **Feature**: Capacity Blocks for ML are a new EC2 purchasing option for reserving GPU instances on a future date to support short duration machine learning (ML) workloads. Capacity Blocks automatically place instances close together inside Amazon EC2 UltraClusters for low-latency, high-throughput networking.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.128.0 (2023-10-26)
+
+* **Feature**: Launching GetSecurityGroupsForVpc API. This API gets security groups that can be associated by the AWS account making the request with network interfaces in the specified VPC.
+
+# v1.127.0 (2023-10-24)
+
+* **Feature**: This release updates the documentation for InstanceInterruptionBehavior and HibernationOptionsRequest to more accurately describe the behavior of these two parameters when using Spot hibernation.
+
+# v1.126.0 (2023-10-19)
+
+* **Feature**: Amazon EC2 C7a instances, powered by 4th generation AMD EPYC processors, are ideal for high performance, compute-intensive workloads such as high performance computing. Amazon EC2 R7i instances are next-generation memory optimized and powered by custom 4th Generation Intel Xeon Scalable processors.
+
+# v1.125.0 (2023-10-12)
+
+* **Feature**: This release adds Ubuntu Pro as a supported platform for On-Demand Capacity Reservations and adds support for setting an Amazon Machine Image (AMI) to disabled state. Disabling the AMI makes it private if it was previously shared, and prevents new EC2 instance launches from it.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.124.0 (2023-10-06)
+
+* **Feature**: Documentation updates for Elastic Compute Cloud (EC2).
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.123.0 (2023-10-02)
+
+* **Feature**: Introducing Amazon EC2 R7iz instances with 3.9 GHz sustained all-core turbo frequency and deliver up to 20% better performance than previous generation z1d instances.
+
+# v1.122.0 (2023-09-28)
+
+* **Feature**: Adds support for Customer Managed Key encryption for Amazon Verified Access resources
+
+# v1.121.0 (2023-09-26)
+
+* **Feature**: The release includes AWS verified access to support FIPs compliance in North America regions
+
+# v1.120.0 (2023-09-22)
+
+* **Feature**: EC2 M2 Pro Mac instances are powered by Apple M2 Pro Mac Mini computers featuring 12 core CPU, 19 core GPU, 32 GiB of memory, and 16 core Apple Neural Engine and uniquely enabled by the AWS Nitro System through high-speed Thunderbolt connections.
+
+# v1.119.0 (2023-09-19)
+
+* **Feature**: This release adds support for C7i, and R7a instance types.
+
+# v1.118.0 (2023-09-12)
+
+* **Feature**: This release adds support for restricting public sharing of AMIs through AMI Block Public Access
+
+# v1.117.0 (2023-09-06)
+
+* **Feature**: This release adds 'outpost' location type to the DescribeInstanceTypeOfferings API, allowing customers that have been allowlisted for outpost to query their offerings in the API.
+
 # v1.116.0 (2023-09-05)
 
 * **Feature**: Introducing Amazon EC2 C7gd, M7gd, and R7gd Instances with up to 3.8 TB of local NVMe-based SSD block-level storage. These instances are powered by AWS Graviton3 processors, delivering up to 25% better performance over Graviton2-based instances.

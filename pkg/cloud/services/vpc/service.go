@@ -17,11 +17,17 @@ limitations under the License.
 package vpc
 
 import (
+	"fmt"
+
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/authenticator"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/utils"
 )
+
+// SecurityGroupByNameNotFound returns an appropriate error when security group by name not found.
+var SecurityGroupByNameNotFound = func(name string) error { return fmt.Errorf("failed to find security group by name '%s'", name) }
 
 // Service holds the VPC Service specific information.
 type Service struct {
@@ -156,6 +162,234 @@ func (s *Service) ListKeys(options *vpcv1.ListKeysOptions) (*vpcv1.KeyCollection
 // ListImages returns list of images in a region.
 func (s *Service) ListImages(options *vpcv1.ListImagesOptions) (*vpcv1.ImageCollection, *core.DetailedResponse, error) {
 	return s.vpcService.ListImages(options)
+}
+
+// GetInstanceProfile returns instance profile.
+func (s *Service) GetInstanceProfile(options *vpcv1.GetInstanceProfileOptions) (*vpcv1.InstanceProfile, *core.DetailedResponse, error) {
+	return s.vpcService.GetInstanceProfile(options)
+}
+
+// GetVPC returns VPC details.
+func (s *Service) GetVPC(options *vpcv1.GetVPCOptions) (*vpcv1.VPC, *core.DetailedResponse, error) {
+	return s.vpcService.GetVPC(options)
+}
+
+// GetVPCByName returns VPC with given name. If not found, returns nil.
+func (s *Service) GetVPCByName(vpcName string) (*vpcv1.VPC, error) {
+	var vpc *vpcv1.VPC
+	f := func(start string) (bool, string, error) {
+		// check for existing vpcs
+		listVpcsOptions := &vpcv1.ListVpcsOptions{}
+		if start != "" {
+			listVpcsOptions.Start = &start
+		}
+
+		vpcsList, _, err := s.ListVpcs(listVpcsOptions)
+		if err != nil {
+			return false, "", err
+		}
+
+		if vpcsList == nil {
+			return false, "", fmt.Errorf("vpc list returned is nil")
+		}
+
+		for i, v := range vpcsList.Vpcs {
+			if (*v.Name) == vpcName {
+				vpc = &vpcsList.Vpcs[i]
+				return true, "", nil
+			}
+		}
+
+		if vpcsList.Next != nil && *vpcsList.Next.Href != "" {
+			return false, *vpcsList.Next.Href, nil
+		}
+		return true, "", nil
+	}
+
+	if err := utils.PagingHelper(f); err != nil {
+		return nil, err
+	}
+
+	return vpc, nil
+}
+
+// GetSubnet return subnet.
+func (s *Service) GetSubnet(options *vpcv1.GetSubnetOptions) (*vpcv1.Subnet, *core.DetailedResponse, error) {
+	return s.vpcService.GetSubnet(options)
+}
+
+// GetVPCSubnetByName returns subnet with given name. If not found, returns nil.
+func (s *Service) GetVPCSubnetByName(subnetName string) (*vpcv1.Subnet, error) {
+	var subnet *vpcv1.Subnet
+	f := func(start string) (bool, string, error) {
+		// check for existing subnets
+		listSubnetsOptions := &vpcv1.ListSubnetsOptions{}
+		if start != "" {
+			listSubnetsOptions.Start = &start
+		}
+
+		subnetsList, _, err := s.ListSubnets(listSubnetsOptions)
+		if err != nil {
+			return false, "", err
+		}
+
+		if subnetsList == nil {
+			return false, "", fmt.Errorf("subnet list returned is nil")
+		}
+
+		for i, s := range subnetsList.Subnets {
+			if (*s.Name) == subnetName {
+				subnet = &subnetsList.Subnets[i]
+				return true, "", nil
+			}
+		}
+
+		if subnetsList.Next != nil && *subnetsList.Next.Href != "" {
+			return false, *subnetsList.Next.Href, nil
+		}
+		return true, "", nil
+	}
+
+	if err := utils.PagingHelper(f); err != nil {
+		return nil, err
+	}
+
+	return subnet, nil
+}
+
+// GetLoadBalancerByName returns loadBalancer with given name. If not found, returns nil.
+func (s *Service) GetLoadBalancerByName(loadBalancerName string) (*vpcv1.LoadBalancer, error) {
+	var loadBalancer *vpcv1.LoadBalancer
+	f := func(start string) (bool, string, error) {
+		// check for existing loadBalancers
+		listLoadBalancersOptions := &vpcv1.ListLoadBalancersOptions{}
+		if start != "" {
+			listLoadBalancersOptions.Start = &start
+		}
+
+		loadBalancersList, _, err := s.ListLoadBalancers(listLoadBalancersOptions)
+		if err != nil {
+			return false, "", err
+		}
+
+		if loadBalancersList == nil {
+			return false, "", fmt.Errorf("loadBalancer list returned is nil")
+		}
+
+		for i, lb := range loadBalancersList.LoadBalancers {
+			if (*lb.Name) == loadBalancerName {
+				loadBalancer = &loadBalancersList.LoadBalancers[i]
+				return true, "", nil
+			}
+		}
+
+		if loadBalancersList.Next != nil && *loadBalancersList.Next.Href != "" {
+			return false, *loadBalancersList.Next.Href, nil
+		}
+		return true, "", nil
+	}
+
+	if err := utils.PagingHelper(f); err != nil {
+		return nil, err
+	}
+
+	return loadBalancer, nil
+}
+
+// GetSubnetAddrPrefix returns subnets address prefix.
+func (s *Service) GetSubnetAddrPrefix(vpcID, zone string) (string, error) {
+	var addrPrefix *vpcv1.AddressPrefix
+	f := func(start string) (bool, string, error) {
+		// check for existing vpcAddressPrefixes
+		listVPCAddressPrefixesOptions := &vpcv1.ListVPCAddressPrefixesOptions{
+			VPCID: &vpcID,
+		}
+		if start != "" {
+			listVPCAddressPrefixesOptions.Start = &start
+		}
+
+		vpcAddressPrefixesList, _, err := s.ListVPCAddressPrefixes(listVPCAddressPrefixesOptions)
+		if err != nil {
+			return false, "", err
+		}
+
+		if vpcAddressPrefixesList == nil {
+			return false, "", fmt.Errorf("vpcAddressPrefix list returned is nil")
+		}
+
+		for i, addressPrefix := range vpcAddressPrefixesList.AddressPrefixes {
+			if (*addressPrefix.Zone.Name) == zone {
+				addrPrefix = &vpcAddressPrefixesList.AddressPrefixes[i]
+				return true, "", nil
+			}
+		}
+
+		if vpcAddressPrefixesList.Next != nil && *vpcAddressPrefixesList.Next.Href != "" {
+			return false, *vpcAddressPrefixesList.Next.Href, nil
+		}
+		return true, "", nil
+	}
+
+	if err := utils.PagingHelper(f); err != nil {
+		return "", err
+	}
+
+	if addrPrefix != nil {
+		return *addrPrefix.CIDR, nil
+	}
+	return "", fmt.Errorf("not found a valid CIDR for VPC %s in zone %s", vpcID, zone)
+}
+
+// CreateSecurityGroup creates a new security group.
+func (s *Service) CreateSecurityGroup(options *vpcv1.CreateSecurityGroupOptions) (*vpcv1.SecurityGroup, *core.DetailedResponse, error) {
+	return s.vpcService.CreateSecurityGroup(options)
+}
+
+// DeleteSecurityGroup deletes the security group passed.
+func (s *Service) DeleteSecurityGroup(options *vpcv1.DeleteSecurityGroupOptions) (*core.DetailedResponse, error) {
+	return s.vpcService.DeleteSecurityGroup(options)
+}
+
+// ListSecurityGroups lists security group.
+func (s *Service) ListSecurityGroups(options *vpcv1.ListSecurityGroupsOptions) (*vpcv1.SecurityGroupCollection, *core.DetailedResponse, error) {
+	return s.vpcService.ListSecurityGroups(options)
+}
+
+// GetSecurityGroup gets a specific security group by id.
+func (s *Service) GetSecurityGroup(options *vpcv1.GetSecurityGroupOptions) (*vpcv1.SecurityGroup, *core.DetailedResponse, error) {
+	return s.vpcService.GetSecurityGroup(options)
+}
+
+// GetSecurityGroupByName gets a specific security group by name.
+func (s *Service) GetSecurityGroupByName(name string) (*vpcv1.SecurityGroup, error) {
+	securityGroupPager, err := s.vpcService.NewSecurityGroupsPager(&vpcv1.ListSecurityGroupsOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error listing security group: %v", err)
+	}
+
+	for {
+		if !securityGroupPager.HasNext() {
+			break
+		}
+
+		securityGroups, err := securityGroupPager.GetNext()
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving next page of security groups: %v", err)
+		}
+
+		for _, sg := range securityGroups {
+			if *sg.Name == name {
+				return &sg, nil
+			}
+		}
+	}
+
+	return nil, SecurityGroupByNameNotFound(name)
+}
+
+// GetSecurityGroupRule gets a specific security group rule.
+func (s *Service) GetSecurityGroupRule(options *vpcv1.GetSecurityGroupRuleOptions) (vpcv1.SecurityGroupRuleIntf, *core.DetailedResponse, error) {
+	return s.vpcService.GetSecurityGroupRule(options)
 }
 
 // NewService returns a new VPC Service.

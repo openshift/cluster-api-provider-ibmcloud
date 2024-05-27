@@ -7,7 +7,7 @@ inputs:
   base-ref:
     description: 'Base reference for API compatibility comparison (default: base branch)'
     required: false
-    default: "origin/${GITHUB_BASE_REF}"
+    default: "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
   version:
     description: 'Version of go-apidiff to use'
     required: false
@@ -24,26 +24,16 @@ inputs:
     description: 'Path to root of git repository to compare'
     required: false
     default: '.'
-  skip-cache:
-    description: 'Skip automatic caching of go module directories'
-    required: false
-    default: false
 outputs:
   semver-type:
     description: "Returns the type (patch, minor, major) of the sementic version that would be required if producing a release."
     value: ${{ steps.go-apidiff.outputs.semver-type }}
+  output:
+    description: "Contains diff output information"
+    value: ${{ steps.go-apidiff.outputs.output }}
 runs:
   using: 'composite'
   steps:
-    - uses: actions/cache@v3
-      if: ${{ inputs.skip-cache != 'true' }}
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-apidiff-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-apidiff
     - shell: bash
       id: go-apidiff
       run: |
@@ -64,6 +54,13 @@ runs:
         OUTPUT=$($GOPATH/bin/go-apidiff ${{ inputs.base-ref }} --compare-imports=${{ inputs.compare-imports }} --print-compatible=${{ inputs.print-compatible }} --repo-path=${{ inputs.repo-path }})
         GOAPIDIFF_RC=$?
         set -e
+        EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+        {
+          echo "output<<$EOF"
+          echo "$OUTPUT"
+          echo "$EOF"
+        } >> $GITHUB_OUTPUT
+        
         if [ $GOAPIDIFF_RC -eq 0 ]; then
           if [ -z "$OUTPUT" ]; then
             echo "semver-type=patch" >> $GITHUB_OUTPUT

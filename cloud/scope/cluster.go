@@ -26,7 +26,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 
-	"k8s.io/klog/v2/klogr"
+	"k8s.io/klog/v2"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -74,7 +74,7 @@ func NewClusterScope(params ClusterScopeParams) (*ClusterScope, error) {
 	}
 
 	if params.Logger == (logr.Logger{}) {
-		params.Logger = klogr.New()
+		params.Logger = klog.Background()
 	}
 
 	helper, err := patch.NewHelper(params.IBMVPCCluster, params.Client)
@@ -715,5 +715,5 @@ func (s *ClusterScope) APIServerPort() int32 {
 	if s.Cluster.Spec.ClusterNetwork != nil && s.Cluster.Spec.ClusterNetwork.APIServerPort != nil {
 		return *s.Cluster.Spec.ClusterNetwork.APIServerPort
 	}
-	return 6443
+	return infrav1beta2.DefaultAPIServerPort
 }

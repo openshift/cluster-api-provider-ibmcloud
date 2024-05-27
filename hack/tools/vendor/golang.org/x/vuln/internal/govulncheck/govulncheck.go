@@ -3,6 +3,24 @@
 // license that can be found in the LICENSE file.
 
 // Package govulncheck contains the JSON output structs for govulncheck.
+//
+// govulncheck supports streaming JSON by emitting a series of Message
+// objects as it analyzes user code and discovers vulnerabilities.
+// Streaming JSON is useful for displaying progress in real-time for
+// large projects where govulncheck execution might take some time.
+//
+// govulncheck JSON emits configuration used to perform the analysis,
+// a user-friendly message about what is being analyzed, and the
+// vulnerability findings. Findings for the same vulnerability can
+// can be emitted several times. For instance, govulncheck JSON will
+// emit a finding when it sees that a vulnerable module is required
+// before proceeding to check if the vulnerability is imported or called.
+// Please see documentation on Message and related types for precise
+// details on the stream encoding.
+//
+// There are no guarantees on the order of messages. The pattern of emitted
+// messages can change in the future. Clients can follow code in handler.go
+// for consuming the streaming JSON programmatically.
 package govulncheck
 
 import (
@@ -55,6 +73,11 @@ type Config struct {
 	// ScanLevel instructs govulncheck to analyze at a specific level of detail.
 	// Valid values include module, package and symbol.
 	ScanLevel ScanLevel `json:"scan_level,omitempty"`
+
+	// ScanMode instructs govulncheck how to interpret the input and
+	// what to do with it. Valid values are source, binary, query,
+	// and extract.
+	ScanMode ScanMode `json:"scan_mode,omitempty"`
 }
 
 // Progress messages are informational only, intended to allow users to monitor
@@ -69,7 +92,14 @@ type Progress struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Vuln represents a single OSV entry.
+// Finding contains information on a discovered vulnerability. Each vulnerability
+// will likely have multiple findings in JSON mode. This is because govulncheck
+// emits findings as it does work, and therefore could emit one module level,
+// one package level, and potentially multiple symbol level findings depending
+// on scan level.
+// Multiple symbol level findings can be emitted when multiple symbols of the
+// same vuln are called or govulncheck decides to show multiple traces for the
+// same symbol.
 type Finding struct {
 	// OSV is the id of the detected vulnerability.
 	OSV string `json:"osv,omitempty"`
@@ -99,8 +129,10 @@ type Finding struct {
 	// In binary mode, trace will contain a single-frame with no position
 	// information.
 	//
-	// When a package is imported but no vulnerable symbol is called, the trace
-	// will contain a single-frame with no symbol or position information.
+	// For module level source findings, the trace will contain a single-frame
+	// with no symbol, position, or package information. For package level source
+	// findings, the trace will contain a single-frame with no symbol or position
+	// information.
 	Trace []*Frame `json:"trace,omitempty"`
 }
 
@@ -129,6 +161,10 @@ type Frame struct {
 	// Position describes an arbitrary source position
 	// including the file, line, and column location.
 	// A Position is valid if the line number is > 0.
+	//
+	// The filenames are relative to the directory of
+	// the enclosing module and always use "/" for
+	// portability.
 	Position *Position `json:"position,omitempty"`
 }
 
@@ -148,11 +184,29 @@ type Position struct {
 type ScanLevel string
 
 const (
-	scanLevelModule  = "module"
-	scanLevelPackage = "package"
-	scanLevelSymbol  = "symbol"
+	ScanLevelModule  = "module"
+	ScanLevelPackage = "package"
+	ScanLevelSymbol  = "symbol"
 )
 
 // WantSymbols can be used to check whether the scan level is one that is able
-// to generate symbols called findings.
-func (l ScanLevel) WantSymbols() bool { return l == scanLevelSymbol }
+// to generate symbol-level findings.
+func (l ScanLevel) WantSymbols() bool { return l == ScanLevelSymbol }
+
+// WantPackages can be used to check whether the scan level is one that is able
+// to generate package-level findings.
+func (l ScanLevel) WantPackages() bool { return l == ScanLevelPackage || l == ScanLevelSymbol }
+
+// ScanMode represents the mode in which a scan occurred. This can
+// be necessary to correctly to interpret findings. For instance,
+// a binary can be checked for vulnerabilities or the user just wants
+// to extract minimal data necessary for the vulnerability check.
+type ScanMode string
+
+const (
+	ScanModeSource  = "source"
+	ScanModeBinary  = "binary"
+	ScanModeConvert = "convert"
+	ScanModeQuery   = "query"
+	ScanModeExtract = "extract" // currently, only binary extraction is supported
+)

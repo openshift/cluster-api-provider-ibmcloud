@@ -16,31 +16,25 @@ import (
 	"golang.org/x/vuln/internal/semver"
 )
 
-// Result contains information on how known vulnerabilities are reachable
-// in the call graph, package imports graph, and module requires graph of
-// the user code.
+// Result contains information on detected vulnerabilities.
+// For call graph analysis, it provides information on reachability
+// of vulnerable symbols through entry points of the program.
 type Result struct {
 	// EntryFunctions are a subset of Functions representing vulncheck entry points.
 	EntryFunctions []*FuncNode
 
-	// EntryPackages are a subset of Packages representing packages of vulncheck entry points.
-	EntryPackages []*packages.Package
-
-	// Vulns contains information on detected vulnerabilities and their place in
-	// the above graphs. Only vulnerabilities whose symbols are reachable in Calls,
-	// or whose packages are imported in Imports, or whose modules are required in
-	// Requires, have an entry in Vulns.
+	// Vulns contains information on detected vulnerabilities.
 	Vulns []*Vuln
 }
 
-// Vuln provides information on how a vulnerability is affecting user code by
-// connecting it to the Result.{Calls,Imports,Requires} graphs. Vulnerabilities
-// detected in Go binaries do not appear in the Result graphs.
+// Vuln provides information on a detected vulnerability. For call
+// graph mode, Vuln will also contain the information on how the
+// vulnerability is reachable in the user call graph.
 type Vuln struct {
 	// OSV contains information on the detected vulnerability in the shared
 	// vulnerability format.
 	//
-	// OSV, Symbol, PkgPath, and ModPath identify a vulnerability.
+	// OSV, Symbol, and Package identify a vulnerability.
 	//
 	// Note that *osv.Entry may describe multiple symbols from multiple
 	// packages.
@@ -49,17 +43,17 @@ type Vuln struct {
 	// Symbol is the name of the detected vulnerable function or method.
 	Symbol string
 
-	// CallSink is the FuncNode in Result.Calls corresponding to Symbol.
+	// CallSink is the FuncNode corresponding to Symbol.
 	//
 	// When analyzing binaries, Symbol is not reachable, or cfg.ScanLevel
-	// is symbol, CallSink will be unavailable and set to 0.
+	// is symbol, CallSink will be unavailable and set to nil.
 	CallSink *FuncNode
 
-	// ImportSink is the PkgNode in Result.Imports corresponding to PkgPath.
+	// Package of Symbol.
 	//
-	// When analyzing binaries or PkgPath is not imported, ImportSink will be
-	// unavailable and set to 0.
-	ImportSink *packages.Package
+	// When the package of symbol is not imported, Package will be
+	// unavailable and set to nil.
+	Package *packages.Package
 }
 
 // A FuncNode describes a function in the call graph.
@@ -111,10 +105,10 @@ type CallSite struct {
 	Resolved bool
 }
 
-// moduleVulnerabilities is an internal structure for
-// holding and querying vulnerabilities provided by a
-// vulnerability database client.
-type moduleVulnerabilities []*ModVulns
+// affectingVulns is an internal structure for querying
+// vulnerabilities that apply to the current program
+// and platform under consideration.
+type affectingVulns []*ModVulns
 
 // ModVulns groups vulnerabilities per module.
 type ModVulns struct {
@@ -122,10 +116,10 @@ type ModVulns struct {
 	Vulns  []*osv.Entry
 }
 
-func (mv moduleVulnerabilities) filter(os, arch string) moduleVulnerabilities {
+func affectingVulnerabilities(vulns []*ModVulns, os, arch string) affectingVulns {
 	now := time.Now()
-	var filteredMod moduleVulnerabilities
-	for _, mod := range mv {
+	var filtered affectingVulns
+	for _, mod := range vulns {
 		module := mod.Module
 		modVersion := module.Version
 		if module.Replace != nil {
@@ -168,6 +162,10 @@ func (mv moduleVulnerabilities) filter(os, arch string) moduleVulnerabilities {
 						filteredImports = append(filteredImports, p)
 					}
 				}
+				// If we pruned all existing Packages, then the affected is
+				// empty and we can filter it out. Note that Packages can
+				// be empty for vulnerabilities that have no package or
+				// symbol information available.
 				if len(a.EcosystemSpecific.Packages) != 0 && len(filteredImports) == 0 {
 					continue
 				}
@@ -183,12 +181,13 @@ func (mv moduleVulnerabilities) filter(os, arch string) moduleVulnerabilities {
 			newV.Affected = filteredAffected
 			filteredVulns = append(filteredVulns, &newV)
 		}
-		filteredMod = append(filteredMod, &ModVulns{
+
+		filtered = append(filtered, &ModVulns{
 			Module: module,
 			Vulns:  filteredVulns,
 		})
 	}
-	return filteredMod
+	return filtered
 }
 
 func matchesPlatform(os, arch string, e osv.Package) bool {
@@ -211,13 +210,13 @@ func matchesPlatformComponent(s string, ps []string) bool {
 	return false
 }
 
-// vulnsForPackage returns the vulnerabilities for the module which is the most
+// ForPackage returns the vulnerabilities for the module which is the most
 // specific prefix of importPath, or nil if there is no matching module with
 // vulnerabilities.
-func (mv moduleVulnerabilities) vulnsForPackage(importPath string) []*osv.Entry {
-	isStd := isStdPackage(importPath)
+func (aff affectingVulns) ForPackage(importPath string) []*osv.Entry {
+	isStd := IsStdPackage(importPath)
 	var mostSpecificMod *ModVulns
-	for _, mod := range mv {
+	for _, mod := range aff {
 		md := mod
 		if isStd && mod.Module.Path == internal.GoStdModulePath {
 			// standard library packages do not have an associated module,
@@ -242,6 +241,12 @@ func (mv moduleVulnerabilities) vulnsForPackage(importPath string) []*osv.Entry 
 Vuln:
 	for _, v := range vulns {
 		for _, a := range v.Affected {
+			if len(a.EcosystemSpecific.Packages) == 0 {
+				// no packages means all packages are vulnerable
+				packageVulns = append(packageVulns, v)
+				continue Vuln
+			}
+
 			for _, p := range a.EcosystemSpecific.Packages {
 				if p.Path == importPath {
 					packageVulns = append(packageVulns, v)
@@ -253,9 +258,9 @@ Vuln:
 	return packageVulns
 }
 
-// vulnsForSymbol returns vulnerabilities for `symbol` in `mv.VulnsForPackage(importPath)`.
-func (mv moduleVulnerabilities) vulnsForSymbol(importPath, symbol string) []*osv.Entry {
-	vulns := mv.vulnsForPackage(importPath)
+// ForSymbol returns vulnerabilities for symbol in aff.ForPackage(importPath).
+func (aff affectingVulns) ForSymbol(importPath, symbol string) []*osv.Entry {
+	vulns := aff.ForPackage(importPath)
 	if vulns == nil {
 		return nil
 	}
@@ -264,6 +269,12 @@ func (mv moduleVulnerabilities) vulnsForSymbol(importPath, symbol string) []*osv
 vulnLoop:
 	for _, v := range vulns {
 		for _, a := range v.Affected {
+			if len(a.EcosystemSpecific.Packages) == 0 {
+				// no packages means all symbols of all packages are vulnerable
+				symbolVulns = append(symbolVulns, v)
+				continue vulnLoop
+			}
+
 			for _, p := range a.EcosystemSpecific.Packages {
 				if p.Path != importPath {
 					continue
@@ -286,16 +297,4 @@ func contains(symbols []string, target string) bool {
 		}
 	}
 	return false
-}
-
-func isStdPackage(pkg string) bool {
-	if pkg == "" {
-		return false
-	}
-	// std packages do not have a "." in their path. For instance, see
-	// Contains in pkgsite/+/refs/heads/master/internal/stdlbib/stdlib.go.
-	if i := strings.IndexByte(pkg, '/'); i != -1 {
-		pkg = pkg[:i]
-	}
-	return !strings.Contains(pkg, ".")
 }

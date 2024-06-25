@@ -6,6 +6,7 @@ approvers:
 - RadekManak
 - damdo
 - mkumatag
+- nrb
 reviewers:
 - JoelSpeed
 - RadekManak
@@ -14,8 +15,8 @@ reviewers:
 - karthik-k-n
 - mkumatag
 - nrb
-- odvarkadaniel
 - racheljpg
-- vincepri
+- sub-mod
+- theobarberbany
 component: Cloud Compute
-subcomponent: Other Provider
+subcomponent: IBM Provider

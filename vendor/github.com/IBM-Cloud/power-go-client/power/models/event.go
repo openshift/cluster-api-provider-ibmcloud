@@ -30,7 +30,7 @@ type Event struct {
 
 	// Level of the event (notice, info, warning, error)
 	// Required: true
-	// Enum: [notice info warning error]
+	// Enum: ["notice","info","warning","error"]
 	Level *string `json:"level"`
 
 	// The (translated) message of the event
@@ -242,6 +242,11 @@ func (m *Event) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 func (m *Event) contextValidateUser(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.User != nil {
+
+		if swag.IsZero(m.User) { // not required
+			return nil
+		}
+
 		if err := m.User.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("user")

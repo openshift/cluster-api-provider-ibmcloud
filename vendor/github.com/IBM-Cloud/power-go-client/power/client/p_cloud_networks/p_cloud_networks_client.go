@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud networks API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud networks API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud networks API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -54,7 +80,7 @@ type ClientService interface {
 }
 
 /*
-  PcloudNetworksDelete deletes a network
+PcloudNetworksDelete deletes a network
 */
 func (a *Client) PcloudNetworksDelete(params *PcloudNetworksDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -93,7 +119,7 @@ func (a *Client) PcloudNetworksDelete(params *PcloudNetworksDeleteParams, authIn
 }
 
 /*
-  PcloudNetworksGet gets a network s current state information
+PcloudNetworksGet gets a network s current state information
 */
 func (a *Client) PcloudNetworksGet(params *PcloudNetworksGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksGetOK, error) {
 	// TODO: Validate the params before sending
@@ -132,7 +158,7 @@ func (a *Client) PcloudNetworksGet(params *PcloudNetworksGetParams, authInfo run
 }
 
 /*
-  PcloudNetworksGetall gets all networks in this cloud instance
+PcloudNetworksGetall gets all networks in this cloud instance
 */
 func (a *Client) PcloudNetworksGetall(params *PcloudNetworksGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -171,7 +197,7 @@ func (a *Client) PcloudNetworksGetall(params *PcloudNetworksGetallParams, authIn
 }
 
 /*
-  PcloudNetworksPortsDelete deletes a network port
+PcloudNetworksPortsDelete deletes a network port
 */
 func (a *Client) PcloudNetworksPortsDelete(params *PcloudNetworksPortsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksPortsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -210,7 +236,7 @@ func (a *Client) PcloudNetworksPortsDelete(params *PcloudNetworksPortsDeletePara
 }
 
 /*
-  PcloudNetworksPortsGet gets a port s information
+PcloudNetworksPortsGet gets a port s information
 */
 func (a *Client) PcloudNetworksPortsGet(params *PcloudNetworksPortsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksPortsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -249,7 +275,7 @@ func (a *Client) PcloudNetworksPortsGet(params *PcloudNetworksPortsGetParams, au
 }
 
 /*
-  PcloudNetworksPortsGetall gets all ports for this network
+PcloudNetworksPortsGetall gets all ports for this network
 */
 func (a *Client) PcloudNetworksPortsGetall(params *PcloudNetworksPortsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksPortsGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -288,7 +314,7 @@ func (a *Client) PcloudNetworksPortsGetall(params *PcloudNetworksPortsGetallPara
 }
 
 /*
-  PcloudNetworksPortsPost performs port addition deletion and listing
+PcloudNetworksPortsPost performs port addition deletion and listing
 */
 func (a *Client) PcloudNetworksPortsPost(params *PcloudNetworksPortsPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksPortsPostCreated, error) {
 	// TODO: Validate the params before sending
@@ -327,7 +353,7 @@ func (a *Client) PcloudNetworksPortsPost(params *PcloudNetworksPortsPostParams, 
 }
 
 /*
-  PcloudNetworksPortsPut updates a port s information
+PcloudNetworksPortsPut updates a port s information
 */
 func (a *Client) PcloudNetworksPortsPut(params *PcloudNetworksPortsPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksPortsPutOK, error) {
 	// TODO: Validate the params before sending
@@ -366,7 +392,7 @@ func (a *Client) PcloudNetworksPortsPut(params *PcloudNetworksPortsPutParams, au
 }
 
 /*
-  PcloudNetworksPost creates a new network
+PcloudNetworksPost creates a new network
 */
 func (a *Client) PcloudNetworksPost(params *PcloudNetworksPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksPostOK, *PcloudNetworksPostCreated, error) {
 	// TODO: Validate the params before sending
@@ -406,7 +432,7 @@ func (a *Client) PcloudNetworksPost(params *PcloudNetworksPostParams, authInfo r
 }
 
 /*
-  PcloudNetworksPut updates a network
+PcloudNetworksPut updates a network
 */
 func (a *Client) PcloudNetworksPut(params *PcloudNetworksPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudNetworksPutOK, error) {
 	// TODO: Validate the params before sending

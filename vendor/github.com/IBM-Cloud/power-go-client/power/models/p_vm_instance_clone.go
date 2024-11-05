@@ -36,7 +36,7 @@ type PVMInstanceClone struct {
 	Networks []*PVMInstanceAddNetwork `json:"networks"`
 
 	// Processor type (dedicated, shared, capped)
-	// Enum: [dedicated shared capped]
+	// Enum: ["dedicated","shared","capped"]
 	ProcType *string `json:"procType,omitempty"`
 
 	// Number of processors allocated
@@ -198,6 +198,11 @@ func (m *PVMInstanceClone) contextValidateNetworks(ctx context.Context, formats 
 	for i := 0; i < len(m.Networks); i++ {
 
 		if m.Networks[i] != nil {
+
+			if swag.IsZero(m.Networks[i]) { // not required
+				return nil
+			}
+
 			if err := m.Networks[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("networks" + "." + strconv.Itoa(i))
@@ -216,6 +221,11 @@ func (m *PVMInstanceClone) contextValidateNetworks(ctx context.Context, formats 
 func (m *PVMInstanceClone) contextValidateSoftwareLicenses(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.SoftwareLicenses != nil {
+
+		if swag.IsZero(m.SoftwareLicenses) { // not required
+			return nil
+		}
+
 		if err := m.SoftwareLicenses.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("softwareLicenses")

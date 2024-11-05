@@ -19,13 +19,16 @@ package framework
 import (
 	"context"
 
-	"github.com/blang/semver"
-	. "github.com/onsi/ginkgo"
+	"github.com/blang/semver/v4"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	toolscache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/cluster-api/internal/util/kubeadm"
 	containerutil "sigs.k8s.io/cluster-api/util/container"
 )
 
@@ -42,15 +45,9 @@ func WaitForKubeProxyUpgrade(ctx context.Context, input WaitForKubeProxyUpgradeI
 	parsedVersion, err := semver.ParseTolerant(input.KubernetesVersion)
 	Expect(err).ToNot(HaveOccurred())
 
-	// Beginning with kubernetes v1.25, kubernetes images including kube-proxy get published to registry.k8s.io instead of k8s.gcr.io.
-	// This ensures that the imageRepository setting gets patched to registry.k8s.io when upgrading from v1.24 or lower,
-	// but only if there was no imageRespository explicitly set at the KubeadmControlPlanes ClusterConfiguration.
-	// This follows the behavior of `kubeadm upgrade`.
-	wantKubeProxyRegistry := "registry.k8s.io"
-	if parsedVersion.LT(semver.Version{Major: 1, Minor: 25, Patch: 0, Pre: []semver.PRVersion{{VersionStr: "alpha"}}}) {
-		wantKubeProxyRegistry = "k8s.gcr.io"
-	}
-	wantKubeProxyImage := wantKubeProxyRegistry + "/kube-proxy:" + containerutil.SemverToOCIImageTag(input.KubernetesVersion)
+	// Validate the kube-proxy image according to how KCP sets the image in the kube-proxy DaemonSet.
+	// KCP does this based on the default registry of the Kubernetes/kubeadm version.
+	wantKubeProxyImage := kubeadm.GetDefaultRegistry(parsedVersion) + "/kube-proxy:" + containerutil.SemverToOCIImageTag(input.KubernetesVersion)
 
 	Eventually(func() (bool, error) {
 		ds := &appsv1.DaemonSet{}
@@ -64,4 +61,40 @@ func WaitForKubeProxyUpgrade(ctx context.Context, input WaitForKubeProxyUpgradeI
 		}
 		return false, nil
 	}, intervals...).Should(BeTrue())
+}
+
+// WatchDaemonSetLogsByLabelSelectorInput is the input for WatchDaemonSetLogsByLabelSelector.
+type WatchDaemonSetLogsByLabelSelectorInput struct {
+	GetLister GetLister
+	Cache     toolscache.Cache
+	ClientSet *kubernetes.Clientset
+	Labels    map[string]string
+	LogPath   string
+}
+
+// WatchDaemonSetLogsByLabelSelector streams logs for all containers for all pods belonging to a daemonset on the basis of label. Each container's logs are streamed
+// in a separate goroutine so they can all be streamed concurrently. This only causes a test failure if there are errors
+// retrieving the daemonset, its pods, or setting up a log file. If there is an error with the log streaming itself,
+// that does not cause the test to fail.
+func WatchDaemonSetLogsByLabelSelector(ctx context.Context, input WatchDaemonSetLogsByLabelSelectorInput) {
+	Expect(ctx).NotTo(BeNil(), "ctx is required for WatchDaemonSetLogsByLabelSelector")
+	Expect(input.Cache).NotTo(BeNil(), "input.Cache is required for WatchDaemonSetLogsByLabelSelector")
+	Expect(input.ClientSet).NotTo(BeNil(), "input.ClientSet is required for WatchDaemonSetLogsByLabelSelector")
+	Expect(input.Labels).NotTo(BeNil(), "input.Selector is required for WatchDaemonSetLogsByLabelSelector")
+
+	daemonSetList := &appsv1.DaemonSetList{}
+	Eventually(func() error {
+		return input.GetLister.List(ctx, daemonSetList, client.MatchingLabels(input.Labels))
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to get DaemonSets for labels")
+
+	for _, daemonSet := range daemonSetList.Items {
+		watchPodLogs(ctx, watchPodLogsInput{
+			Cache:                input.Cache,
+			ClientSet:            input.ClientSet,
+			Namespace:            daemonSet.Namespace,
+			ManagingResourceName: daemonSet.Name,
+			LabelSelector:        daemonSet.Spec.Selector,
+			LogPath:              input.LogPath,
+		})
+	}
 }

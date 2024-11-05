@@ -33,7 +33,7 @@ type CloneTaskStatus struct {
 
 	// Status of the clone volumes task
 	// Required: true
-	// Enum: [running completed failed unknown]
+	// Enum: ["running","completed","failed","unknown"]
 	Status *string `json:"status"`
 }
 
@@ -162,6 +162,11 @@ func (m *CloneTaskStatus) contextValidateClonedVolumes(ctx context.Context, form
 	for i := 0; i < len(m.ClonedVolumes); i++ {
 
 		if m.ClonedVolumes[i] != nil {
+
+			if swag.IsZero(m.ClonedVolumes[i]) { // not required
+				return nil
+			}
+
 			if err := m.ClonedVolumes[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("clonedVolumes" + "." + strconv.Itoa(i))

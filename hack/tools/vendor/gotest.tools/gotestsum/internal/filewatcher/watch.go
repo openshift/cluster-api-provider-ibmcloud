@@ -213,7 +213,7 @@ func handleDirCreated(watcher *fsnotify.Watcher, event fsnotify.Event) (handled 
 
 	fileInfo, err := os.Stat(event.Name)
 	if err != nil {
-		log.Warnf("failed to stat %s: %s", event.Name, err)
+		log.Debugf("failed to stat %s: %s", event.Name, err)
 		return false
 	}
 
@@ -236,7 +236,7 @@ type fsEventHandler struct {
 var floodThreshold = 250 * time.Millisecond
 
 func (h *fsEventHandler) handleEvent(event fsnotify.Event) error {
-	if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+	if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
 		return nil
 	}
 

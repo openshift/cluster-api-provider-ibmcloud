@@ -26,6 +26,7 @@ type VolumesCloneExecute struct {
 	//   Example volume names using name="volume-abcdef"
 	//     single volume clone will be named "clone-volume-abcdef-83081"
 	//     multi volume clone will be named "clone-volume-abcdef-73721-1", "clone-volume-abcdef-73721-2", ...
+	// For multiple volume clone, the provided name will be truncated to the first 20 characters.
 	//
 	// Required: true
 	Name *string `json:"name"`
@@ -34,6 +35,18 @@ type VolumesCloneExecute struct {
 	// True, Execute failure rolls back clone activity and removes the prepared snapshot
 	//
 	RollbackPrepare bool `json:"rollbackPrepare,omitempty"`
+
+	// Cloned volume will be non replication enabled if it is set to false. By default, the replication property of the source volume will be used to determine the replication property of the cloned target volume.
+	TargetReplicationEnabled *bool `json:"targetReplicationEnabled,omitempty"`
+
+	// Target storage tier for the cloned volumes. Use to clone a set of volumes from one storage tier
+	// to a different storage tier. Cloned volumes must remain in the same storage pool as
+	// the source volumes.
+	//
+	TargetStorageTier string `json:"targetStorageTier,omitempty"`
+
+	// user tags
+	UserTags Tags `json:"userTags,omitempty"`
 }
 
 // Validate validates this volumes clone execute
@@ -41,6 +54,10 @@ func (m *VolumesCloneExecute) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateName(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUserTags(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -59,8 +76,48 @@ func (m *VolumesCloneExecute) validateName(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this volumes clone execute based on context it is used
+func (m *VolumesCloneExecute) validateUserTags(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserTags) { // not required
+		return nil
+	}
+
+	if err := m.UserTags.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("userTags")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("userTags")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this volumes clone execute based on the context it is used
 func (m *VolumesCloneExecute) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateUserTags(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *VolumesCloneExecute) contextValidateUserTags(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserTags.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("userTags")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("userTags")
+		}
+		return err
+	}
+
 	return nil
 }
 

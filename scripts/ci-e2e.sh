@@ -39,8 +39,8 @@ mkdir -p "${ARTIFACTS}/logs/"
 
 ARCH=$(uname -m)
 OS=$(uname -s)
-IBMCLOUD_CLI_VERSION=${IBMCLOUD_CLI_VERSION:-"2.22.1"}
-POWER_PLUGIN_VERSION=${POWER_PLUGIN_VERSION:-"1.0.0"}
+IBMCLOUD_CLI_VERSION=${IBMCLOUD_CLI_VERSION:-"2.27.0"}
+POWER_PLUGIN_VERSION=${POWER_PLUGIN_VERSION:-"1.1.0"}
 E2E_FLAVOR=${E2E_FLAVOR:-}
 capibmadm=$(pwd)/bin/capibmadm
 
@@ -96,7 +96,7 @@ create_powervs_network_instance(){
     ibmcloud pi workspace target ${CRN}
 
     # Create the network instance
-    ${capibmadm} powervs network create --name ${IBMPOWERVS_NETWORK_NAME} --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE}
+    ${capibmadm} powervs network create --name ${IBMPOWERVS_NETWORK_NAME} --dns-servers 1.1.1.1,8.8.8.8,9.9.9.9 --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE}
 
 }
 
@@ -124,10 +124,13 @@ init_network_powervs(){
 prerequisites_powervs(){
     # Assigning PowerVS variables
     export IBMPOWERVS_SSHKEY_NAME=${IBMPOWERVS_SSHKEY_NAME:-"powercloud-bot-key"}
-    export IBMPOWERVS_IMAGE_NAME=${IBMPOWERVS_IMAGE_NAME:-"capibm-powervs-centos-streams8-1-28-4"}
+    export IBMPOWERVS_IMAGE_NAME=${IBMPOWERVS_IMAGE_NAME:-"capibm-powervs-centos-streams8-1-29-3"}
     export IBMPOWERVS_SERVICE_INSTANCE_ID=${BOSKOS_RESOURCE_ID:-"d53da3bf-1f4a-42fa-9735-acf16b1a05cd"}
     export IBMPOWERVS_NETWORK_NAME="capi-net-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head --bytes 5)"
     export ZONE=${BOSKOS_ZONE:-"osa21"}
+    export IBMPOWERVS_REGION=${BOSKOS_REGION:-"osa"}
+    export IBMPOWERVS_ZONE=${BOSKOS_ZONE:-"osa21"}
+    init_network_powervs
 }
 
 prerequisites_vpc(){
@@ -139,10 +142,6 @@ prerequisites_vpc(){
     export IBMVPC_IMAGE_NAME=${IBMVPC_IMAGE_NAME:-"capibm-vpc-ubuntu-2204-kube-v1-29-3"}
     export IBMVPC_PROFILE=${IBMVPC_PROFILE:-"bx2-4x16"}
     export IBMVPC_SSHKEY_NAME=${IBMVPC_SSHKEY_NAME:-"vpc-cloud-bot-key"}
-    export PROVIDER_ID_FORMAT=v2
-    export EXP_CLUSTER_RESOURCE_SET=true
-    export IBMACCOUNT_ID=${IBMACCOUNT_ID:-"7cfbd5381a434af7a09289e795840d4e"}
-    export BASE64_API_KEY=$(tr -d '\n' <<<"$IBMCLOUD_API_KEY" | base64)
 }
 
 main(){
@@ -178,12 +177,15 @@ main(){
 
     # Set common variables
     export DOCKER_BUILDKIT=1
+    export PROVIDER_ID_FORMAT=v2
+    export EXP_CLUSTER_RESOURCE_SET=true
+    export IBMACCOUNT_ID=${IBMACCOUNT_ID:-"7cfbd5381a434af7a09289e795840d4e"}
+    export BASE64_API_KEY=$(tr -d '\n' <<<"$IBMCLOUD_API_KEY" | base64)
     # Setting controller loglevel to allow debug logs from the VPC/PowerVS client
     export LOGLEVEL=5
 
     if [[ "${E2E_FLAVOR}" == "powervs" || "${E2E_FLAVOR}" == "powervs-md-remediation" ]]; then
         prerequisites_powervs
-        init_network_powervs
     fi
 
     if [[ "${E2E_FLAVOR}" == "vpc" ]]; then

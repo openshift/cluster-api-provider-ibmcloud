@@ -14,15 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//go:generate ../../../../hack/tools/bin/mockgen -source=./vpc.go -destination=./mock/vpc_generated.go -package=mock
-//go:generate /usr/bin/env bash -c "cat ../../../../hack/boilerplate/boilerplate.generatego.txt ./mock/vpc_generated.go > ./mock/_vpc_generated.go && mv ./mock/_vpc_generated.go ./mock/vpc_generated.go"
-
 package vpc
 
 import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
+
+//go:generate ../../../../hack/tools/bin/mockgen -source=./vpc.go -destination=./mock/vpc_generated.go -package=mock
+//go:generate /usr/bin/env bash -c "cat ../../../../hack/boilerplate/boilerplate.generatego.txt ./mock/vpc_generated.go > ./mock/_vpc_generated.go && mv ./mock/_vpc_generated.go ./mock/vpc_generated.go"
 
 // Vpc interface defines methods that a Cluster API IBMCLOUD object should implement.
 type Vpc interface {
@@ -51,10 +51,14 @@ type Vpc interface {
 	DeleteLoadBalancerPoolMember(options *vpcv1.DeleteLoadBalancerPoolMemberOptions) (*core.DetailedResponse, error)
 	ListLoadBalancerPoolMembers(options *vpcv1.ListLoadBalancerPoolMembersOptions) (*vpcv1.LoadBalancerPoolMemberCollection, *core.DetailedResponse, error)
 	ListKeys(options *vpcv1.ListKeysOptions) (*vpcv1.KeyCollection, *core.DetailedResponse, error)
+	CreateImage(options *vpcv1.CreateImageOptions) (*vpcv1.Image, *core.DetailedResponse, error)
 	ListImages(options *vpcv1.ListImagesOptions) (*vpcv1.ImageCollection, *core.DetailedResponse, error)
+	GetImage(options *vpcv1.GetImageOptions) (*vpcv1.Image, *core.DetailedResponse, error)
 	GetInstanceProfile(options *vpcv1.GetInstanceProfileOptions) (*vpcv1.InstanceProfile, *core.DetailedResponse, error)
 	GetVPC(*vpcv1.GetVPCOptions) (*vpcv1.VPC, *core.DetailedResponse, error)
 	GetVPCByName(vpcName string) (*vpcv1.VPC, error)
+	GetImageByName(imageName string) (*vpcv1.Image, error)
+	GetVPCPublicGatewayByName(publicGatewayName string, resourceGroupID string) (*vpcv1.PublicGateway, error)
 	GetSubnet(*vpcv1.GetSubnetOptions) (*vpcv1.Subnet, *core.DetailedResponse, error)
 	GetVPCSubnetByName(subnetName string) (*vpcv1.Subnet, error)
 	GetLoadBalancerByName(loadBalancerName string) (*vpcv1.LoadBalancer, error)
@@ -65,4 +69,6 @@ type Vpc interface {
 	GetSecurityGroup(options *vpcv1.GetSecurityGroupOptions) (*vpcv1.SecurityGroup, *core.DetailedResponse, error)
 	GetSecurityGroupByName(name string) (*vpcv1.SecurityGroup, error)
 	GetSecurityGroupRule(options *vpcv1.GetSecurityGroupRuleOptions) (vpcv1.SecurityGroupRuleIntf, *core.DetailedResponse, error)
+	ListSecurityGroupRules(options *vpcv1.ListSecurityGroupRulesOptions) (*vpcv1.SecurityGroupRuleCollection, *core.DetailedResponse, error)
+	GetVPCZonesByRegion(region string) ([]string, error)
 }

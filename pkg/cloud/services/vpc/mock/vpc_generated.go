@@ -55,6 +55,22 @@ func (m *MockVpc) EXPECT() *MockVpcMockRecorder {
 	return m.recorder
 }
 
+// CreateImage mocks base method.
+func (m *MockVpc) CreateImage(options *vpcv1.CreateImageOptions) (*vpcv1.Image, *core.DetailedResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateImage", options)
+	ret0, _ := ret[0].(*vpcv1.Image)
+	ret1, _ := ret[1].(*core.DetailedResponse)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// CreateImage indicates an expected call of CreateImage.
+func (mr *MockVpcMockRecorder) CreateImage(options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImage", reflect.TypeOf((*MockVpc)(nil).CreateImage), options)
+}
+
 // CreateInstance mocks base method.
 func (m *MockVpc) CreateInstance(options *vpcv1.CreateInstanceOptions) (*vpcv1.Instance, *core.DetailedResponse, error) {
 	m.ctrl.T.Helper()
@@ -288,6 +304,37 @@ func (mr *MockVpcMockRecorder) DeleteVPC(options any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteVPC", reflect.TypeOf((*MockVpc)(nil).DeleteVPC), options)
 }
 
+// GetImage mocks base method.
+func (m *MockVpc) GetImage(options *vpcv1.GetImageOptions) (*vpcv1.Image, *core.DetailedResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImage", options)
+	ret0, _ := ret[0].(*vpcv1.Image)
+	ret1, _ := ret[1].(*core.DetailedResponse)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetImage indicates an expected call of GetImage.
+func (mr *MockVpcMockRecorder) GetImage(options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImage", reflect.TypeOf((*MockVpc)(nil).GetImage), options)
+}
+
+// GetImageByName mocks base method.
+func (m *MockVpc) GetImageByName(imageName string) (*vpcv1.Image, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageByName", imageName)
+	ret0, _ := ret[0].(*vpcv1.Image)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageByName indicates an expected call of GetImageByName.
+func (mr *MockVpcMockRecorder) GetImageByName(imageName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageByName", reflect.TypeOf((*MockVpc)(nil).GetImageByName), imageName)
+}
+
 // GetInstance mocks base method.
 func (m *MockVpc) GetInstance(options *vpcv1.GetInstanceOptions) (*vpcv1.Instance, *core.DetailedResponse, error) {
 	m.ctrl.T.Helper()
@@ -476,6 +523,21 @@ func (mr *MockVpcMockRecorder) GetVPCByName(vpcName any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVPCByName", reflect.TypeOf((*MockVpc)(nil).GetVPCByName), vpcName)
 }
 
+// GetVPCPublicGatewayByName mocks base method.
+func (m *MockVpc) GetVPCPublicGatewayByName(publicGatewayName, resourceGroupID string) (*vpcv1.PublicGateway, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVPCPublicGatewayByName", publicGatewayName, resourceGroupID)
+	ret0, _ := ret[0].(*vpcv1.PublicGateway)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetVPCPublicGatewayByName indicates an expected call of GetVPCPublicGatewayByName.
+func (mr *MockVpcMockRecorder) GetVPCPublicGatewayByName(publicGatewayName, resourceGroupID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVPCPublicGatewayByName", reflect.TypeOf((*MockVpc)(nil).GetVPCPublicGatewayByName), publicGatewayName, resourceGroupID)
+}
+
 // GetVPCSubnetByName mocks base method.
 func (m *MockVpc) GetVPCSubnetByName(subnetName string) (*vpcv1.Subnet, error) {
 	m.ctrl.T.Helper()
@@ -489,6 +551,21 @@ func (m *MockVpc) GetVPCSubnetByName(subnetName string) (*vpcv1.Subnet, error) {
 func (mr *MockVpcMockRecorder) GetVPCSubnetByName(subnetName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVPCSubnetByName", reflect.TypeOf((*MockVpc)(nil).GetVPCSubnetByName), subnetName)
+}
+
+// GetVPCZonesByRegion mocks base method.
+func (m *MockVpc) GetVPCZonesByRegion(region string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVPCZonesByRegion", region)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetVPCZonesByRegion indicates an expected call of GetVPCZonesByRegion.
+func (mr *MockVpcMockRecorder) GetVPCZonesByRegion(region any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVPCZonesByRegion", reflect.TypeOf((*MockVpc)(nil).GetVPCZonesByRegion), region)
 }
 
 // ListImages mocks base method.
@@ -569,6 +646,22 @@ func (m *MockVpc) ListLoadBalancers(options *vpcv1.ListLoadBalancersOptions) (*v
 func (mr *MockVpcMockRecorder) ListLoadBalancers(options any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLoadBalancers", reflect.TypeOf((*MockVpc)(nil).ListLoadBalancers), options)
+}
+
+// ListSecurityGroupRules mocks base method.
+func (m *MockVpc) ListSecurityGroupRules(options *vpcv1.ListSecurityGroupRulesOptions) (*vpcv1.SecurityGroupRuleCollection, *core.DetailedResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSecurityGroupRules", options)
+	ret0, _ := ret[0].(*vpcv1.SecurityGroupRuleCollection)
+	ret1, _ := ret[1].(*core.DetailedResponse)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListSecurityGroupRules indicates an expected call of ListSecurityGroupRules.
+func (mr *MockVpcMockRecorder) ListSecurityGroupRules(options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecurityGroupRules", reflect.TypeOf((*MockVpc)(nil).ListSecurityGroupRules), options)
 }
 
 // ListSecurityGroups mocks base method.

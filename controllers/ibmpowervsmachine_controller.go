@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 
 	"github.com/IBM-Cloud/power-go-client/power/models"
 
@@ -251,7 +252,9 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(machineScope *scope.PowerV
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		machineScope.SetProviderID(instance.PvmInstanceID)
+		if err := machineScope.SetProviderID(*ins.PvmInstanceID); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to set provider id")
+		}
 		machineScope.SetInstanceID(instance.PvmInstanceID)
 		machineScope.SetAddresses(instance)
 		machineScope.SetHealth(instance.Health)

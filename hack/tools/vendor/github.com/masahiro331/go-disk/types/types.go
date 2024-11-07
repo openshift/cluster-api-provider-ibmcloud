@@ -2,6 +2,10 @@ package types
 
 import "io"
 
+type Driver interface {
+	Next() (Partition, error)
+}
+
 type Partition interface {
 	Bootable() bool
 	GetStartSector() uint64

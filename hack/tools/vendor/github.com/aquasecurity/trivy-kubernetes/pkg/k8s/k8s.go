@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/aquasecurity/trivy-kubernetes/pkg/bom"
@@ -10,8 +11,10 @@ import (
 	"github.com/aquasecurity/trivy-kubernetes/utils"
 	containerimage "github.com/google/go-containerregistry/pkg/name"
 	ms "github.com/mitchellh/mapstructure"
+	"github.com/opencontainers/go-digest"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	k8sapierror "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,7 +30,7 @@ import (
 
 var (
 	UpstreamOrgName = map[string]string{
-		"k8s.io":      "controller-manager,kubelet,apiserver,kubectl,kubernetes,kube-scheduler,kube-proxy",
+		"k8s.io":      "controller-manager,kubelet,apiserver,kubectl,kubernetes,kube-scheduler,kube-proxy,cloud-provider",
 		"sigs.k8s.io": "secrets-store-csi-driver",
 		"go.etcd.io":  "etcd/v3",
 	}
@@ -42,6 +45,7 @@ var (
 		"kube-proxy":               "kube-proxy",
 		"api server":               "apiserver",
 		"etcd":                     "etcd/v3",
+		"cloud-controller-manager": "cloud-provider",
 		"secrets-store-csi-driver": "secrets-store-csi-driver",
 	}
 	CoreComponentPropertyType = map[string]string{
@@ -49,6 +53,7 @@ var (
 		"apiserver":          "controlPlane",
 		"kube-scheduler":     "controlPlane",
 		"etcd/v3":            "controlPlane",
+		"cloud-provider":     "controlPlane",
 		"kube-proxy":         "node",
 	}
 )
@@ -76,16 +81,24 @@ const (
 	ConfigMaps             = "configmaps"
 	Roles                  = "roles"
 	RoleBindings           = "rolebindings"
-	NetworkPolicys         = "networkpolicies"
-	Ingresss               = "ingresses"
+	NetworkPolicies        = "networkpolicies"
+	Ingresses              = "ingresses"
 	ResourceQuotas         = "resourcequotas"
 	LimitRanges            = "limitranges"
 	ClusterRoles           = "clusterroles"
 	ClusterRoleBindings    = "clusterrolebindings"
 	Nodes                  = "nodes"
 	k8sComponentNamespace  = "kube-system"
+	serviceAccountDefault  = "default"
 
-	serviceAccountDefault = "default"
+	native   = "k8s"
+	gke      = "gke"
+	aks      = "aks"
+	eks      = "eks"
+	rke2     = "rke2"
+	k3s      = "k3s"
+	ocp      = "ocp"
+	microk8s = "microk8s"
 )
 
 // Cluster interface represents the operations needed to scan a cluster
@@ -111,6 +124,8 @@ type Cluster interface {
 	GetClusterVersion() string
 	// AuthByResource return image pull secrets by resource pod spec
 	AuthByResource(resource unstructured.Unstructured) (map[string]docker.Auth, error)
+	// SpecByPlatform return spec by platform type and version
+	Platform() Platform
 }
 
 type cluster struct {
@@ -138,6 +153,36 @@ func WithKubeConfig(kubeConfig string) ClusterOption {
 		c.KubeConfig = &kubeConfig
 	}
 }
+func WithQPS(qps float32) ClusterOption {
+	return func(o *genericclioptions.ConfigFlags) {
+		o.WrapConfigFn = combineConfigFns(o.WrapConfigFn, func(c *rest.Config) *rest.Config {
+			c.QPS = qps
+			return c
+		})
+	}
+}
+
+func WithBurst(burst int) ClusterOption {
+	return func(o *genericclioptions.ConfigFlags) {
+		o.WrapConfigFn = combineConfigFns(o.WrapConfigFn, func(c *rest.Config) *rest.Config {
+			c.Burst = burst
+			return c
+		})
+	}
+}
+
+// Helper function to combine multiple config functions
+func combineConfigFns(existing, newFn func(*rest.Config) *rest.Config) func(*rest.Config) *rest.Config {
+	if existing == nil {
+		return newFn
+	}
+	return func(c *rest.Config) *rest.Config {
+		if modified := existing(c); modified != nil {
+			return newFn(modified)
+		}
+		return newFn(c)
+	}
+}
 
 // GetCluster returns a current configured cluster,
 func GetCluster(opts ...ClusterOption) (Cluster, error) {
@@ -156,14 +201,15 @@ func GetCluster(opts ...ClusterOption) (Cluster, error) {
 		return nil, err
 	}
 
-	return getCluster(clientConfig, restMapper, *cf.Context, false)
-}
-
-func getCluster(clientConfig clientcmd.ClientConfig, restMapper meta.RESTMapper, currentContext string, fakeConfig bool) (*cluster, error) {
-	kubeConfig, err := clientConfig.ClientConfig()
+	kubeConfig, err := cf.ToRESTConfig()
 	if err != nil {
 		return nil, err
 	}
+
+	return getCluster(clientConfig, kubeConfig, restMapper, *cf.Context, false)
+}
+
+func getCluster(clientConfig clientcmd.ClientConfig, kubeConfig *rest.Config, restMapper meta.RESTMapper, currentContext string, fakeConfig bool) (*cluster, error) {
 
 	k8sDynamicClient, err := dynamic.NewForConfig(kubeConfig)
 	if err != nil {
@@ -234,6 +280,77 @@ func (c *cluster) GetDynamicClient() dynamic.Interface {
 // GetK8sClientSet returns k8s clientSet
 func (c *cluster) GetK8sClientSet() *kubernetes.Clientset {
 	return c.clientset
+}
+
+// GetK8sClientSet returns k8s clientSet
+func (c *cluster) Platform() Platform {
+	platform, err := c.Platfrom()
+	if err != nil {
+		return Platform{Name: "k8s", Version: "1.23.0"}
+	}
+	return platform
+}
+
+func (cluster *cluster) Platfrom() (Platform, error) {
+	v := cluster.getOpenShiftVersion(context.Background())
+	if len(v) != 0 {
+		return Platform{Name: "ocp", Version: majorVersion(v)}, nil
+	}
+	nodeName := cluster.getNodeName()
+	semVersion, err := cluster.clientset.ServerVersion()
+	if err != nil {
+		return Platform{}, err
+	}
+	p := getPlatformInfoFromVersion(semVersion.GitVersion)
+	var name string
+	switch {
+	case strings.Contains(p.Version, k3s):
+		name = k3s
+	case strings.Contains(p.Version, rke2):
+		name = rke2
+	case strings.Contains(p.Version, microk8s):
+		name = microk8s
+	case strings.Contains(nodeName, aks):
+		name = aks
+	case strings.Contains(nodeName, eks):
+		name = eks
+	case strings.Contains(nodeName, gke):
+		name = gke
+	default:
+		name = "k8s"
+	}
+	return Platform{Name: name, Version: p.Version}, nil
+}
+
+type Platform struct {
+	Name    string
+	Version string
+}
+
+func (cluster *cluster) getOpenShiftVersion(ctx context.Context) string {
+	gvr, err := cluster.restMapper.ResourceFor(schema.GroupVersionResource{Resource: "clusterversions"})
+	if err != nil {
+		return ""
+	}
+	dclient := cluster.dynamicClient.Resource(gvr).Namespace("")
+	resources, err := dclient.List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return ""
+	}
+	var version string
+	for _, resource := range resources.Items {
+		version, _, _ = unstructured.NestedString(resource.Object, []string{"status", "desired", "version"}...)
+
+	}
+	return version
+}
+
+func (cluster *cluster) getNodeName() string {
+	nodes, err := cluster.clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return "k8s"
+	}
+	return nodes.Items[0].Name
 }
 
 // GetGVRs returns cluster GroupVersionResource to query kubernetes, receives
@@ -309,8 +426,8 @@ func getNamespaceResources() []string {
 		ConfigMaps,
 		Roles,
 		RoleBindings,
-		NetworkPolicys,
-		Ingresss,
+		NetworkPolicies,
+		Ingresses,
 		ResourceQuotas,
 		LimitRanges,
 	}
@@ -349,7 +466,7 @@ func (c *cluster) CreateClusterBom(ctx context.Context) (*bom.Result, error) {
 	return c.getClusterBomInfo(components, nodesInfo)
 }
 
-func GetContainer(imageRef containerimage.Reference, imageName containerimage.Reference) (bom.Container, error) {
+func GetContainer(hex string, imageName containerimage.Reference) (bom.Container, error) {
 	repoName := imageName.Context().RepositoryStr()
 	registryName := imageName.Context().RegistryStr()
 
@@ -357,7 +474,7 @@ func GetContainer(imageRef containerimage.Reference, imageName containerimage.Re
 		Repository: repoName,
 		Registry:   registryName,
 		ID:         fmt.Sprintf("%s:%s", repoName, imageName.Identifier()),
-		Digest:     imageRef.Context().Digest(imageRef.Identifier()).DigestStr(),
+		Digest:     hex,
 		Version:    imageName.Identifier(),
 	}, nil
 }
@@ -365,7 +482,11 @@ func GetContainer(imageRef containerimage.Reference, imageName containerimage.Re
 func (c *cluster) CollectNodes(components []bom.Component) ([]bom.NodeInfo, error) {
 	nodes, err := c.clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		return []bom.NodeInfo{}, err
+		if errors.IsNotFound(err) || errors.IsForbidden(err) {
+			slog.Error("Unable to list node resources", "error", err)
+			return []bom.NodeInfo{}, nil
+		}
+		return nil, err
 	}
 	nodesInfo := make([]bom.NodeInfo, 0)
 	for _, node := range nodes.Items {
@@ -397,10 +518,10 @@ func NodeInfo(node v1.Node) bom.NodeInfo {
 	}
 	return bom.NodeInfo{
 		NodeName:                node.Name,
-		KubeletVersion:          node.Status.NodeInfo.KubeletVersion,
+		KubeletVersion:          trimString(k8sVersions(node.Status.NodeInfo.KubeletVersion), []string{"v", "V"}),
 		ContainerRuntimeVersion: node.Status.NodeInfo.ContainerRuntimeVersion,
 		OsImage:                 node.Status.NodeInfo.OSImage,
-		KubeProxyVersion:        node.Status.NodeInfo.KubeProxyVersion,
+		KubeProxyVersion:        trimString(k8sVersions(node.Status.NodeInfo.KubeProxyVersion), []string{"v", "V"}),
 		Properties: map[string]string{
 			"NodeRole":        nodeRole,
 			"HostName":        node.ObjectMeta.Name,
@@ -442,7 +563,8 @@ func PodInfo(pod corev1.Pod, labelSelector string) (*bom.Component, error) {
 	for _, s := range pod.Status.ContainerStatuses {
 		imageName, err := utils.ParseReference(s.Image)
 		if err != nil {
-			return nil, err
+			slog.Warn(fmt.Sprintf("unable to parse image reference, skipping: %s", s.Image))
+			continue
 		}
 		imageID := getImageID(s.ImageID, s.Image)
 		if len(imageID) == 0 {
@@ -450,9 +572,15 @@ func PodInfo(pod corev1.Pod, labelSelector string) (*bom.Component, error) {
 		}
 		imageRef, err := utils.ParseReference(imageID)
 		if err != nil {
-			return nil, err
+			slog.Warn(fmt.Sprintf("unable to parse image reference, skipping: %s", s.Image))
+			continue
 		}
-		co, err := GetContainer(imageRef, imageName)
+		hex := imageRef.Context().Digest(imageRef.Identifier()).DigestStr()
+		// skip non sha256 digests
+		if len(hex) != digest.Canonical.Size()*2 {
+			continue
+		}
+		co, err := GetContainer(hex, imageName)
 		if err != nil {
 			continue
 		}
@@ -485,11 +613,28 @@ func PodInfo(pod corev1.Pod, labelSelector string) (*bom.Component, error) {
 
 func findComponentVersion(containers []bom.Container, name string) string {
 	for _, c := range containers {
-		if strings.Contains(c.ID, name) {
+		if strings.Contains(c.Version, "rke2") || strings.Contains(c.Version, "k3s") {
+			return k8sVersions(c.Version)
+		} else if strings.Contains(c.ID, name) {
 			return c.Version
 		}
 	}
 	return ""
+}
+
+func k8sVersions(version string) string {
+	switch {
+	case strings.Contains(version, "+rke2"):
+		index := strings.Index(version, "+rke2")
+		return version[:index]
+	case strings.Contains(version, "-rke2"):
+		index := strings.Index(version, "-rke2")
+		return version[:index]
+	case strings.Contains(version, "-k3s"):
+		index := strings.Index(version, "-k3s")
+		return version[:index]
+	}
+	return version
 }
 
 func (c *cluster) isOpenShift() bool {
@@ -521,7 +666,12 @@ func (c *cluster) ClusterNameVersion() (string, string, error) {
 	}
 	clusterName := "k8s.io/kubernetes"
 	if len(rawCfg.Contexts) > 0 {
-		clusterName = rawCfg.Contexts[rawCfg.CurrentContext].Cluster
+		if c.currentContext != "" {
+			rawCfg.CurrentContext = c.currentContext
+		}
+		if clusterContext, ok := rawCfg.Contexts[rawCfg.CurrentContext]; ok {
+			clusterName = clusterContext.Cluster
+		}
 	}
 	version, err := c.clientset.ServerVersion()
 	if err != nil {
@@ -567,6 +717,9 @@ func (r *cluster) ListByLocalObjectReferences(ctx context.Context, refs []corev1
 	secrets := make([]*corev1.Secret, 0)
 
 	for _, secretRef := range refs {
+		if secretRef.Name == "" {
+			continue
+		}
 		secret, err := r.clientset.CoreV1().Secrets(ns).Get(ctx, secretRef.Name, metav1.GetOptions{})
 		if err != nil {
 			if k8sapierror.IsNotFound(err) || k8sapierror.IsForbidden(err) {

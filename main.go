@@ -30,6 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	cgrecord "k8s.io/client-go/tools/record"
+	"k8s.io/component-base/logs"
+	logsv1 "k8s.io/component-base/logs/api/v1"
 	"k8s.io/klog/v2"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,6 +50,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/record"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	_ "k8s.io/component-base/logs/json/register"
 )
 
 var (
@@ -55,7 +58,8 @@ var (
 	enableLeaderElection bool
 	healthAddr           string
 	syncPeriod           time.Duration
-	diagnosticsOptions   = flags.DiagnosticsOptions{}
+	managerOptions       = flags.ManagerOptions{}
+	logOptions           = logs.NewOptions()
 	webhookPort          int
 	webhookCertDir       string
 
@@ -103,11 +107,10 @@ func initFlags(fs *pflag.FlagSet) {
 		10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.",
 	)
-
 	fs.StringVar(
 		&options.ProviderIDFormat,
 		"provider-id-fmt",
-		string(options.ProviderIDFormatV1),
+		string(options.ProviderIDFormatV2),
 		"ProviderID format is used set the Provider ID format for Machine",
 	)
 
@@ -127,18 +130,26 @@ func initFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&webhookCertDir, "webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs/",
 		"The webhook certificate directory, where the server should find the TLS certificate and key.")
 
-	flags.AddDiagnosticsOptions(fs, &diagnosticsOptions)
+	logsv1.AddFlags(logOptions, fs)
+	flags.AddManagerOptions(fs, &managerOptions)
 }
 
 func validateFlags() error {
 	switch options.ProviderIDFormatType(options.ProviderIDFormat) {
+	// Deprecated: ProviderIDFormatV1 is deprecated and will be removed in a future release.
 	case options.ProviderIDFormatV1:
-		setupLog.Info("Using v1 version of ProviderID format")
+		setupLog.Info("Using v1 version of ProviderID format.V1 is deprecated and will be removed in a future release.Instead use V2.")
 	case options.ProviderIDFormatV2:
 		setupLog.Info("Using v2 version of ProviderID format")
 	default:
 		return fmt.Errorf("invalid value for flag provider-id-fmt: %s, Supported values: %s, %s ", options.ProviderIDFormat, options.ProviderIDFormatV1, options.ProviderIDFormatV2)
 	}
+
+	if err := logsv1.ValidateAndApply(logOptions, nil); err != nil {
+		setupLog.Error(err, "unable to validate and apply log options")
+		return err
+	}
+
 	return nil
 }
 
@@ -175,7 +186,11 @@ func main() {
 		BurstSize: 100,
 	})
 
-	diagnosticsOpts := flags.GetDiagnosticsOptions(diagnosticsOptions)
+	_, metricsOptions, err := flags.GetManagerOptions(managerOptions)
+	if err != nil {
+		setupLog.Error(err, "Unable to start manager: invalid flags")
+		os.Exit(1)
+	}
 
 	var watchNamespaces map[string]cache.Config
 	if watchNamespace != "" {
@@ -187,7 +202,7 @@ func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:           scheme,
 		LeaderElection:   enableLeaderElection,
-		Metrics:          diagnosticsOpts,
+		Metrics:          *metricsOptions,
 		LeaderElectionID: "effcf9b8.cluster.x-k8s.io",
 		Cache: cache.Options{
 			DefaultNamespaces: watchNamespaces,

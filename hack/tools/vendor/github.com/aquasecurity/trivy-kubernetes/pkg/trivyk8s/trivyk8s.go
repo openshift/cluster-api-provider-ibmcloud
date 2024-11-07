@@ -2,8 +2,11 @@ package trivyk8s
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,7 +14,6 @@ import (
 	"github.com/aquasecurity/trivy-kubernetes/pkg/bom"
 	"github.com/aquasecurity/trivy-kubernetes/pkg/jobs"
 	"github.com/aquasecurity/trivy-kubernetes/pkg/k8s"
-	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,8 +39,6 @@ type TrivyK8S interface {
 type ArtifactsK8S interface {
 	// ListArtifacts returns kubernetes scanable artifacts
 	ListArtifacts(context.Context) ([]*artifacts.Artifact, error)
-	// GetArtifact return kubernete scanable artifact
-	GetArtifact(context.Context, string, string) (*artifacts.Artifact, error)
 	// ListArtifactAndNodeInfo return kubernete scanable artifact and node info
 	ListArtifactAndNodeInfo(context.Context, ...NodeCollectorOption) ([]*artifacts.Artifact, error)
 	// ListClusterBomInfo returns kubernetes Bom (node,core components) information.
@@ -46,13 +46,21 @@ type ArtifactsK8S interface {
 }
 
 type client struct {
-	cluster       k8s.Cluster
-	namespace     string
-	resources     []string
-	allNamespaces bool
-	logger        *zap.SugaredLogger
-	excludeOwned  bool
-	scanJobParams scanJobParams
+	cluster              k8s.Cluster
+	namespace            string
+	resources            []string
+	allNamespaces        bool
+	excludeOwned         bool
+	scanJobParams        scanJobParams
+	nodeConfig           bool // feature flag to enable/disable node config collection
+	excludeKinds         []string
+	includeKinds         []string
+	excludeNamespaces    []string
+	includeNamespaces    []string
+	commandPaths         []string
+	specCommandIds       []string
+	commandFilesystem    embed.FS
+	nodeConfigFilesystem embed.FS
 }
 
 type K8sOption func(*client)
@@ -62,10 +70,41 @@ func WithExcludeOwned(excludeOwned bool) K8sOption {
 		c.excludeOwned = excludeOwned
 	}
 }
+func WithExcludeKinds(excludeKinds []string) K8sOption {
+	return func(c *client) {
+		for _, kind := range excludeKinds {
+			c.excludeKinds = append(c.excludeKinds, strings.ToLower(kind))
+		}
+	}
+}
+func WithIncludeKinds(includeKinds []string) K8sOption {
+	return func(c *client) {
+		for _, kind := range includeKinds {
+			c.includeKinds = append(c.includeKinds, strings.ToLower(kind))
+		}
+	}
+}
+
+func WithExcludeNamespaces(excludeNamespaces []string) K8sOption {
+	return func(c *client) {
+		for _, ns := range excludeNamespaces {
+			c.excludeNamespaces = append(c.excludeNamespaces, strings.ToLower(ns))
+		}
+	}
+}
+func WithIncludeNamespaces(includeNamespaces []string) K8sOption {
+	return func(c *client) {
+		for _, ns := range includeNamespaces {
+			c.includeNamespaces = append(c.includeNamespaces, strings.ToLower(ns))
+		}
+	}
+}
 
 // New creates a trivyK8S client
-func New(cluster k8s.Cluster, logger *zap.SugaredLogger, opts ...K8sOption) TrivyK8S {
-	c := &client{cluster: cluster, logger: logger}
+func New(cluster k8s.Cluster, opts ...K8sOption) TrivyK8S {
+	c := &client{
+		cluster: cluster,
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -102,6 +141,26 @@ func isNamespaced(namespace string, allNamespace bool) bool {
 	return false
 }
 
+// return list of namespaces to exclude
+func (c *client) GetExcludeNamespaces() []string {
+	return c.excludeNamespaces
+}
+
+// return list of namespaces to include
+func (c *client) GetIncludeNamespaces() []string {
+	return c.includeNamespaces
+}
+
+// return list of kinds to exclude
+func (c *client) GetExcludeKinds() []string {
+	return c.excludeKinds
+}
+
+// return list of kinds to include
+func (c client) GetIncludeKinds() []string {
+	return c.includeKinds
+}
+
 // ListArtifacts returns kubernetes scannable artifacs.
 func (c *client) ListArtifacts(ctx context.Context) ([]*artifacts.Artifact, error) {
 	artifactList := make([]*artifacts.Artifact, 0)
@@ -119,9 +178,8 @@ func (c *client) ListArtifacts(ctx context.Context) ([]*artifacts.Artifact, erro
 		if err != nil {
 			lerr := fmt.Errorf("failed listing resources for gvr: %v - %w", gvr, err)
 
-			if errors.IsNotFound(err) {
-				c.logger.Error(lerr)
-				// if a resource is not found, we log and continue
+			if errors.IsNotFound(err) || errors.IsForbidden(err) {
+				slog.Error("Unable to list resources", "error", lerr)
 				continue
 			}
 
@@ -129,13 +187,6 @@ func (c *client) ListArtifacts(ctx context.Context) ([]*artifacts.Artifact, erro
 		}
 
 		for _, resource := range resources.Items {
-			lastAppliedResource := resource
-			if jsonManifest, ok := resource.GetAnnotations()["kubectl.kubernetes.io/last-applied-configuration"]; ok { // required for outdated-api when k8s convert resources
-				err := json.Unmarshal([]byte(jsonManifest), &lastAppliedResource)
-				if err != nil {
-					continue
-				}
-			}
 			if c.ignoreResource(resource) {
 				continue
 			}
@@ -144,7 +195,23 @@ func (c *client) ListArtifacts(ctx context.Context) ([]*artifacts.Artifact, erro
 			if c.excludeOwned && c.hasOwner(resource) {
 				continue
 			}
+			// filter resources by kind
+			if FilterResources(c.includeKinds, c.excludeKinds, resource.GetKind()) {
+				continue
+			}
 
+			// filter resources by namespace
+			if FilterResources(c.includeNamespaces, c.excludeNamespaces, resource.GetNamespace()) {
+				continue
+			}
+
+			lastAppliedResource := resource
+			if jsonManifest, ok := resource.GetAnnotations()["kubectl.kubernetes.io/last-applied-configuration"]; ok { // required for outdated-api when k8s convert resources
+				err := json.Unmarshal([]byte(jsonManifest), &lastAppliedResource)
+				if err != nil {
+					continue
+				}
+			}
 			auths, err := c.cluster.AuthByResource(lastAppliedResource)
 			if err != nil {
 				return nil, fmt.Errorf("failed getting auth for gvr: %v - %w", gvr, err)
@@ -167,8 +234,28 @@ func (c *client) ListArtifacts(ctx context.Context) ([]*artifacts.Artifact, erro
 	return artifactList, nil
 }
 
+func FilterResources(include []string, exclude []string, key string) bool {
+
+	if (len(include) > 0 && len(exclude) > 0) || // if both include and exclude cannot be set together
+		(len(include) == 0 && len(exclude) == 0) {
+		return false
+	}
+	if len(exclude) > 0 {
+		if slices.Contains(exclude, strings.ToLower(key)) {
+			return true
+		}
+	} else if len(include) > 0 {
+		if !slices.Contains(include, strings.ToLower(key)) {
+			return true
+		}
+	}
+
+	return false
+}
+
 type scanJobParams struct {
-	toleration       []corev1.Toleration
+	affinity         *corev1.Affinity
+	tolerations      []corev1.Toleration
 	ignoreLabels     map[string]string
 	scanJobNamespace string
 	imageRef         string
@@ -176,9 +263,15 @@ type scanJobParams struct {
 
 type NodeCollectorOption func(*client)
 
-func WithTolerations(toleration []corev1.Toleration) NodeCollectorOption {
+func WithAffinity(affinity *corev1.Affinity) NodeCollectorOption {
 	return func(c *client) {
-		c.scanJobParams.toleration = toleration
+		c.scanJobParams.affinity = affinity
+	}
+}
+
+func WithTolerations(tolerations []corev1.Toleration) NodeCollectorOption {
+	return func(c *client) {
+		c.scanJobParams.tolerations = tolerations
 	}
 }
 
@@ -197,6 +290,34 @@ func WithScanJobNamespace(namespace string) NodeCollectorOption {
 func WithScanJobImageRef(imageRef string) NodeCollectorOption {
 	return func(c *client) {
 		c.scanJobParams.imageRef = imageRef
+	}
+}
+
+func WithNodeConfig(nodeConfig bool) NodeCollectorOption {
+	return func(c *client) {
+		c.nodeConfig = nodeConfig
+	}
+}
+func WithCommandPaths(commandPaths []string) NodeCollectorOption {
+	return func(c *client) {
+		c.commandPaths = commandPaths
+	}
+}
+
+func WithEmbeddedCommandFileSystem(commandsFileSystem embed.FS) NodeCollectorOption {
+	return func(c *client) {
+		c.commandFilesystem = commandsFileSystem
+	}
+}
+
+func WithEmbeddedNodeConfigFilesystem(nodeConfigFileSystem embed.FS) NodeCollectorOption {
+	return func(c *client) {
+		c.nodeConfigFilesystem = nodeConfigFileSystem
+	}
+}
+func WithSpecCommandIds(specCommandIds []string) NodeCollectorOption {
+	return func(c *client) {
+		c.specCommandIds = specCommandIds
 	}
 }
 
@@ -222,7 +343,13 @@ func (c *client) ListArtifactAndNodeInfo(ctx context.Context,
 		jobs.WithJobNamespace(c.scanJobParams.scanJobNamespace),
 		jobs.WithJobLabels(labels),
 		jobs.WithImageRef(c.scanJobParams.imageRef),
-		jobs.WithJobTolerations(c.scanJobParams.toleration),
+		jobs.WithJobAffinity(c.scanJobParams.affinity),
+		jobs.WithJobTolerations(c.scanJobParams.tolerations),
+		jobs.WithNodeConfig(c.nodeConfig),
+		jobs.WithCommandsPath(c.commandPaths),
+		jobs.WithSpecCommands(c.specCommandIds),
+		jobs.WithEmbeddedCommandFileSystem(c.commandFilesystem),
+		jobs.WithEmbeddedNodeConfigFilesystem(c.nodeConfigFilesystem),
 	)
 	// delete trivy namespace
 	defer jc.Cleanup(ctx)
@@ -251,7 +378,11 @@ func (c *client) ListArtifactAndNodeInfo(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		artifactList = append(artifactList, &artifacts.Artifact{Kind: "NodeInfo", Name: resource.Name, RawResource: nodeInfo})
+		artifactList = append(artifactList, &artifacts.Artifact{
+			Kind:        "NodeInfo",
+			Name:        resource.Name,
+			RawResource: nodeInfo,
+		})
 	}
 	return artifactList, err
 }
@@ -263,8 +394,22 @@ func (c *client) ListClusterBomInfo(ctx context.Context) ([]*artifacts.Artifact,
 	if err != nil {
 		return []*artifacts.Artifact{}, err
 	}
+	b.Components = c.filterNamespaces(b.Components)
+	if slices.Contains(c.GetExcludeKinds(), "node") {
+		b.NodesInfo = []bom.NodeInfo{}
+	}
 	return BomToArtifacts(b)
+}
 
+func (c *client) filterNamespaces(comp []bom.Component) []bom.Component {
+	bm := make([]bom.Component, 0)
+	for _, co := range comp {
+		if FilterResources(c.GetIncludeNamespaces(), c.GetExcludeNamespaces(), co.Namespace) {
+			continue
+		}
+		bm = append(bm, co)
+	}
+	return bm
 }
 
 func BomToArtifacts(b *bom.Result) ([]*artifacts.Artifact, error) {
@@ -274,20 +419,38 @@ func BomToArtifacts(b *bom.Result) ([]*artifacts.Artifact, error) {
 		if err != nil {
 			return []*artifacts.Artifact{}, err
 		}
-		artifactList = append(artifactList, &artifacts.Artifact{Kind: "ControlPlaneComponents", Namespace: c.Namespace, Name: c.Name, RawResource: rawResource})
+		artifactList = append(artifactList, &artifacts.Artifact{
+			Kind:        "ControlPlaneComponents",
+			Namespace:   c.Namespace,
+			Name:        c.Name,
+			RawResource: rawResource,
+		})
 	}
 	for _, ni := range b.NodesInfo {
 		rawResource, err := rawResource(&ni)
 		if err != nil {
 			return []*artifacts.Artifact{}, err
 		}
-		artifactList = append(artifactList, &artifacts.Artifact{Kind: "NodeComponents", Name: ni.NodeName, RawResource: rawResource})
+		artifactList = append(artifactList, &artifacts.Artifact{
+			Kind:        "NodeComponents",
+			Name:        ni.NodeName,
+			RawResource: rawResource,
+		})
 	}
-	cr, err := rawResource(&bom.Result{ID: b.ID, Type: "ClusterInfo", Version: b.Version, Properties: b.Properties})
+	cr, err := rawResource(&bom.Result{
+		ID:         b.ID,
+		Type:       "ClusterInfo",
+		Version:    b.Version,
+		Properties: b.Properties,
+	})
 	if err != nil {
 		return []*artifacts.Artifact{}, err
 	}
-	artifactList = append(artifactList, &artifacts.Artifact{Kind: "Cluster", Name: b.ID, RawResource: cr})
+	artifactList = append(artifactList, &artifacts.Artifact{
+		Kind:        "Cluster",
+		Name:        b.ID,
+		RawResource: cr,
+	})
 	return artifactList, nil
 }
 
@@ -302,30 +465,6 @@ func rawResource(resource interface{}) (map[string]interface{}, error) {
 		return nil, err
 	}
 	return rawResource, nil
-}
-
-// GetArtifact return kubernetes scannable artifac.
-func (c *client) GetArtifact(ctx context.Context, kind, name string) (*artifacts.Artifact, error) {
-	gvr, err := c.cluster.GetGVR(kind)
-	if err != nil {
-		return nil, err
-	}
-
-	dclient := c.getDynamicClient(gvr)
-	resource, err := dclient.Get(ctx, name, v1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed getting resource for gvr: %v - %w", gvr, err)
-	}
-	auths, err := c.cluster.AuthByResource(*resource)
-	if err != nil {
-		return nil, fmt.Errorf("failed getting auth for gvr: %v - %w", gvr, err)
-	}
-	artifact, err := artifacts.FromResource(*resource, auths)
-	if err != nil {
-		return nil, err
-	}
-
-	return artifact, nil
 }
 
 func (c *client) getDynamicClient(gvr schema.GroupVersionResource) dynamic.ResourceInterface {

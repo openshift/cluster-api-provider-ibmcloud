@@ -1,8 +1,12 @@
 package artifacts
 
 import (
+	"fmt"
+	"log/slog"
+
 	"github.com/aquasecurity/trivy-kubernetes/pkg/k8s"
 	"github.com/aquasecurity/trivy-kubernetes/pkg/k8s/docker"
+	"github.com/aquasecurity/trivy-kubernetes/utils"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -27,18 +31,25 @@ func FromResource(resource unstructured.Unstructured, serverAuths map[string]doc
 	for _, t := range cTypes {
 		cTypeImages, err := extractImages(resource, append(nestedKeys, t))
 		if err != nil {
-			return nil, err
+			continue
 		}
 		images = append(images, cTypeImages...)
 		for _, im := range cTypeImages {
 			as, err := k8s.MapContainerNamesToDockerAuths(im, serverAuths)
 			if err != nil {
-				return nil, err
+				slog.Warn(fmt.Sprintf("unable to parse image reference, skipping: %s", im))
+				continue
 			}
 			if as != nil {
 				credentials = append(credentials, *as)
 			}
 		}
+	}
+
+	// delete managed fields from the resource
+	err := utils.DeleteManagedFields(&resource)
+	if err != nil {
+		return nil, err
 	}
 
 	// we don't check found here, if the name is not found it will be an empty string

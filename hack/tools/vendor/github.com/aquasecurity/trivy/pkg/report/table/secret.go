@@ -9,19 +9,19 @@ import (
 
 	"github.com/aquasecurity/tml"
 	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
-	"github.com/aquasecurity/trivy/pkg/fanal/types"
+	"github.com/aquasecurity/trivy/pkg/types"
 )
 
 type secretRenderer struct {
 	w          *bytes.Buffer
 	target     string
-	secrets    []types.SecretFinding
+	secrets    []types.DetectedSecret
 	severities []dbTypes.Severity
 	width      int
 	ansi       bool
 }
 
-func NewSecretRenderer(target string, secrets []types.SecretFinding, ansi bool, severities []dbTypes.Severity) *secretRenderer {
+func NewSecretRenderer(target string, secrets []types.DetectedSecret, ansi bool, severities []dbTypes.Severity) *secretRenderer {
 	width, _, err := term.GetSize(0)
 	if err != nil || width == 0 {
 		width = 40
@@ -40,6 +40,11 @@ func NewSecretRenderer(target string, secrets []types.SecretFinding, ansi bool, 
 }
 
 func (r *secretRenderer) Render() string {
+	// Trivy doesn't currently support showing suppressed secrets
+	// So just skip this result
+	if len(r.secrets) == 0 {
+		return ""
+	}
 	target := r.target + " (secrets)"
 	RenderTarget(r.w, target, r.ansi)
 
@@ -63,7 +68,7 @@ func (r *secretRenderer) countSeverities() map[string]int {
 	return severityCount
 }
 
-func (r *secretRenderer) printf(format string, args ...interface{}) {
+func (r *secretRenderer) printf(format string, args ...any) {
 	// nolint
 	_ = tml.Fprintf(r.w, format, args...)
 }
@@ -76,13 +81,13 @@ func (r *secretRenderer) printSingleDivider() {
 	r.printf("<dim>%s\r\n", strings.Repeat("─", r.width))
 }
 
-func (r *secretRenderer) renderSingle(secret types.SecretFinding) {
+func (r *secretRenderer) renderSingle(secret types.DetectedSecret) {
 	r.renderSummary(secret)
 	r.renderCode(secret)
 	r.printf("\r\n\r\n")
 }
 
-func (r *secretRenderer) renderSummary(secret types.SecretFinding) {
+func (r *secretRenderer) renderSummary(secret types.DetectedSecret) {
 
 	// severity
 	switch secret.Severity {
@@ -108,7 +113,7 @@ func (r *secretRenderer) renderSummary(secret types.SecretFinding) {
 	r.printSingleDivider()
 }
 
-func (r *secretRenderer) renderCode(secret types.SecretFinding) {
+func (r *secretRenderer) renderCode(secret types.DetectedSecret) {
 	// highlight code if we can...
 	if lines := secret.Code.Lines; len(lines) > 0 {
 

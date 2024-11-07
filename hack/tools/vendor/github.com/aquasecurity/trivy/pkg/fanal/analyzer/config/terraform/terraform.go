@@ -3,10 +3,9 @@ package terraform
 import (
 	"os"
 
-	"github.com/aquasecurity/trivy-iac/pkg/detection"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer/config"
-	"github.com/aquasecurity/trivy/pkg/misconf"
+	"github.com/aquasecurity/trivy/pkg/iac/detection"
 )
 
 const (
@@ -25,7 +24,7 @@ type terraformConfigAnalyzer struct {
 }
 
 func newTerraformConfigAnalyzer(opts analyzer.AnalyzerOptions) (analyzer.PostAnalyzer, error) {
-	a, err := config.NewAnalyzer(analyzerType, version, misconf.NewTerraformScanner, opts)
+	a, err := config.NewAnalyzer(analyzerType, version, detection.FileTypeTerraform, opts)
 	if err != nil {
 		return nil, err
 	}

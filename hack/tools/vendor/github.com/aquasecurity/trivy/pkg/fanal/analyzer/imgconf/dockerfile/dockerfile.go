@@ -11,6 +11,7 @@ import (
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/image"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
+	"github.com/aquasecurity/trivy/pkg/iac/detection"
 	"github.com/aquasecurity/trivy/pkg/mapfs"
 	"github.com/aquasecurity/trivy/pkg/misconf"
 )
@@ -26,7 +27,7 @@ type historyAnalyzer struct {
 }
 
 func newHistoryAnalyzer(opts analyzer.ConfigAnalyzerOptions) (analyzer.ConfigAnalyzer, error) {
-	s, err := misconf.NewDockerfileScanner(opts.FilePatterns, opts.MisconfScannerOption)
+	s, err := misconf.NewScanner(detection.FileTypeDockerfile, opts.MisconfScannerOption)
 	if err != nil {
 		return nil, xerrors.Errorf("misconfiguration scanner error: %w", err)
 	}
@@ -41,6 +42,7 @@ func (a *historyAnalyzer) Analyze(ctx context.Context, input analyzer.ConfigAnal
 		return nil, nil
 	}
 	dockerfile := new(bytes.Buffer)
+	var userFound bool
 	baseLayerIndex := image.GuessBaseImageIndex(input.Config.History)
 	for i := baseLayerIndex + 1; i < len(input.Config.History); i++ {
 		h := input.Config.History[i]
@@ -52,9 +54,19 @@ func (a *historyAnalyzer) Analyze(ctx context.Context, input analyzer.ConfigAnal
 		case strings.HasPrefix(h.CreatedBy, "/bin/sh -c"):
 			// RUN instruction
 			createdBy = strings.ReplaceAll(h.CreatedBy, "/bin/sh -c", "RUN")
+		case strings.HasSuffix(h.CreatedBy, "# buildkit"):
+			// buildkit instructions
+			// COPY ./foo /foo # buildkit
+			// ADD ./foo.txt /foo.txt # buildkit
+			// RUN /bin/sh -c ls -hl /foo # buildkit
+			createdBy = strings.TrimSuffix(h.CreatedBy, "# buildkit")
+			if strings.HasPrefix(h.CreatedBy, "RUN /bin/sh -c") {
+				createdBy = strings.ReplaceAll(createdBy, "RUN /bin/sh -c", "RUN")
+			}
 		case strings.HasPrefix(h.CreatedBy, "USER"):
 			// USER instruction
 			createdBy = h.CreatedBy
+			userFound = true
 		case strings.HasPrefix(h.CreatedBy, "HEALTHCHECK"):
 			// HEALTHCHECK instruction
 			var interval, timeout, startPeriod, retries, command string
@@ -75,6 +87,11 @@ func (a *historyAnalyzer) Analyze(ctx context.Context, input analyzer.ConfigAnal
 			createdBy = fmt.Sprintf("HEALTHCHECK %s%s%s%s%s", interval, timeout, startPeriod, retries, command)
 		}
 		dockerfile.WriteString(strings.TrimSpace(createdBy) + "\n")
+	}
+
+	if !userFound && input.Config.Config.User != "" {
+		user := fmt.Sprintf("USER %s", input.Config.Config.User)
+		dockerfile.WriteString(user)
 	}
 
 	fsys := mapfs.New()

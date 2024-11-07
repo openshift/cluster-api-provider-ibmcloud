@@ -1,6 +1,7 @@
 package ospkg
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"time"
@@ -13,8 +14,7 @@ import (
 )
 
 type Scanner interface {
-	Packages(target types.ScanTarget, options types.ScanOptions) types.Result
-	Scan(target types.ScanTarget, options types.ScanOptions) (types.Result, bool, error)
+	Scan(ctx context.Context, target types.ScanTarget, options types.ScanOptions) (types.Result, bool, error)
 }
 
 type scanner struct{}
@@ -23,45 +23,40 @@ func NewScanner() Scanner {
 	return &scanner{}
 }
 
-func (s *scanner) Packages(target types.ScanTarget, _ types.ScanOptions) types.Result {
-	if len(target.Packages) == 0 || !target.OS.Detected() {
-		return types.Result{}
-	}
-
-	sort.Sort(target.Packages)
-	return types.Result{
-		Target:   fmt.Sprintf("%s (%s %s)", target.Name, target.OS.Family, target.OS.Name),
-		Class:    types.ClassOSPkg,
-		Type:     target.OS.Family,
-		Packages: target.Packages,
-	}
-}
-
-func (s *scanner) Scan(target types.ScanTarget, _ types.ScanOptions) (types.Result, bool, error) {
+func (s *scanner) Scan(ctx context.Context, target types.ScanTarget, opts types.ScanOptions) (types.Result, bool, error) {
 	if !target.OS.Detected() {
-		log.Logger.Debug("Detected OS: unknown")
+		log.Debug("Detected OS: unknown")
 		return types.Result{}, false, nil
 	}
-	log.Logger.Infof("Detected OS: %s", target.OS.Family)
+	log.Info("Detected OS", log.String("family",
+		string(target.OS.Family)), log.String("version", target.OS.Name))
 
 	if target.OS.Extended {
 		// TODO: move the logic to each detector
 		target.OS.Name += "-ESM"
 	}
 
-	vulns, eosl, err := ospkgDetector.Detect("", target.OS.Family, target.OS.Name, target.Repository, time.Time{},
-		target.Packages)
-	if err == ospkgDetector.ErrUnsupportedOS {
-		return types.Result{}, false, nil
-	} else if err != nil {
-		return types.Result{}, false, xerrors.Errorf("failed vulnerability detection of OS packages: %w", err)
+	result := types.Result{
+		Target: fmt.Sprintf("%s (%s %s)", target.Name, target.OS.Family, target.OS.Name),
+		Class:  types.ClassOSPkg,
+		Type:   target.OS.Family,
 	}
 
-	artifactDetail := fmt.Sprintf("%s (%s %s)", target.Name, target.OS.Family, target.OS.Name)
-	return types.Result{
-		Target:          artifactDetail,
-		Vulnerabilities: vulns,
-		Class:           types.ClassOSPkg,
-		Type:            target.OS.Family,
-	}, eosl, nil
+	sort.Sort(target.Packages)
+	result.Packages = target.Packages
+
+	if !opts.Scanners.Enabled(types.VulnerabilityScanner) {
+		// Return packages only
+		return result, false, nil
+	}
+
+	vulns, eosl, err := ospkgDetector.Detect(ctx, "", target.OS.Family, target.OS.Name, target.Repository, time.Time{},
+		target.Packages)
+	if err != nil {
+		// Return a result for those who want to override the error handling.
+		return result, false, xerrors.Errorf("failed vulnerability detection of OS packages: %w", err)
+	}
+	result.Vulnerabilities = vulns
+
+	return result, eosl, nil
 }

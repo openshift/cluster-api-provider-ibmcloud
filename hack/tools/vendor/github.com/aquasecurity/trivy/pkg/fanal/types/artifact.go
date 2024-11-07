@@ -3,10 +3,7 @@ package types
 import (
 	"time"
 
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/samber/lo"
-
-	"github.com/aquasecurity/trivy/pkg/digest"
 )
 
 type OS struct {
@@ -61,106 +58,6 @@ type Layer struct {
 	CreatedBy string `json:",omitempty"`
 }
 
-type Package struct {
-	ID         string   `json:",omitempty"`
-	Name       string   `json:",omitempty"`
-	Version    string   `json:",omitempty"`
-	Release    string   `json:",omitempty"`
-	Epoch      int      `json:",omitempty"`
-	Arch       string   `json:",omitempty"`
-	Dev        bool     `json:",omitempty"`
-	SrcName    string   `json:",omitempty"`
-	SrcVersion string   `json:",omitempty"`
-	SrcRelease string   `json:",omitempty"`
-	SrcEpoch   int      `json:",omitempty"`
-	Licenses   []string `json:",omitempty"`
-	Maintainer string   `json:",omitempty"`
-
-	Modularitylabel string     `json:",omitempty"` // only for Red Hat based distributions
-	BuildInfo       *BuildInfo `json:",omitempty"` // only for Red Hat
-
-	Ref      string `json:",omitempty"` // identifier which can be used to reference the component elsewhere
-	Indirect bool   `json:",omitempty"` // this package is direct dependency of the project or not
-
-	// Dependencies of this package
-	// Note:　it may have interdependencies, which may lead to infinite loops.
-	DependsOn []string `json:",omitempty"`
-
-	Layer Layer `json:",omitempty"`
-
-	// Each package metadata have the file path, while the package from lock files does not have.
-	FilePath string `json:",omitempty"`
-
-	// This is required when using SPDX formats. Otherwise, it will be empty.
-	Digest digest.Digest `json:",omitempty"`
-
-	// lines from the lock file where the dependency is written
-	Locations []Location `json:",omitempty"`
-
-	// Files installed by the package
-	InstalledFiles []string `json:",omitempty"`
-}
-
-type Location struct {
-	StartLine int `json:",omitempty"`
-	EndLine   int `json:",omitempty"`
-}
-
-// BuildInfo represents information under /root/buildinfo in RHEL
-type BuildInfo struct {
-	ContentSets []string `json:",omitempty"`
-	Nvr         string   `json:",omitempty"`
-	Arch        string   `json:",omitempty"`
-}
-
-func (pkg *Package) Empty() bool {
-	return pkg.Name == "" || pkg.Version == ""
-}
-
-type Packages []Package
-
-func (pkgs Packages) Len() int {
-	return len(pkgs)
-}
-
-func (pkgs Packages) Swap(i, j int) {
-	pkgs[i], pkgs[j] = pkgs[j], pkgs[i]
-}
-
-func (pkgs Packages) Less(i, j int) bool {
-	switch {
-	case pkgs[i].Name != pkgs[j].Name:
-		return pkgs[i].Name < pkgs[j].Name
-	case pkgs[i].Version != pkgs[j].Version:
-		return pkgs[i].Version < pkgs[j].Version
-	}
-	return pkgs[i].FilePath < pkgs[j].FilePath
-}
-
-// ParentDeps returns a map where the keys are package IDs and the values are the packages
-// that depend on the respective package ID (parent dependencies).
-func (pkgs Packages) ParentDeps() map[string]Packages {
-	parents := make(map[string]Packages)
-	for _, pkg := range pkgs {
-		for _, dependOn := range pkg.DependsOn {
-			parents[dependOn] = append(parents[dependOn], pkg)
-		}
-	}
-
-	for k, v := range parents {
-		parents[k] = lo.UniqBy(v, func(pkg Package) string {
-			return pkg.ID
-		})
-	}
-	return parents
-}
-
-type SrcPackage struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	BinaryNames []string `json:"binaryNames"`
-}
-
 type PackageInfo struct {
 	FilePath string
 	Packages Packages
@@ -173,47 +70,14 @@ type Application struct {
 	// Lock files have the file path here, while each package metadata do not have
 	FilePath string `json:",omitempty"`
 
-	// Libraries is a list of lang-specific packages
-	Libraries Packages
+	// Packages is a list of lang-specific packages
+	Packages Packages
 }
 
 type File struct {
 	Type    string
 	Path    string
 	Content []byte
-}
-
-// ArtifactType represents a type of artifact
-type ArtifactType string
-
-const (
-	ArtifactContainerImage ArtifactType = "container_image"
-	ArtifactFilesystem     ArtifactType = "filesystem"
-	ArtifactRepository     ArtifactType = "repository"
-	ArtifactCycloneDX      ArtifactType = "cyclonedx"
-	ArtifactSPDX           ArtifactType = "spdx"
-	ArtifactAWSAccount     ArtifactType = "aws_account"
-	ArtifactVM             ArtifactType = "vm"
-)
-
-// ArtifactReference represents a reference of container image, local filesystem and repository
-type ArtifactReference struct {
-	Name          string // image name, tar file name, directory or repository name
-	Type          ArtifactType
-	ID            string
-	BlobIDs       []string
-	ImageMetadata ImageMetadata
-
-	// SBOM
-	CycloneDX *CycloneDX
-}
-
-type ImageMetadata struct {
-	ID          string   // image ID
-	DiffIDs     []string // uncompressed layer IDs
-	RepoTags    []string
-	RepoDigests []string
-	ConfigFile  v1.ConfigFile
 }
 
 // ArtifactInfo is stored in cache
@@ -320,5 +184,5 @@ type CustomResource struct {
 	Type     string
 	FilePath string
 	Layer    Layer
-	Data     interface{}
+	Data     any
 }

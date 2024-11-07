@@ -124,6 +124,7 @@ type EvalContext struct {
 	printHook              print.Hook
 	capabilities           *ast.Capabilities
 	strictBuiltinErrors    bool
+	virtualCache           topdown.VirtualCache
 }
 
 func (e *EvalContext) RawInput() *interface{} {
@@ -339,6 +340,14 @@ func EvalCopyMaps(yes bool) EvalOption {
 func EvalPrintHook(ph print.Hook) EvalOption {
 	return func(e *EvalContext) {
 		e.printHook = ph
+	}
+}
+
+// EvalVirtualCache sets the topdown.VirtualCache to use for evaluation. This is
+// optional, and if not set, the default cache is used.
+func EvalVirtualCache(vc topdown.VirtualCache) EvalOption {
+	return func(e *EvalContext) {
+		e.virtualCache = vc
 	}
 }
 
@@ -594,11 +603,13 @@ type Rego struct {
 	pluginMgr              *plugins.Manager
 	plugins                []TargetPlugin
 	targetPrepState        TargetPluginEval
+	regoVersion            ast.RegoVersion
 }
 
 // Function represents a built-in function that is callable in Rego.
 type Function struct {
 	Name             string
+	Description      string
 	Decl             *types.Function
 	Memoize          bool
 	Nondeterministic bool
@@ -629,6 +640,7 @@ type (
 func RegisterBuiltin1(decl *Function, impl Builtin1) {
 	ast.RegisterBuiltin(&ast.Builtin{
 		Name:             decl.Name,
+		Description:      decl.Description,
 		Decl:             decl.Decl,
 		Nondeterministic: decl.Nondeterministic,
 	})
@@ -642,6 +654,7 @@ func RegisterBuiltin1(decl *Function, impl Builtin1) {
 func RegisterBuiltin2(decl *Function, impl Builtin2) {
 	ast.RegisterBuiltin(&ast.Builtin{
 		Name:             decl.Name,
+		Description:      decl.Description,
 		Decl:             decl.Decl,
 		Nondeterministic: decl.Nondeterministic,
 	})
@@ -655,6 +668,7 @@ func RegisterBuiltin2(decl *Function, impl Builtin2) {
 func RegisterBuiltin3(decl *Function, impl Builtin3) {
 	ast.RegisterBuiltin(&ast.Builtin{
 		Name:             decl.Name,
+		Description:      decl.Description,
 		Decl:             decl.Decl,
 		Nondeterministic: decl.Nondeterministic,
 	})
@@ -668,6 +682,7 @@ func RegisterBuiltin3(decl *Function, impl Builtin3) {
 func RegisterBuiltin4(decl *Function, impl Builtin4) {
 	ast.RegisterBuiltin(&ast.Builtin{
 		Name:             decl.Name,
+		Description:      decl.Description,
 		Decl:             decl.Decl,
 		Nondeterministic: decl.Nondeterministic,
 	})
@@ -681,6 +696,7 @@ func RegisterBuiltin4(decl *Function, impl Builtin4) {
 func RegisterBuiltinDyn(decl *Function, impl BuiltinDyn) {
 	ast.RegisterBuiltin(&ast.Builtin{
 		Name:             decl.Name,
+		Description:      decl.Description,
 		Decl:             decl.Decl,
 		Nondeterministic: decl.Nondeterministic,
 	})
@@ -1187,6 +1203,12 @@ func Strict(yes bool) func(r *Rego) {
 	}
 }
 
+func SetRegoVersion(version ast.RegoVersion) func(r *Rego) {
+	return func(r *Rego) {
+		r.regoVersion = version
+	}
+}
+
 // New returns a new Rego object.
 func New(options ...func(r *Rego)) *Rego {
 
@@ -1483,7 +1505,7 @@ func (r *Rego) Compile(ctx context.Context, opts ...CompileOption) (*CompileResu
 	return r.compileWasm(modules, queries, compileQueryType) // TODO(sr) control flow is funky here
 }
 
-func (r *Rego) compileWasm(modules []*ast.Module, queries []ast.Body, qType queryType) (*CompileResult, error) {
+func (r *Rego) compileWasm(_ []*ast.Module, queries []ast.Body, qType queryType) (*CompileResult, error) {
 	policy, err := r.planQuery(queries, qType)
 	if err != nil {
 		return nil, err
@@ -1748,14 +1770,15 @@ func (r *Rego) prepare(ctx context.Context, qType queryType, extras []extraStage
 		return err
 	}
 
-	futureImports := []*ast.Import{}
+	queryImports := []*ast.Import{}
 	for _, imp := range imports {
-		if imp.Path.Value.(ast.Ref).HasPrefix(ast.Ref([]*ast.Term{ast.FutureRootDocument})) {
-			futureImports = append(futureImports, imp)
+		path := imp.Path.Value.(ast.Ref)
+		if path.HasPrefix([]*ast.Term{ast.FutureRootDocument}) || path.HasPrefix([]*ast.Term{ast.RegoRootDocument}) {
+			queryImports = append(queryImports, imp)
 		}
 	}
 
-	r.parsedQuery, err = r.parseQuery(futureImports, r.metrics)
+	r.parsedQuery, err = r.parseQuery(queryImports, r.metrics)
 	if err != nil {
 		return err
 	}
@@ -1797,7 +1820,7 @@ func (r *Rego) parseModules(ctx context.Context, txn storage.Transaction, m metr
 			return err
 		}
 
-		parsed, err := ast.ParseModule(id, string(bs))
+		parsed, err := ast.ParseModuleWithOpts(id, string(bs), ast.ParserOptions{RegoVersion: r.regoVersion})
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -1807,7 +1830,7 @@ func (r *Rego) parseModules(ctx context.Context, txn storage.Transaction, m metr
 
 	// Parse any passed in as arguments to the Rego object
 	for _, module := range r.modules {
-		p, err := module.Parse()
+		p, err := module.ParseWithOpts(ast.ParserOptions{RegoVersion: r.regoVersion})
 		if err != nil {
 			switch errorWithType := err.(type) {
 			case ast.Errors:
@@ -1839,6 +1862,7 @@ func (r *Rego) loadFiles(ctx context.Context, txn storage.Transaction, m metrics
 	result, err := loader.NewFileLoader().
 		WithMetrics(m).
 		WithProcessAnnotation(true).
+		WithRegoVersion(r.regoVersion).
 		Filtered(r.loadPaths.paths, r.loadPaths.filter)
 	if err != nil {
 		return err
@@ -1856,7 +1880,7 @@ func (r *Rego) loadFiles(ctx context.Context, txn storage.Transaction, m metrics
 	return nil
 }
 
-func (r *Rego) loadBundles(ctx context.Context, txn storage.Transaction, m metrics.Metrics) error {
+func (r *Rego) loadBundles(_ context.Context, _ storage.Transaction, m metrics.Metrics) error {
 	if len(r.bundlePaths) == 0 {
 		return nil
 	}
@@ -1869,6 +1893,7 @@ func (r *Rego) loadBundles(ctx context.Context, txn storage.Transaction, m metri
 			WithMetrics(m).
 			WithProcessAnnotation(true).
 			WithSkipBundleVerification(r.skipBundleVerification).
+			WithRegoVersion(r.regoVersion).
 			AsBundle(path)
 		if err != nil {
 			return fmt.Errorf("loading error: %s", err)
@@ -1906,7 +1931,7 @@ func (r *Rego) parseRawInput(rawInput *interface{}, m metrics.Metrics) (ast.Valu
 	return ast.InterfaceToValue(*rawPtr)
 }
 
-func (r *Rego) parseQuery(futureImports []*ast.Import, m metrics.Metrics) (ast.Body, error) {
+func (r *Rego) parseQuery(queryImports []*ast.Import, m metrics.Metrics) (ast.Body, error) {
 	if r.parsedQuery != nil {
 		return r.parsedQuery, nil
 	}
@@ -1914,12 +1939,27 @@ func (r *Rego) parseQuery(futureImports []*ast.Import, m metrics.Metrics) (ast.B
 	m.Timer(metrics.RegoQueryParse).Start()
 	defer m.Timer(metrics.RegoQueryParse).Stop()
 
-	popts, err := future.ParserOptionsFromFutureImports(futureImports)
+	popts, err := future.ParserOptionsFromFutureImports(queryImports)
+	if err != nil {
+		return nil, err
+	}
+	popts, err = parserOptionsFromRegoVersionImport(queryImports, popts)
 	if err != nil {
 		return nil, err
 	}
 	popts.SkipRules = true
 	return ast.ParseBodyWithOpts(r.query, popts)
+}
+
+func parserOptionsFromRegoVersionImport(imports []*ast.Import, popts ast.ParserOptions) (ast.ParserOptions, error) {
+	for _, imp := range imports {
+		path := imp.Path.Value.(ast.Ref)
+		if ast.Compare(path, ast.RegoV1CompatibleRef) == 0 {
+			popts.RegoVersion = ast.RegoV1
+			return popts, nil
+		}
+	}
+	return popts, nil
 }
 
 func (r *Rego) compileModules(ctx context.Context, txn storage.Transaction, m metrics.Metrics) error {
@@ -1934,13 +1974,14 @@ func (r *Rego) compileModules(ctx context.Context, txn storage.Transaction, m me
 		// Use this as the single-point of compiling everything only a
 		// single time.
 		opts := &bundle.ActivateOpts{
-			Ctx:          ctx,
-			Store:        r.store,
-			Txn:          txn,
-			Compiler:     r.compilerForTxn(ctx, r.store, txn),
-			Metrics:      m,
-			Bundles:      r.bundles,
-			ExtraModules: r.parsedModules,
+			Ctx:           ctx,
+			Store:         r.store,
+			Txn:           txn,
+			Compiler:      r.compilerForTxn(ctx, r.store, txn),
+			Metrics:       m,
+			Bundles:       r.bundles,
+			ExtraModules:  r.parsedModules,
+			ParserOptions: ast.ParserOptions{RegoVersion: r.regoVersion},
 		}
 		err := bundle.Activate(opts)
 		if err != nil {
@@ -2003,7 +2044,7 @@ func (r *Rego) prepareImports() ([]*ast.Import, error) {
 	return imports, nil
 }
 
-func (r *Rego) compileQuery(query ast.Body, imports []*ast.Import, m metrics.Metrics, extras []extraStage) (ast.QueryCompiler, ast.Body, error) {
+func (r *Rego) compileQuery(query ast.Body, imports []*ast.Import, _ metrics.Metrics, extras []extraStage) (ast.QueryCompiler, ast.Body, error) {
 	var pkg *ast.Package
 
 	if r.pkg != "" {
@@ -2069,7 +2110,8 @@ func (r *Rego) eval(ctx context.Context, ectx *EvalContext) (ResultSet, error) {
 		WithBuiltinErrorList(r.builtinErrorList).
 		WithSeed(ectx.seed).
 		WithPrintHook(ectx.printHook).
-		WithDistributedTracingOpts(r.distributedTacingOpts)
+		WithDistributedTracingOpts(r.distributedTacingOpts).
+		WithVirtualCache(ectx.virtualCache)
 
 	if !ectx.time.IsZero() {
 		q = q.WithTime(ectx.time)
@@ -2389,6 +2431,53 @@ func (r *Rego) partial(ctx context.Context, ectx *EvalContext) (*PartialQueries,
 		return nil, err
 	}
 
+	if r.regoVersion == ast.RegoV0 && (r.capabilities == nil || r.capabilities.ContainsFeature(ast.FeatureRegoV1Import)) {
+		// If the target rego-version in v0, and the rego.v1 import is available, then we attempt to apply it to support modules.
+
+		for i, mod := range support {
+			if mod.RegoVersion() != ast.RegoV0 {
+				continue
+			}
+
+			// We can't apply the RegoV0CompatV1 version to the support module if it contains rules or vars that
+			// conflict with future keywords.
+			applyRegoVersion := true
+
+			ast.WalkRules(mod, func(r *ast.Rule) bool {
+				name := r.Head.Name
+				if name == "" && len(r.Head.Reference) > 0 {
+					name = r.Head.Reference[0].Value.(ast.Var)
+				}
+				if ast.IsFutureKeyword(name.String()) {
+					applyRegoVersion = false
+					return true
+				}
+				return false
+			})
+
+			if applyRegoVersion {
+				ast.WalkVars(mod, func(v ast.Var) bool {
+					if ast.IsFutureKeyword(v.String()) {
+						applyRegoVersion = false
+						return true
+					}
+					return false
+				})
+			}
+
+			if applyRegoVersion {
+				support[i].SetRegoVersion(ast.RegoV0CompatV1)
+			} else {
+				support[i].SetRegoVersion(r.regoVersion)
+			}
+		}
+	} else {
+		// If the target rego-version is not v0, then we apply the target rego-version to the support modules.
+		for i := range support {
+			support[i].SetRegoVersion(r.regoVersion)
+		}
+	}
+
 	pq := &PartialQueries{
 		Queries: queries,
 		Support: support,
@@ -2397,7 +2486,7 @@ func (r *Rego) partial(ctx context.Context, ectx *EvalContext) (*PartialQueries,
 	return pq, nil
 }
 
-func (r *Rego) rewriteQueryToCaptureValue(qc ast.QueryCompiler, query ast.Body) (ast.Body, error) {
+func (r *Rego) rewriteQueryToCaptureValue(_ ast.QueryCompiler, query ast.Body) (ast.Body, error) {
 
 	checkCapture := iteration(query) || len(query) > 1
 
@@ -2514,7 +2603,7 @@ type transactionCloser func(ctx context.Context, err error) error
 // regardless of status.
 func (r *Rego) getTxn(ctx context.Context) (storage.Transaction, transactionCloser, error) {
 
-	noopCloser := func(ctx context.Context, err error) error {
+	noopCloser := func(_ context.Context, _ error) error {
 		return nil // no-op default
 	}
 
@@ -2606,6 +2695,10 @@ type rawModule struct {
 
 func (m rawModule) Parse() (*ast.Module, error) {
 	return ast.ParseModule(m.filename, m.module)
+}
+
+func (m rawModule) ParseWithOpts(opts ast.ParserOptions) (*ast.Module, error) {
+	return ast.ParseModuleWithOpts(m.filename, m.module, opts)
 }
 
 type extraStage struct {

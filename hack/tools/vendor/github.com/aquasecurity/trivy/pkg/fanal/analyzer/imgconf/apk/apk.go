@@ -13,6 +13,7 @@ import (
 	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
@@ -56,11 +57,11 @@ type archive struct {
 }
 
 type provide struct {
-	SO      map[string]pkg // package which provides the shared object
-	Package map[string]pkg // package which provides the package
+	SO      map[string]apk // package which provides the shared object
+	Package map[string]apk // package which provides the package
 }
 
-type pkg struct {
+type apk struct {
 	Package  string
 	Versions version
 }
@@ -102,6 +103,7 @@ func (a alpineCmdAnalyzer) fetchApkIndexArchive(targetOS types.OS) (*apkIndex, e
 		if err != nil {
 			return nil, xerrors.Errorf("failed to read APKINDEX archive file: %w", err)
 		}
+		defer reader.(*builtinos.File).Close()
 	} else {
 		// nolint
 		resp, err := http.Get(url)
@@ -135,11 +137,8 @@ func (a alpineCmdAnalyzer) parseConfig(apkIndexArchive *apkIndex, config *v1.Con
 			uniqPkgs[result.Name] = result
 		}
 	}
-	for _, pkg := range uniqPkgs {
-		packages = append(packages, pkg)
-	}
 
-	return packages
+	return lo.Values(uniqPkgs)
 }
 
 func (a alpineCmdAnalyzer) parseCommand(command string, envs map[string]string) (pkgs []string) {

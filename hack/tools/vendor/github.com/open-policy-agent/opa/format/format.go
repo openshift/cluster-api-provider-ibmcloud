@@ -25,6 +25,12 @@ type Opts struct {
 	// of partial evaluation, arguments maybe have been shuffled around, but still
 	// carry along their original source locations.
 	IgnoreLocations bool
+
+	// RegoVersion is the version of Rego to format code for.
+	RegoVersion ast.RegoVersion
+
+	// ParserOptions is the parser options used when parsing the module to be formatted.
+	ParserOptions *ast.ParserOptions
 }
 
 // defaultLocationFile is the file name used in `Ast()` for terms
@@ -36,15 +42,43 @@ const defaultLocationFile = "__format_default__"
 // Rego module. If they don't, Source will return an error resulting from the attempt
 // to parse the bytes.
 func Source(filename string, src []byte) ([]byte, error) {
-	module, err := ast.ParseModule(filename, string(src))
+	return SourceWithOpts(filename, src, Opts{})
+}
+
+func SourceWithOpts(filename string, src []byte, opts Opts) ([]byte, error) {
+	var parserOpts ast.ParserOptions
+	if opts.ParserOptions != nil {
+		parserOpts = *opts.ParserOptions
+	} else {
+		if opts.RegoVersion == ast.RegoV1 {
+			// If the rego version is V1, we need to parse it as such, to allow for future keywords not being imported.
+			// Otherwise, we'll default to RegoV0
+			parserOpts.RegoVersion = ast.RegoV1
+		}
+	}
+
+	module, err := ast.ParseModuleWithOpts(filename, string(src), parserOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	formatted, err := Ast(module)
+	if opts.RegoVersion == ast.RegoV0CompatV1 || opts.RegoVersion == ast.RegoV1 {
+		checkOpts := ast.NewRegoCheckOptions()
+		// The module is parsed as v0, so we need to disable checks that will be automatically amended by the AstWithOpts call anyways.
+		checkOpts.RequireIfKeyword = false
+		checkOpts.RequireContainsKeyword = false
+		checkOpts.RequireRuleBodyOrValue = false
+		errors := ast.CheckRegoV1WithOptions(module, checkOpts)
+		if len(errors) > 0 {
+			return nil, errors
+		}
+	}
+
+	formatted, err := AstWithOpts(module, opts)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %v", filename, err)
 	}
+
 	return formatted, nil
 }
 
@@ -81,6 +115,8 @@ type fmtOpts struct {
 	// for ref heads -- if they do, we'll print all of them in a different way
 	// than if they don't.
 	refHeads bool
+
+	regoV1 bool
 }
 
 func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
@@ -98,6 +134,12 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 	extraFutureKeywordImports := map[string]struct{}{}
 
 	o := fmtOpts{}
+
+	if opts.RegoVersion == ast.RegoV0CompatV1 || opts.RegoVersion == ast.RegoV1 {
+		o.regoV1 = true
+		o.ifs = true
+		o.contains = true
+	}
 
 	// Preprocess the AST. Set any required defaults and calculate
 	// values required for printing the formatted output.
@@ -154,8 +196,18 @@ func AstWithOpts(x interface{}, opts Opts) ([]byte, error) {
 
 	switch x := x.(type) {
 	case *ast.Module:
-		for kw := range extraFutureKeywordImports {
-			x.Imports = ensureFutureKeywordImport(x.Imports, kw)
+		if opts.RegoVersion == ast.RegoV1 {
+			x.Imports = filterRegoV1Import(x.Imports)
+		} else if opts.RegoVersion == ast.RegoV0CompatV1 {
+			x.Imports = ensureRegoV1Import(x.Imports)
+		}
+
+		if opts.RegoVersion == ast.RegoV0CompatV1 || opts.RegoVersion == ast.RegoV1 || moduleIsRegoV1Compatible(x) {
+			x.Imports = future.FilterFutureImports(x.Imports)
+		} else {
+			for kw := range extraFutureKeywordImports {
+				x.Imports = ensureFutureKeywordImport(x.Imports, kw)
+			}
 		}
 		w.writeModule(x, o)
 	case *ast.Package:
@@ -356,7 +408,7 @@ func (w *writer) writeRule(rule *ast.Rule, isElse bool, o fmtOpts, comments []*a
 		return comments
 	}
 
-	if o.ifs && partialSetException {
+	if (o.regoV1 || o.ifs) && partialSetException {
 		w.write(" if")
 		if len(rule.Body) == 1 {
 			if rule.Body[0].Location.Row == rule.Head.Location.Row {
@@ -499,14 +551,26 @@ func (w *writer) writeHead(head *ast.Head, isDefault, isExpandedConst bool, o fm
 	if head.Value != nil &&
 		(head.Key != nil || ast.Compare(head.Value, ast.BooleanTerm(true)) != 0 || isExpandedConst || isDefault) {
 
-		if head.Location == head.Value.Location && head.Name != "else" {
+		// in rego v1, explicitly print value for ref-head constants that aren't partial set assignments, e.g.:
+		// * a -> parser error, won't reach here
+		// * a.b -> a contains "b"
+		// * a.b.c -> a.b.c := true
+		// * a.b.c.d -> a.b.c.d := true
+		isRegoV1RefConst := o.regoV1 && isExpandedConst && head.Key == nil && len(head.Args) == 0
+
+		if len(head.Args) > 0 &&
+			head.Location == head.Value.Location &&
+			head.Name != "else" &&
+			ast.Compare(head.Value, ast.BooleanTerm(true)) == 0 &&
+			!isRegoV1RefConst {
 			// If the value location is the same as the location of the head,
 			// we know that the value is generated, i.e. f(1)
 			// Don't print the value (` = true`) as it is implied.
 			return comments
 		}
 
-		if head.Assign {
+		if head.Assign || o.regoV1 {
+			// preserve assignment operator, and enforce it if formatting for Rego v1
 			w.write(" := ")
 		} else {
 			w.write(" = ")
@@ -1054,15 +1118,44 @@ func (w *writer) writeIterableLine(elements []interface{}, comments []*ast.Comme
 func (w *writer) objectWriter() entryWriter {
 	return func(x interface{}, comments []*ast.Comment) []*ast.Comment {
 		entry := x.([2]*ast.Term)
+
+		call, isCall := entry[0].Value.(ast.Call)
+
+		paren := false
+		if isCall && ast.Or.Ref().Equal(call[0].Value) && entry[0].Location.Text[0] == 40 { // Starts with "("
+			paren = true
+			w.write("(")
+		}
+
 		comments = w.writeTerm(entry[0], comments)
+		if paren {
+			w.write(")")
+		}
+
 		w.write(": ")
+
+		call, isCall = entry[1].Value.(ast.Call)
+		if isCall && ast.Or.Ref().Equal(call[0].Value) && entry[1].Location.Text[0] == 40 { // Starts with "("
+			w.write("(")
+			defer w.write(")")
+		}
+
 		return w.writeTerm(entry[1], comments)
 	}
 }
 
 func (w *writer) listWriter() entryWriter {
 	return func(x interface{}, comments []*ast.Comment) []*ast.Comment {
-		return w.writeTerm(x.(*ast.Term), comments)
+		t, ok := x.(*ast.Term)
+		if ok {
+			call, isCall := t.Value.(ast.Call)
+			if isCall && ast.Or.Ref().Equal(call[0].Value) && t.Location.Text[0] == 40 { // Starts with "("
+				w.write("(")
+				defer w.write(")")
+			}
+		}
+
+		return w.writeTerm(t, comments)
 	}
 }
 
@@ -1259,7 +1352,10 @@ func closingLoc(skipOpen, skipClose, open, close byte, loc *ast.Location) *ast.L
 		i, offset = skipPast(skipOpen, skipClose, loc)
 	}
 
-	for ; i < len(loc.Text) && loc.Text[i] != open; i++ {
+	for ; i < len(loc.Text); i++ {
+		if loc.Text[i] == open {
+			break
+		}
 	}
 
 	if i >= len(loc.Text) {
@@ -1288,7 +1384,10 @@ func closingLoc(skipOpen, skipClose, open, close byte, loc *ast.Location) *ast.L
 
 func skipPast(open, close byte, loc *ast.Location) (int, int) {
 	i := 0
-	for ; i < len(loc.Text) && loc.Text[i] != open; i++ {
+	for ; i < len(loc.Text); i++ {
+		if loc.Text[i] == open {
+			break
+		}
 	}
 
 	state := 1
@@ -1403,6 +1502,35 @@ func ensureFutureKeywordImport(imps []*ast.Import, kw string) []*ast.Import {
 	return append(imps, imp)
 }
 
+func ensureRegoV1Import(imps []*ast.Import) []*ast.Import {
+	return ensureImport(imps, ast.RegoV1CompatibleRef)
+}
+
+func filterRegoV1Import(imps []*ast.Import) []*ast.Import {
+	var ret []*ast.Import
+	for _, imp := range imps {
+		path := imp.Path.Value.(ast.Ref)
+		if !ast.RegoV1CompatibleRef.Equal(path) {
+			ret = append(ret, imp)
+		}
+	}
+	return ret
+}
+
+func ensureImport(imps []*ast.Import, path ast.Ref) []*ast.Import {
+	for _, imp := range imps {
+		p := imp.Path.Value.(ast.Ref)
+		if p.Equal(path) {
+			return imps
+		}
+	}
+	imp := &ast.Import{
+		Path: ast.NewTerm(path),
+	}
+	imp.Location = defaultLocation(imp)
+	return append(imps, imp)
+}
+
 // ArgErrDetail but for `fmt` checks since compiler has not run yet.
 type ArityFormatErrDetail struct {
 	Have []string `json:"have"`
@@ -1434,6 +1562,15 @@ func (d *ArityFormatErrDetail) Lines() []string {
 		"have: " + "(" + strings.Join(d.Have, ",") + ")",
 		"want: " + "(" + strings.Join(d.Want, ",") + ")",
 	}
+}
+
+func moduleIsRegoV1Compatible(m *ast.Module) bool {
+	for _, imp := range m.Imports {
+		if isRegoV1Compatible(imp) {
+			return true
+		}
+	}
+	return false
 }
 
 // isRegoV1Compatible returns true if the passed *ast.Import is `rego.v1`

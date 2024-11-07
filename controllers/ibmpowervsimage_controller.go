@@ -40,7 +40,6 @@ import (
 	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cloud/scope"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/util"
 )
 
 // IBMPowerVSImageReconciler reconciles a IBMPowerVSImage object.
@@ -67,11 +66,17 @@ func (r *IBMPowerVSImageReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
+	cluster, err := scope.GetClusterByName(ctx, r.Client, ibmImage.Namespace, ibmImage.Spec.ClusterName)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Create the scope.
 	imageScope, err := scope.NewPowerVSImageScope(scope.PowerVSImageScopeParams{
 		Client:          r.Client,
 		Logger:          log,
 		IBMPowerVSImage: ibmImage,
+		Zone:            cluster.Spec.Zone,
 		ServiceEndpoint: r.ServiceEndpoint,
 	})
 	if err != nil {
@@ -92,10 +97,6 @@ func (r *IBMPowerVSImageReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.reconcileDelete(imageScope)
 	}
 
-	cluster, err := util.GetClusterByName(ctx, r.Client, ibmImage.Namespace, ibmImage.Spec.ClusterName)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 	return r.reconcile(cluster, imageScope)
 }
 
@@ -136,17 +137,17 @@ func (r *IBMPowerVSImageReconciler) reconcile(cluster *infrav1beta2.IBMPowerVSCl
 		case "failed":
 			imageScope.SetNotReady()
 			imageScope.SetImageState(string(infrav1beta2.PowerVSImageStateFailed))
-			conditions.MarkFalse(imageScope.IBMPowerVSImage, infrav1beta2.ImageImportedCondition, infrav1beta2.ImageImportFailedReason, capiv1beta1.ConditionSeverityError, job.Status.Message)
+			conditions.MarkFalse(imageScope.IBMPowerVSImage, infrav1beta2.ImageImportedCondition, infrav1beta2.ImageImportFailedReason, capiv1beta1.ConditionSeverityError, "%s", job.Status.Message)
 			return ctrl.Result{RequeueAfter: 2 * time.Minute}, fmt.Errorf("failed to import image, message: %s", job.Status.Message)
 		case "queued":
 			imageScope.SetNotReady()
 			imageScope.SetImageState(string(infrav1beta2.PowerVSImageStateQue))
-			conditions.MarkFalse(imageScope.IBMPowerVSImage, infrav1beta2.ImageImportedCondition, string(infrav1beta2.PowerVSImageStateQue), capiv1beta1.ConditionSeverityInfo, job.Status.Message)
+			conditions.MarkFalse(imageScope.IBMPowerVSImage, infrav1beta2.ImageImportedCondition, string(infrav1beta2.PowerVSImageStateQue), capiv1beta1.ConditionSeverityInfo, "%s", job.Status.Message)
 			return ctrl.Result{RequeueAfter: 2 * time.Minute}, nil
 		default:
 			imageScope.SetNotReady()
 			imageScope.SetImageState(string(infrav1beta2.PowerVSImageStateImporting))
-			conditions.MarkFalse(imageScope.IBMPowerVSImage, infrav1beta2.ImageImportedCondition, *job.Status.State, capiv1beta1.ConditionSeverityInfo, job.Status.Message)
+			conditions.MarkFalse(imageScope.IBMPowerVSImage, infrav1beta2.ImageImportedCondition, *job.Status.State, capiv1beta1.ConditionSeverityInfo, "%s", job.Status.Message)
 			return ctrl.Result{RequeueAfter: 2 * time.Minute}, nil
 		}
 	}

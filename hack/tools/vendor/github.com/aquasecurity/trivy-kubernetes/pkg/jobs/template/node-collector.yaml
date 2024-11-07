@@ -4,6 +4,9 @@ kind: Job
 metadata:
   name: node-collector
 spec:
+  activeDeadlineSeconds: 300
+  backoffLimit: 0
+  completions: 1
   template:
     metadata:
       labels:
@@ -14,7 +17,7 @@ spec:
       automountServiceAccountToken: true
       containers:
         - name: node-collector
-          image: ghcr.io/aquasecurity/node-collector:0.0.9
+          image: ghcr.io/aquasecurity/node-collector:0.3.0
           command:
             - node-collector
           args:

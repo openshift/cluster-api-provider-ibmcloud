@@ -18,8 +18,10 @@ type Location struct {
 	Col    int    `json:"col"`  // The column in the row.
 	Offset int    `json:"-"`    // The byte offset for the location in the source.
 
-	// JSONOptions specifies options for marshaling and unmarshaling of locations
+	// JSONOptions specifies options for marshaling and unmarshalling of locations
 	JSONOptions astJSON.Options
+
+	Tabs []int `json:"-"` // The column offsets of tabs in the source.
 }
 
 // NewLocation returns a new Location object.
@@ -96,15 +98,32 @@ func (loc *Location) Compare(other *Location) int {
 
 func (loc *Location) MarshalJSON() ([]byte, error) {
 	// structs are used here to preserve the field ordering of the original Location struct
+	if loc.JSONOptions.MarshalOptions.ExcludeLocationFile {
+		data := struct {
+			Row  int    `json:"row"`
+			Col  int    `json:"col"`
+			Text []byte `json:"text,omitempty"`
+		}{
+			Row: loc.Row,
+			Col: loc.Col,
+		}
+
+		if loc.JSONOptions.MarshalOptions.IncludeLocationText {
+			data.Text = loc.Text
+		}
+
+		return json.Marshal(data)
+	}
+
 	data := struct {
 		File string `json:"file"`
 		Row  int    `json:"row"`
 		Col  int    `json:"col"`
 		Text []byte `json:"text,omitempty"`
 	}{
-		File: loc.File,
 		Row:  loc.Row,
 		Col:  loc.Col,
+		File: loc.File,
 	}
 
 	if loc.JSONOptions.MarshalOptions.IncludeLocationText {

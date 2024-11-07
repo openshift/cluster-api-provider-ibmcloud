@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
@@ -400,8 +400,12 @@ func (p *PackageInfo) InstalledFileNames() ([]string, error) {
 
 	var filePaths []string
 	for i, baseName := range p.BaseNames {
-		dir := p.DirNames[p.DirIndexes[i]]
-		filePaths = append(filePaths, filepath.Join(dir, baseName))
+		idx := p.DirIndexes[i]
+		if len(p.DirNames) <= int(idx) {
+			return nil, xerrors.Errorf("invalid rpm %s", p.Name)
+		}
+		dir := p.DirNames[idx]
+		filePaths = append(filePaths, path.Join(dir, baseName)) // should be slash-separated
 	}
 	return filePaths, nil
 }

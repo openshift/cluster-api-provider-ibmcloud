@@ -4,9 +4,8 @@ import (
 	"bufio"
 	"context"
 	"os"
+	"slices"
 	"strings"
-
-	"golang.org/x/exp/slices"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
@@ -62,6 +61,10 @@ func (a osReleaseAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInp
 			family = types.Wolfi
 		case "chainguard":
 			family = types.Chainguard
+		case "azurelinux":
+			family = types.Azure
+		case "mariner":
+			family = types.CBLMariner
 		}
 
 		if family != "" && versionID != "" {

@@ -81,7 +81,7 @@ type Filter = filter.LoaderFilter
 // GlobExcludeName excludes files and directories whose names do not match the
 // shell style pattern at minDepth or greater.
 func GlobExcludeName(pattern string, minDepth int) Filter {
-	return func(abspath string, info fs.FileInfo, depth int) bool {
+	return func(_ string, info fs.FileInfo, depth int) bool {
 		match, _ := filepath.Match(pattern, info.Name())
 		return match && depth >= minDepth
 	}
@@ -102,6 +102,8 @@ type FileLoader interface {
 	WithProcessAnnotation(bool) FileLoader
 	WithCapabilities(*ast.Capabilities) FileLoader
 	WithJSONOptions(*astJSON.Options) FileLoader
+	WithRegoVersion(ast.RegoVersion) FileLoader
+	WithFollowSymlinks(bool) FileLoader
 }
 
 // NewFileLoader returns a new FileLoader instance.
@@ -113,14 +115,15 @@ func NewFileLoader() FileLoader {
 }
 
 type fileLoader struct {
-	metrics    metrics.Metrics
-	filter     Filter
-	bvc        *bundle.VerificationConfig
-	skipVerify bool
-	files      map[string]bundle.FileInfo
-	opts       ast.ParserOptions
-	fsys       fs.FS
-	reader     io.Reader
+	metrics        metrics.Metrics
+	filter         Filter
+	bvc            *bundle.VerificationConfig
+	skipVerify     bool
+	files          map[string]bundle.FileInfo
+	opts           ast.ParserOptions
+	fsys           fs.FS
+	reader         io.Reader
+	followSymlinks bool
 }
 
 // WithFS provides an fs.FS to use for loading files. You can pass nil to
@@ -181,6 +184,18 @@ func (fl *fileLoader) WithJSONOptions(opts *astJSON.Options) FileLoader {
 	return fl
 }
 
+// WithRegoVersion sets the ast.RegoVersion to use when parsing and compiling modules.
+func (fl *fileLoader) WithRegoVersion(version ast.RegoVersion) FileLoader {
+	fl.opts.RegoVersion = version
+	return fl
+}
+
+// WithFollowSymlinks enables or disables following symlinks when loading files
+func (fl *fileLoader) WithFollowSymlinks(followSymlinks bool) FileLoader {
+	fl.followSymlinks = followSymlinks
+	return fl
+}
+
 // All returns a Result object loaded (recursively) from the specified paths.
 func (fl fileLoader) All(paths []string) (*Result, error) {
 	return fl.Filtered(paths, nil)
@@ -232,6 +247,10 @@ func (fl fileLoader) AsBundle(path string) (*bundle.Bundle, error) {
 		return nil, err
 	}
 
+	if err := checkForUNCPath(path); err != nil {
+		return nil, err
+	}
+
 	var bundleLoader bundle.DirectoryLoader
 	var isDir bool
 	if fl.reader != nil {
@@ -239,9 +258,11 @@ func (fl fileLoader) AsBundle(path string) (*bundle.Bundle, error) {
 	} else {
 		bundleLoader, isDir, err = GetBundleDirectoryLoaderFS(fl.fsys, path, fl.filter)
 	}
+
 	if err != nil {
 		return nil, err
 	}
+	bundleLoader = bundleLoader.WithFollowSymlinks(fl.followSymlinks)
 
 	br := bundle.NewCustomReader(bundleLoader).
 		WithMetrics(fl.metrics).
@@ -249,7 +270,9 @@ func (fl fileLoader) AsBundle(path string) (*bundle.Bundle, error) {
 		WithSkipBundleVerification(fl.skipVerify).
 		WithProcessAnnotations(fl.opts.ProcessAnnotation).
 		WithCapabilities(fl.opts.Capabilities).
-		WithJSONOptions(fl.opts.JSONOptions)
+		WithJSONOptions(fl.opts.JSONOptions).
+		WithFollowSymlinks(fl.followSymlinks).
+		WithRegoVersion(fl.opts.RegoVersion)
 
 	// For bundle directories add the full path in front of module file names
 	// to simplify debugging.
@@ -282,6 +305,10 @@ func GetBundleDirectoryLoaderWithFilter(path string, filter Filter) (bundle.Dire
 func GetBundleDirectoryLoaderFS(fsys fs.FS, path string, filter Filter) (bundle.DirectoryLoader, bool, error) {
 	path, err := fileurl.Clean(path)
 	if err != nil {
+		return nil, false, err
+	}
+
+	if err := checkForUNCPath(path); err != nil {
 		return nil, false, err
 	}
 
@@ -478,7 +505,7 @@ func AsBundle(path string) (*bundle.Bundle, error) {
 // AllRegos returns a Result object loaded (recursively) with all Rego source
 // files from the specified paths.
 func AllRegos(paths []string) (*Result, error) {
-	return NewFileLoader().Filtered(paths, func(_ string, info os.FileInfo, depth int) bool {
+	return NewFileLoader().Filtered(paths, func(_ string, info os.FileInfo, _ int) bool {
 		return !info.IsDir() && !strings.HasSuffix(info.Name(), bundle.RegoExt)
 	})
 }
@@ -514,7 +541,7 @@ func Paths(path string, recurse bool) (paths []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	err = filepath.Walk(path, func(f string, info os.FileInfo, err error) error {
+	err = filepath.Walk(path, func(f string, _ os.FileInfo, _ error) error {
 		if !recurse {
 			if path != f && path != filepath.Dir(f) {
 				return filepath.SkipDir
@@ -645,12 +672,18 @@ func allRec(fsys fs.FS, path string, filter Filter, errors *Errors, loaded *Resu
 		return
 	}
 
+	if err := checkForUNCPath(path); err != nil {
+		errors.add(err)
+		return
+	}
+
 	var info fs.FileInfo
 	if fsys != nil {
 		info, err = fs.Stat(fsys, path)
 	} else {
 		info, err = os.Stat(path)
 	}
+
 	if err != nil {
 		errors.add(err)
 		return
@@ -699,7 +732,7 @@ func loadKnownTypes(path string, bs []byte, m metrics.Metrics, opts ast.ParserOp
 		return loadYAML(path, bs, m)
 	default:
 		if strings.HasSuffix(path, ".tar.gz") {
-			r, err := loadBundleFile(path, bs, m)
+			r, err := loadBundleFile(path, bs, m, opts)
 			if err != nil {
 				err = fmt.Errorf("bundle %s: %w", path, err)
 			}
@@ -725,9 +758,15 @@ func loadFileForAnyType(path string, bs []byte, m metrics.Metrics, opts ast.Pars
 	return nil, unrecognizedFile(path)
 }
 
-func loadBundleFile(path string, bs []byte, m metrics.Metrics) (bundle.Bundle, error) {
+func loadBundleFile(path string, bs []byte, m metrics.Metrics, opts ast.ParserOptions) (bundle.Bundle, error) {
 	tl := bundle.NewTarballLoaderWithBaseURL(bytes.NewBuffer(bs), path)
-	br := bundle.NewCustomReader(tl).WithMetrics(m).WithSkipBundleVerification(true).IncludeManifestInData(true)
+	br := bundle.NewCustomReader(tl).
+		WithRegoVersion(opts.RegoVersion).
+		WithJSONOptions(opts.JSONOptions).
+		WithProcessAnnotations(opts.ProcessAnnotation).
+		WithMetrics(m).
+		WithSkipBundleVerification(true).
+		IncludeManifestInData(true)
 	return br.Read()
 }
 
@@ -779,4 +818,20 @@ func makeDir(path []string, x interface{}) (map[string]interface{}, bool) {
 		return obj, true
 	}
 	return makeDir(path[:len(path)-1], map[string]interface{}{path[len(path)-1]: x})
+}
+
+// isUNC reports whether path is a UNC path.
+func isUNC(path string) bool {
+	return len(path) > 1 && isSlash(path[0]) && isSlash(path[1])
+}
+
+func isSlash(c uint8) bool {
+	return c == '\\' || c == '/'
+}
+
+func checkForUNCPath(path string) error {
+	if isUNC(path) {
+		return fmt.Errorf("UNC path read is not allowed: %s", path)
+	}
+	return nil
 }

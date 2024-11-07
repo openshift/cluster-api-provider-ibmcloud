@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 )
 
@@ -19,7 +18,7 @@ const (
 )
 
 var versions = map[Version]string{
-	Version210: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+	Version210: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
 	// keeping this for backwards support but marked as deprecated
 	Version210RTM5: "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
 }
@@ -58,7 +57,7 @@ func Open(filename string) (*Report, error) {
 		return nil, fmt.Errorf("the provided file path doesn't have a file")
 	}
 
-	content, err := ioutil.ReadFile(filename)
+	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("the provided filepath could not be opened. %w", err)
 	}

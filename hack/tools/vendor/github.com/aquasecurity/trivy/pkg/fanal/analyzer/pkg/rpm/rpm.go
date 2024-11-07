@@ -6,23 +6,23 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
 	"github.com/samber/lo"
-	"golang.org/x/exp/slices"
 	"golang.org/x/xerrors"
 
 	"github.com/aquasecurity/trivy/pkg/digest"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
-	"github.com/aquasecurity/trivy/pkg/fanal/log"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/utils"
+	"github.com/aquasecurity/trivy/pkg/log"
 )
 
 func init() {
-	analyzer.RegisterAnalyzer(&rpmPkgAnalyzer{})
+	analyzer.RegisterAnalyzer(newRPMPkgAnalyzer())
 }
 
 const version = 3
@@ -63,12 +63,17 @@ var osVendors = []string{
 
 type rpmPkgAnalyzer struct{}
 
+func newRPMPkgAnalyzer() *rpmPkgAnalyzer {
+	return &rpmPkgAnalyzer{}
+}
+
 type RPMDB interface {
 	ListPackages() ([]*rpmdb.PackageInfo, error)
 }
 
-func (a rpmPkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
-	parsedPkgs, installedFiles, err := a.parsePkgInfo(input.Content)
+func (a rpmPkgAnalyzer) Analyze(ctx context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
+	ctx = log.WithContextPrefix(ctx, "rpm")
+	parsedPkgs, installedFiles, err := a.parsePkgInfo(ctx, input.Content)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse rpmdb: %w", err)
 	}
@@ -84,7 +89,7 @@ func (a rpmPkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput)
 	}, nil
 }
 
-func (a rpmPkgAnalyzer) parsePkgInfo(rc io.Reader) (types.Packages, []string, error) {
+func (a rpmPkgAnalyzer) parsePkgInfo(ctx context.Context, rc io.Reader) (types.Packages, []string, error) {
 	filePath, err := writeToTempFile(rc)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("temp file error: %w", err)
@@ -99,10 +104,10 @@ func (a rpmPkgAnalyzer) parsePkgInfo(rc io.Reader) (types.Packages, []string, er
 	}
 	defer db.Close()
 
-	return a.listPkgs(db)
+	return a.listPkgs(ctx, db)
 }
 
-func (a rpmPkgAnalyzer) listPkgs(db RPMDB) (types.Packages, []string, error) {
+func (a rpmPkgAnalyzer) listPkgs(ctx context.Context, db RPMDB) (types.Packages, []string, error) {
 	// equivalent:
 	//   new version: rpm -qa --qf "%{NAME} %{EPOCHNUM} %{VERSION} %{RELEASE} %{SOURCERPM} %{ARCH}\n"
 	//   old version: rpm -qa --qf "%{NAME} %{EPOCH} %{VERSION} %{RELEASE} %{SOURCERPM} %{ARCH}\n"
@@ -126,14 +131,14 @@ func (a rpmPkgAnalyzer) listPkgs(db RPMDB) (types.Packages, []string, error) {
 			// source epoch is not included in SOURCERPM
 			srcName, srcVer, srcRel, err = splitFileName(pkg.SourceRpm)
 			if err != nil {
-				log.Logger.Debugf("Invalid Source RPM Found: %s", pkg.SourceRpm)
+				log.DebugContext(ctx, "Invalid Source RPM Found", log.String("sourcerpm", pkg.SourceRpm))
 			}
 		}
 
 		// Check if the package is vendor-provided.
 		// If the package is not provided by vendor, the installed files should not be skipped.
 		var files []string
-		if packageProvidedByVendor(pkg.Vendor) {
+		if packageProvidedByVendor(pkg) {
 			files, err = pkg.InstalledFileNames()
 			if err != nil {
 				return nil, nil, xerrors.Errorf("unable to get installed files: %w", err)
@@ -235,12 +240,19 @@ func splitFileName(filename string) (name, ver, rel string, err error) {
 	return name, ver, rel, nil
 }
 
-func packageProvidedByVendor(pkgVendor string) bool {
+func packageProvidedByVendor(pkg *rpmdb.PackageInfo) bool {
+	if pkg.Vendor == "" {
+		// Official Amazon packages may not contain `Vendor` field:
+		// https://github.com/aquasecurity/trivy/issues/5887
+		return strings.Contains(pkg.Release, "amzn")
+	}
+
 	for _, vendor := range osVendors {
-		if strings.HasPrefix(pkgVendor, vendor) {
+		if strings.HasPrefix(pkg.Vendor, vendor) {
 			return true
 		}
 	}
+
 	return false
 }
 

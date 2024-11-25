@@ -85,6 +85,17 @@ func TrueCondition(t clusterv1.ConditionType) *clusterv1.Condition {
 	}
 }
 
+// TrueConditionWithNegativePolarity returns a condition with negative polarity, Status=True and the given type (Status=True has a negative meaning).
+func TrueConditionWithNegativePolarity(t clusterv1.ConditionType, reason string, severity clusterv1.ConditionSeverity, messageFormat string, messageArgs ...interface{}) *clusterv1.Condition {
+	return &clusterv1.Condition{
+		Type:     t,
+		Status:   corev1.ConditionTrue,
+		Reason:   reason,
+		Severity: severity,
+		Message:  fmt.Sprintf(messageFormat, messageArgs...),
+	}
+}
+
 // FalseCondition returns a condition with Status=False and the given type.
 func FalseCondition(t clusterv1.ConditionType, reason string, severity clusterv1.ConditionSeverity, messageFormat string, messageArgs ...interface{}) *clusterv1.Condition {
 	return &clusterv1.Condition{
@@ -93,6 +104,14 @@ func FalseCondition(t clusterv1.ConditionType, reason string, severity clusterv1
 		Reason:   reason,
 		Severity: severity,
 		Message:  fmt.Sprintf(messageFormat, messageArgs...),
+	}
+}
+
+// FalseConditionWithNegativePolarity returns a condition with negative polarity, Status=false and the given type (Status=False has a positive meaning).
+func FalseConditionWithNegativePolarity(t clusterv1.ConditionType) *clusterv1.Condition {
+	return &clusterv1.Condition{
+		Type:   t,
+		Status: corev1.ConditionFalse,
 	}
 }
 
@@ -111,6 +130,11 @@ func MarkTrue(to Setter, t clusterv1.ConditionType) {
 	Set(to, TrueCondition(t))
 }
 
+// MarkTrueWithNegativePolarity sets Status=True for a condition with negative polarity and the given type (Status=True has a negative meaning).
+func MarkTrueWithNegativePolarity(to Setter, t clusterv1.ConditionType, reason string, severity clusterv1.ConditionSeverity, messageFormat string, messageArgs ...interface{}) {
+	Set(to, TrueConditionWithNegativePolarity(t, reason, severity, messageFormat, messageArgs...))
+}
+
 // MarkUnknown sets Status=Unknown for the condition with the given type.
 func MarkUnknown(to Setter, t clusterv1.ConditionType, reason, messageFormat string, messageArgs ...interface{}) {
 	Set(to, UnknownCondition(t, reason, messageFormat, messageArgs...))
@@ -121,19 +145,24 @@ func MarkFalse(to Setter, t clusterv1.ConditionType, reason string, severity clu
 	Set(to, FalseCondition(t, reason, severity, messageFormat, messageArgs...))
 }
 
+// MarkFalseWithNegativePolarity sets Status=False for a condition with negative polarity and the given type (Status=False has a positive meaning).
+func MarkFalseWithNegativePolarity(to Setter, t clusterv1.ConditionType) {
+	Set(to, FalseConditionWithNegativePolarity(t))
+}
+
 // SetSummary sets a Ready condition with the summary of all the conditions existing
 // on an object. If the object does not have other conditions, no summary condition is generated.
 func SetSummary(to Setter, options ...MergeOption) {
 	Set(to, summary(to, options...))
 }
 
-// SetMirror creates a new condition by mirroring the the Ready condition from a dependent object;
+// SetMirror creates a new condition by mirroring the Ready condition from a dependent object;
 // if the Ready condition does not exists in the source object, no target conditions is generated.
 func SetMirror(to Setter, targetCondition clusterv1.ConditionType, from Getter, options ...MirrorOptions) {
 	Set(to, mirror(from, targetCondition, options...))
 }
 
-// SetAggregate creates a new condition with the aggregation of all the the Ready condition
+// SetAggregate creates a new condition with the aggregation of all the Ready condition
 // from a list of dependent objects; if the Ready condition does not exists in one of the source object,
 // the object is excluded from the aggregation; if none of the source object have ready condition,
 // no target conditions is generated.

@@ -6,6 +6,7 @@ package authentication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -29,8 +30,26 @@ func (o *ServiceBrokerAuthRegistrationReader) ReadResponse(response runtime.Clie
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewServiceBrokerAuthRegistrationBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewServiceBrokerAuthRegistrationUnauthorized()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 403:
+		result := NewServiceBrokerAuthRegistrationForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 404:
+		result := NewServiceBrokerAuthRegistrationNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -42,7 +61,7 @@ func (o *ServiceBrokerAuthRegistrationReader) ReadResponse(response runtime.Clie
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /auth/v1/registration] serviceBroker.auth.registration", response, response.Code())
 	}
 }
 
@@ -51,7 +70,8 @@ func NewServiceBrokerAuthRegistrationOK() *ServiceBrokerAuthRegistrationOK {
 	return &ServiceBrokerAuthRegistrationOK{}
 }
 
-/* ServiceBrokerAuthRegistrationOK describes a response with status code 200, with default header values.
+/*
+ServiceBrokerAuthRegistrationOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -59,9 +79,46 @@ type ServiceBrokerAuthRegistrationOK struct {
 	Payload *models.AccessToken
 }
 
-func (o *ServiceBrokerAuthRegistrationOK) Error() string {
-	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationOK  %+v", 200, o.Payload)
+// IsSuccess returns true when this service broker auth registration o k response has a 2xx status code
+func (o *ServiceBrokerAuthRegistrationOK) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this service broker auth registration o k response has a 3xx status code
+func (o *ServiceBrokerAuthRegistrationOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth registration o k response has a 4xx status code
+func (o *ServiceBrokerAuthRegistrationOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service broker auth registration o k response has a 5xx status code
+func (o *ServiceBrokerAuthRegistrationOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth registration o k response a status code equal to that given
+func (o *ServiceBrokerAuthRegistrationOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the service broker auth registration o k response
+func (o *ServiceBrokerAuthRegistrationOK) Code() int {
+	return 200
+}
+
+func (o *ServiceBrokerAuthRegistrationOK) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationOK %s", 200, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationOK) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationOK %s", 200, payload)
+}
+
 func (o *ServiceBrokerAuthRegistrationOK) GetPayload() *models.AccessToken {
 	return o.Payload
 }
@@ -78,12 +135,83 @@ func (o *ServiceBrokerAuthRegistrationOK) readResponse(response runtime.ClientRe
 	return nil
 }
 
+// NewServiceBrokerAuthRegistrationBadRequest creates a ServiceBrokerAuthRegistrationBadRequest with default headers values
+func NewServiceBrokerAuthRegistrationBadRequest() *ServiceBrokerAuthRegistrationBadRequest {
+	return &ServiceBrokerAuthRegistrationBadRequest{}
+}
+
+/*
+ServiceBrokerAuthRegistrationBadRequest describes a response with status code 400, with default header values.
+
+Bad Request
+*/
+type ServiceBrokerAuthRegistrationBadRequest struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this service broker auth registration bad request response has a 2xx status code
+func (o *ServiceBrokerAuthRegistrationBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service broker auth registration bad request response has a 3xx status code
+func (o *ServiceBrokerAuthRegistrationBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth registration bad request response has a 4xx status code
+func (o *ServiceBrokerAuthRegistrationBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service broker auth registration bad request response has a 5xx status code
+func (o *ServiceBrokerAuthRegistrationBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth registration bad request response a status code equal to that given
+func (o *ServiceBrokerAuthRegistrationBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the service broker auth registration bad request response
+func (o *ServiceBrokerAuthRegistrationBadRequest) Code() int {
+	return 400
+}
+
+func (o *ServiceBrokerAuthRegistrationBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationBadRequest %s", 400, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationBadRequest %s", 400, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationBadRequest) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *ServiceBrokerAuthRegistrationBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewServiceBrokerAuthRegistrationUnauthorized creates a ServiceBrokerAuthRegistrationUnauthorized with default headers values
 func NewServiceBrokerAuthRegistrationUnauthorized() *ServiceBrokerAuthRegistrationUnauthorized {
 	return &ServiceBrokerAuthRegistrationUnauthorized{}
 }
 
-/* ServiceBrokerAuthRegistrationUnauthorized describes a response with status code 401, with default header values.
+/*
+ServiceBrokerAuthRegistrationUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized
 */
@@ -91,9 +219,46 @@ type ServiceBrokerAuthRegistrationUnauthorized struct {
 	Payload *models.Error
 }
 
-func (o *ServiceBrokerAuthRegistrationUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationUnauthorized  %+v", 401, o.Payload)
+// IsSuccess returns true when this service broker auth registration unauthorized response has a 2xx status code
+func (o *ServiceBrokerAuthRegistrationUnauthorized) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this service broker auth registration unauthorized response has a 3xx status code
+func (o *ServiceBrokerAuthRegistrationUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth registration unauthorized response has a 4xx status code
+func (o *ServiceBrokerAuthRegistrationUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service broker auth registration unauthorized response has a 5xx status code
+func (o *ServiceBrokerAuthRegistrationUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth registration unauthorized response a status code equal to that given
+func (o *ServiceBrokerAuthRegistrationUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the service broker auth registration unauthorized response
+func (o *ServiceBrokerAuthRegistrationUnauthorized) Code() int {
+	return 401
+}
+
+func (o *ServiceBrokerAuthRegistrationUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationUnauthorized %s", 401, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationUnauthorized %s", 401, payload)
+}
+
 func (o *ServiceBrokerAuthRegistrationUnauthorized) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -110,12 +275,153 @@ func (o *ServiceBrokerAuthRegistrationUnauthorized) readResponse(response runtim
 	return nil
 }
 
+// NewServiceBrokerAuthRegistrationForbidden creates a ServiceBrokerAuthRegistrationForbidden with default headers values
+func NewServiceBrokerAuthRegistrationForbidden() *ServiceBrokerAuthRegistrationForbidden {
+	return &ServiceBrokerAuthRegistrationForbidden{}
+}
+
+/*
+ServiceBrokerAuthRegistrationForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type ServiceBrokerAuthRegistrationForbidden struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this service broker auth registration forbidden response has a 2xx status code
+func (o *ServiceBrokerAuthRegistrationForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service broker auth registration forbidden response has a 3xx status code
+func (o *ServiceBrokerAuthRegistrationForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth registration forbidden response has a 4xx status code
+func (o *ServiceBrokerAuthRegistrationForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service broker auth registration forbidden response has a 5xx status code
+func (o *ServiceBrokerAuthRegistrationForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth registration forbidden response a status code equal to that given
+func (o *ServiceBrokerAuthRegistrationForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the service broker auth registration forbidden response
+func (o *ServiceBrokerAuthRegistrationForbidden) Code() int {
+	return 403
+}
+
+func (o *ServiceBrokerAuthRegistrationForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationForbidden %s", 403, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationForbidden %s", 403, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationForbidden) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *ServiceBrokerAuthRegistrationForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewServiceBrokerAuthRegistrationNotFound creates a ServiceBrokerAuthRegistrationNotFound with default headers values
+func NewServiceBrokerAuthRegistrationNotFound() *ServiceBrokerAuthRegistrationNotFound {
+	return &ServiceBrokerAuthRegistrationNotFound{}
+}
+
+/*
+ServiceBrokerAuthRegistrationNotFound describes a response with status code 404, with default header values.
+
+Not Found
+*/
+type ServiceBrokerAuthRegistrationNotFound struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this service broker auth registration not found response has a 2xx status code
+func (o *ServiceBrokerAuthRegistrationNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service broker auth registration not found response has a 3xx status code
+func (o *ServiceBrokerAuthRegistrationNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth registration not found response has a 4xx status code
+func (o *ServiceBrokerAuthRegistrationNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service broker auth registration not found response has a 5xx status code
+func (o *ServiceBrokerAuthRegistrationNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth registration not found response a status code equal to that given
+func (o *ServiceBrokerAuthRegistrationNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the service broker auth registration not found response
+func (o *ServiceBrokerAuthRegistrationNotFound) Code() int {
+	return 404
+}
+
+func (o *ServiceBrokerAuthRegistrationNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationNotFound %s", 404, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationNotFound %s", 404, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationNotFound) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *ServiceBrokerAuthRegistrationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewServiceBrokerAuthRegistrationInternalServerError creates a ServiceBrokerAuthRegistrationInternalServerError with default headers values
 func NewServiceBrokerAuthRegistrationInternalServerError() *ServiceBrokerAuthRegistrationInternalServerError {
 	return &ServiceBrokerAuthRegistrationInternalServerError{}
 }
 
-/* ServiceBrokerAuthRegistrationInternalServerError describes a response with status code 500, with default header values.
+/*
+ServiceBrokerAuthRegistrationInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -123,9 +429,46 @@ type ServiceBrokerAuthRegistrationInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *ServiceBrokerAuthRegistrationInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this service broker auth registration internal server error response has a 2xx status code
+func (o *ServiceBrokerAuthRegistrationInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this service broker auth registration internal server error response has a 3xx status code
+func (o *ServiceBrokerAuthRegistrationInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth registration internal server error response has a 4xx status code
+func (o *ServiceBrokerAuthRegistrationInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service broker auth registration internal server error response has a 5xx status code
+func (o *ServiceBrokerAuthRegistrationInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this service broker auth registration internal server error response a status code equal to that given
+func (o *ServiceBrokerAuthRegistrationInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the service broker auth registration internal server error response
+func (o *ServiceBrokerAuthRegistrationInternalServerError) Code() int {
+	return 500
+}
+
+func (o *ServiceBrokerAuthRegistrationInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationInternalServerError %s", 500, payload)
+}
+
+func (o *ServiceBrokerAuthRegistrationInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/registration][%d] serviceBrokerAuthRegistrationInternalServerError %s", 500, payload)
+}
+
 func (o *ServiceBrokerAuthRegistrationInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }

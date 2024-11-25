@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud tenants ssh keys API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud tenants ssh keys API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud tenants ssh keys API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -44,7 +70,7 @@ type ClientService interface {
 }
 
 /*
-  PcloudTenantsSshkeysDelete deletes a tenant s SSH key
+PcloudTenantsSshkeysDelete deletes a tenant s SSH key
 */
 func (a *Client) PcloudTenantsSshkeysDelete(params *PcloudTenantsSshkeysDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudTenantsSshkeysDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -83,7 +109,7 @@ func (a *Client) PcloudTenantsSshkeysDelete(params *PcloudTenantsSshkeysDeletePa
 }
 
 /*
-  PcloudTenantsSshkeysGet gets a tenant s SSH key by name
+PcloudTenantsSshkeysGet gets a tenant s SSH key by name
 */
 func (a *Client) PcloudTenantsSshkeysGet(params *PcloudTenantsSshkeysGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudTenantsSshkeysGetOK, error) {
 	// TODO: Validate the params before sending
@@ -122,7 +148,7 @@ func (a *Client) PcloudTenantsSshkeysGet(params *PcloudTenantsSshkeysGetParams, 
 }
 
 /*
-  PcloudTenantsSshkeysGetall lists a tenant s SSH keys
+PcloudTenantsSshkeysGetall lists a tenant s SSH keys
 */
 func (a *Client) PcloudTenantsSshkeysGetall(params *PcloudTenantsSshkeysGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudTenantsSshkeysGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -161,7 +187,7 @@ func (a *Client) PcloudTenantsSshkeysGetall(params *PcloudTenantsSshkeysGetallPa
 }
 
 /*
-  PcloudTenantsSshkeysPost adds a new SSH key to the tenant
+PcloudTenantsSshkeysPost adds a new SSH key to the tenant
 */
 func (a *Client) PcloudTenantsSshkeysPost(params *PcloudTenantsSshkeysPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudTenantsSshkeysPostOK, *PcloudTenantsSshkeysPostCreated, error) {
 	// TODO: Validate the params before sending
@@ -201,7 +227,7 @@ func (a *Client) PcloudTenantsSshkeysPost(params *PcloudTenantsSshkeysPostParams
 }
 
 /*
-  PcloudTenantsSshkeysPut updates an SSH key
+PcloudTenantsSshkeysPut updates an SSH key
 */
 func (a *Client) PcloudTenantsSshkeysPut(params *PcloudTenantsSshkeysPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudTenantsSshkeysPutOK, error) {
 	// TODO: Validate the params before sending

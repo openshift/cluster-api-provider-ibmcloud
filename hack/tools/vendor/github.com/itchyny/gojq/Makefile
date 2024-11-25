@@ -33,15 +33,15 @@ $(GOBIN)/goyacc:
 
 .PHONY: install
 install:
-	go install -ldflags=$(BUILD_LDFLAGS) ./...
+	go install -ldflags=$(BUILD_LDFLAGS) ./cmd/$(BIN)
 
 .PHONY: install-dev
 install-dev: parser.go builtin.go
-	go install -ldflags=$(BUILD_LDFLAGS) ./...
+	go install -ldflags=$(BUILD_LDFLAGS) ./cmd/$(BIN)
 
 .PHONY: install-debug
 install-debug: parser.go builtin.go
-	go install -tags gojq_debug -ldflags=$(BUILD_LDFLAGS) ./...
+	go install -tags gojq_debug -ldflags=$(BUILD_LDFLAGS) ./cmd/$(BIN)
 
 .PHONY: show-version
 show-version: $(GOBIN)/gobump
@@ -101,10 +101,3 @@ bump: $(GOBIN)/gobump
 	git commit -am "bump up version to $(VERSION)"
 	git tag "v$(VERSION)"
 	git push --atomic origin main tag "v$(VERSION)"
-
-.PHONY: upload
-upload: $(GOBIN)/ghr
-	ghr "v$(VERSION)" goxz
-
-$(GOBIN)/ghr:
-	go install github.com/tcnksm/ghr@latest

@@ -45,7 +45,7 @@ type VPNConnection struct {
 	// Mode used by this VPNConnection, either policy-based, or route-based, this attribute is set at the creation and cannot be updated later.
 	// Example: policy
 	// Required: true
-	// Enum: [policy route]
+	// Enum: ["policy","route"]
 	Mode *string `json:"mode"`
 
 	// VPN Connection name
@@ -69,7 +69,7 @@ type VPNConnection struct {
 
 	// status of the VPN connection
 	// Required: true
-	// Enum: [active warning disabled]
+	// Enum: ["active","warning","disabled"]
 	Status *string `json:"status"`
 
 	// public IP address of the VPN Gateway (vSRX) attached to this VPNConnection
@@ -392,6 +392,7 @@ func (m *VPNConnection) ContextValidate(ctx context.Context, formats strfmt.Regi
 func (m *VPNConnection) contextValidateDeadPeerDetection(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.DeadPeerDetection != nil {
+
 		if err := m.DeadPeerDetection.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("deadPeerDetection")
@@ -408,6 +409,7 @@ func (m *VPNConnection) contextValidateDeadPeerDetection(ctx context.Context, fo
 func (m *VPNConnection) contextValidateIkePolicy(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.IkePolicy != nil {
+
 		if err := m.IkePolicy.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("ikePolicy")
@@ -424,6 +426,7 @@ func (m *VPNConnection) contextValidateIkePolicy(ctx context.Context, formats st
 func (m *VPNConnection) contextValidateIPSecPolicy(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.IPSecPolicy != nil {
+
 		if err := m.IPSecPolicy.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("ipSecPolicy")
@@ -440,6 +443,7 @@ func (m *VPNConnection) contextValidateIPSecPolicy(ctx context.Context, formats 
 func (m *VPNConnection) contextValidatePeerGatewayAddress(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.PeerGatewayAddress != nil {
+
 		if err := m.PeerGatewayAddress.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("peerGatewayAddress")

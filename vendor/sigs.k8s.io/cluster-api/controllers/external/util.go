@@ -59,8 +59,8 @@ func Delete(ctx context.Context, c client.Writer, ref *corev1.ObjectReference) e
 	return nil
 }
 
-// CloneTemplateInput is the input to CloneTemplate.
-type CloneTemplateInput struct {
+// CreateFromTemplateInput is the input to CreateFromTemplate.
+type CreateFromTemplateInput struct {
 	// Client is the controller runtime client.
 	Client client.Client
 
@@ -69,6 +69,10 @@ type CloneTemplateInput struct {
 
 	// Namespace is the Kubernetes namespace the cloned object should be created into.
 	Namespace string
+
+	// Name is used as the name of the generated object, if set.
+	// If it isn't set the template name will be used as prefix to generate a name instead.
+	Name string
 
 	// ClusterName is the cluster this object is linked to.
 	ClusterName string
@@ -86,8 +90,8 @@ type CloneTemplateInput struct {
 	Annotations map[string]string
 }
 
-// CloneTemplate uses the client and the reference to create a new object from the template.
-func CloneTemplate(ctx context.Context, in *CloneTemplateInput) (*corev1.ObjectReference, error) {
+// CreateFromTemplate uses the client and the reference to create a new object from the template.
+func CreateFromTemplate(ctx context.Context, in *CreateFromTemplateInput) (*corev1.ObjectReference, error) {
 	from, err := Get(ctx, in.Client, in.TemplateRef, in.Namespace)
 	if err != nil {
 		return nil, err
@@ -96,6 +100,7 @@ func CloneTemplate(ctx context.Context, in *CloneTemplateInput) (*corev1.ObjectR
 		Template:    from,
 		TemplateRef: in.TemplateRef,
 		Namespace:   in.Namespace,
+		Name:        in.Name,
 		ClusterName: in.ClusterName,
 		OwnerRef:    in.OwnerRef,
 		Labels:      in.Labels,
@@ -124,6 +129,10 @@ type GenerateTemplateInput struct {
 
 	// Namespace is the Kubernetes namespace the cloned object should be created into.
 	Namespace string
+
+	// Name is used as the name of the generated object, if set.
+	// If it isn't set the template name will be used as prefix to generate a name instead.
+	Name string
 
 	// ClusterName is the cluster this object is linked to.
 	ClusterName string
@@ -156,7 +165,10 @@ func GenerateTemplate(in *GenerateTemplateInput) (*unstructured.Unstructured, er
 	to.SetFinalizers(nil)
 	to.SetUID("")
 	to.SetSelfLink("")
-	to.SetName(names.SimpleNameGenerator.GenerateName(in.Template.GetName() + "-"))
+	to.SetName(in.Name)
+	if to.GetName() == "" {
+		to.SetName(names.SimpleNameGenerator.GenerateName(in.Template.GetName() + "-"))
+	}
 	to.SetNamespace(in.Namespace)
 
 	// Set annotations.
@@ -179,7 +191,7 @@ func GenerateTemplate(in *GenerateTemplateInput) (*unstructured.Unstructured, er
 	for key, value := range in.Labels {
 		labels[key] = value
 	}
-	labels[clusterv1.ClusterLabelName] = in.ClusterName
+	labels[clusterv1.ClusterNameLabel] = in.ClusterName
 	to.SetLabels(labels)
 
 	// Set the owner reference.

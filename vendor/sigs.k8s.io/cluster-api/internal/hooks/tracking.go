@@ -41,7 +41,7 @@ func MarkAsPending(ctx context.Context, c client.Client, obj client.Object, hook
 
 	patchHelper, err := patch.NewHelper(obj, c)
 	if err != nil {
-		return errors.Wrapf(err, "failed to mark %q hook(s) as pending: failed to create patch helper for %s", strings.Join(hookNames, ","), tlog.KObj{Obj: obj})
+		return errors.Wrapf(err, "failed to mark %q hook(s) as pending", strings.Join(hookNames, ","))
 	}
 
 	// Read the annotation of the objects and add the hook to the comma separated list
@@ -53,7 +53,7 @@ func MarkAsPending(ctx context.Context, c client.Client, obj client.Object, hook
 	obj.SetAnnotations(annotations)
 
 	if err := patchHelper.Patch(ctx, obj); err != nil {
-		return errors.Wrapf(err, "failed to mark %q hook(s) as pending: failed to patch %s", strings.Join(hookNames, ","), tlog.KObj{Obj: obj})
+		return errors.Wrapf(err, "failed to mark %q hook(s) as pending", strings.Join(hookNames, ","))
 	}
 
 	return nil
@@ -80,7 +80,7 @@ func MarkAsDone(ctx context.Context, c client.Client, obj client.Object, hooks .
 
 	patchHelper, err := patch.NewHelper(obj, c)
 	if err != nil {
-		return errors.Wrapf(err, "failed to mark %q hook(s) as done: failed to create patch helper for %s", strings.Join(hookNames, ","), tlog.KObj{Obj: obj})
+		return errors.Wrapf(err, "failed to mark %q hook(s) as done", strings.Join(hookNames, ","))
 	}
 
 	// Read the annotation of the objects and add the hook to the comma separated list
@@ -95,7 +95,7 @@ func MarkAsDone(ctx context.Context, c client.Client, obj client.Object, hooks .
 	obj.SetAnnotations(annotations)
 
 	if err := patchHelper.Patch(ctx, obj); err != nil {
-		return errors.Wrapf(err, "failed to mark %q hook(s) as done: failed to patch %s", strings.Join(hookNames, ","), tlog.KObj{Obj: obj})
+		return errors.Wrapf(err, "failed to mark %q hook(s) as done", strings.Join(hookNames, ","))
 	}
 
 	return nil
@@ -117,7 +117,7 @@ func IsOkToDelete(obj client.Object) bool {
 func MarkAsOkToDelete(ctx context.Context, c client.Client, obj client.Object) error {
 	patchHelper, err := patch.NewHelper(obj, c)
 	if err != nil {
-		return errors.Wrapf(err, "failed to mark %s as ok to delete: failed to create patch helper", tlog.KObj{Obj: obj})
+		return errors.Wrapf(err, "failed to mark %s as ok to delete", tlog.KObj{Obj: obj})
 	}
 
 	annotations := obj.GetAnnotations()
@@ -128,25 +128,36 @@ func MarkAsOkToDelete(ctx context.Context, c client.Client, obj client.Object) e
 	obj.SetAnnotations(annotations)
 
 	if err := patchHelper.Patch(ctx, obj); err != nil {
-		return errors.Wrapf(err, "failed to mark %s as ok to delete: failed to patch", tlog.KObj{Obj: obj})
+		return errors.Wrapf(err, "failed to mark %s as ok to delete", tlog.KObj{Obj: obj})
 	}
 
 	return nil
 }
 
 func addToCommaSeparatedList(list string, items ...string) string {
-	set := sets.NewString(strings.Split(list, ",")...)
+	set := sets.Set[string]{}.Insert(strings.Split(list, ",")...)
+
+	// Remove empty strings (that might have been introduced by splitting an empty list)
+	// from the hook list
+	set.Delete("")
+
 	set.Insert(items...)
-	return strings.Join(set.List(), ",")
+
+	return strings.Join(sets.List(set), ",")
 }
 
 func isInCommaSeparatedList(list, item string) bool {
-	set := sets.NewString(strings.Split(list, ",")...)
+	set := sets.Set[string]{}.Insert(strings.Split(list, ",")...)
 	return set.Has(item)
 }
 
 func removeFromCommaSeparatedList(list string, items ...string) string {
-	set := sets.NewString(strings.Split(list, ",")...)
+	set := sets.Set[string]{}.Insert(strings.Split(list, ",")...)
+
+	// Remove empty strings (that might have been introduced by splitting an empty list)
+	// from the hook list
+	set.Delete("")
+
 	set.Delete(items...)
-	return strings.Join(set.List(), ",")
+	return strings.Join(sets.List(set), ",")
 }

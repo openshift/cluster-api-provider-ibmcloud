@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud snapshots API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud snapshots API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud snapshots API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -42,7 +68,7 @@ type ClientService interface {
 }
 
 /*
-  PcloudCloudinstancesSnapshotsDelete deletes a p VM instance snapshot of a cloud instance
+PcloudCloudinstancesSnapshotsDelete deletes a p VM instance snapshot of a cloud instance
 */
 func (a *Client) PcloudCloudinstancesSnapshotsDelete(params *PcloudCloudinstancesSnapshotsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesSnapshotsDeleteAccepted, error) {
 	// TODO: Validate the params before sending
@@ -81,7 +107,7 @@ func (a *Client) PcloudCloudinstancesSnapshotsDelete(params *PcloudCloudinstance
 }
 
 /*
-  PcloudCloudinstancesSnapshotsGet gets the detail of a snapshot
+PcloudCloudinstancesSnapshotsGet gets the detail of a snapshot
 */
 func (a *Client) PcloudCloudinstancesSnapshotsGet(params *PcloudCloudinstancesSnapshotsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesSnapshotsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -120,7 +146,7 @@ func (a *Client) PcloudCloudinstancesSnapshotsGet(params *PcloudCloudinstancesSn
 }
 
 /*
-  PcloudCloudinstancesSnapshotsGetall lists all p VM instance snapshots for this cloud instance
+PcloudCloudinstancesSnapshotsGetall lists all p VM instance snapshots for this cloud instance
 */
 func (a *Client) PcloudCloudinstancesSnapshotsGetall(params *PcloudCloudinstancesSnapshotsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesSnapshotsGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -159,7 +185,7 @@ func (a *Client) PcloudCloudinstancesSnapshotsGetall(params *PcloudCloudinstance
 }
 
 /*
-  PcloudCloudinstancesSnapshotsPut updates a p VM instance snapshot
+PcloudCloudinstancesSnapshotsPut updates a p VM instance snapshot
 */
 func (a *Client) PcloudCloudinstancesSnapshotsPut(params *PcloudCloudinstancesSnapshotsPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesSnapshotsPutOK, error) {
 	// TODO: Validate the params before sending

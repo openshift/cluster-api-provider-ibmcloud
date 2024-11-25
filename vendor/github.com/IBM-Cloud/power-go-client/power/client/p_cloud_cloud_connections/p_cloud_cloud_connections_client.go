@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud cloud connections API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud cloud connections API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud cloud connections API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -50,7 +76,7 @@ type ClientService interface {
 }
 
 /*
-  PcloudCloudconnectionsDelete deletes a cloud connection
+PcloudCloudconnectionsDelete deletes a cloud connection
 */
 func (a *Client) PcloudCloudconnectionsDelete(params *PcloudCloudconnectionsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudconnectionsDeleteOK, *PcloudCloudconnectionsDeleteAccepted, error) {
 	// TODO: Validate the params before sending
@@ -90,7 +116,7 @@ func (a *Client) PcloudCloudconnectionsDelete(params *PcloudCloudconnectionsDele
 }
 
 /*
-  PcloudCloudconnectionsGet gets a cloud connection s state information
+PcloudCloudconnectionsGet gets a cloud connection s state information
 */
 func (a *Client) PcloudCloudconnectionsGet(params *PcloudCloudconnectionsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudconnectionsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -129,7 +155,7 @@ func (a *Client) PcloudCloudconnectionsGet(params *PcloudCloudconnectionsGetPara
 }
 
 /*
-  PcloudCloudconnectionsGetall gets all cloud connections in this cloud instance
+PcloudCloudconnectionsGetall gets all cloud connections in this cloud instance
 */
 func (a *Client) PcloudCloudconnectionsGetall(params *PcloudCloudconnectionsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudconnectionsGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -168,7 +194,7 @@ func (a *Client) PcloudCloudconnectionsGetall(params *PcloudCloudconnectionsGeta
 }
 
 /*
-  PcloudCloudconnectionsNetworksDelete deletes a network from a cloud connection
+PcloudCloudconnectionsNetworksDelete detaches a network from a cloud connection
 */
 func (a *Client) PcloudCloudconnectionsNetworksDelete(params *PcloudCloudconnectionsNetworksDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudconnectionsNetworksDeleteOK, *PcloudCloudconnectionsNetworksDeleteAccepted, error) {
 	// TODO: Validate the params before sending
@@ -208,7 +234,7 @@ func (a *Client) PcloudCloudconnectionsNetworksDelete(params *PcloudCloudconnect
 }
 
 /*
-  PcloudCloudconnectionsNetworksPut adds a network to the cloud connection
+PcloudCloudconnectionsNetworksPut attaches a network to the cloud connection
 */
 func (a *Client) PcloudCloudconnectionsNetworksPut(params *PcloudCloudconnectionsNetworksPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudconnectionsNetworksPutOK, *PcloudCloudconnectionsNetworksPutAccepted, error) {
 	// TODO: Validate the params before sending
@@ -248,7 +274,7 @@ func (a *Client) PcloudCloudconnectionsNetworksPut(params *PcloudCloudconnection
 }
 
 /*
-  PcloudCloudconnectionsPost creates a new cloud connection
+PcloudCloudconnectionsPost creates a new cloud connection
 */
 func (a *Client) PcloudCloudconnectionsPost(params *PcloudCloudconnectionsPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudconnectionsPostOK, *PcloudCloudconnectionsPostCreated, *PcloudCloudconnectionsPostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -290,7 +316,7 @@ func (a *Client) PcloudCloudconnectionsPost(params *PcloudCloudconnectionsPostPa
 }
 
 /*
-  PcloudCloudconnectionsPut updates a cloud connection
+PcloudCloudconnectionsPut updates a cloud connection
 */
 func (a *Client) PcloudCloudconnectionsPut(params *PcloudCloudconnectionsPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudconnectionsPutOK, *PcloudCloudconnectionsPutAccepted, error) {
 	// TODO: Validate the params before sending
@@ -330,7 +356,7 @@ func (a *Client) PcloudCloudconnectionsPut(params *PcloudCloudconnectionsPutPara
 }
 
 /*
-  PcloudCloudconnectionsVirtualprivatecloudsGetall gets all virtual private cloud connections in this cloud instance
+PcloudCloudconnectionsVirtualprivatecloudsGetall gets all virtual private cloud connections in this cloud instance
 */
 func (a *Client) PcloudCloudconnectionsVirtualprivatecloudsGetall(params *PcloudCloudconnectionsVirtualprivatecloudsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudconnectionsVirtualprivatecloudsGetallOK, error) {
 	// TODO: Validate the params before sending

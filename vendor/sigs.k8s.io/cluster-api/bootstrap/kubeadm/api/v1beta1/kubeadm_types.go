@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -124,9 +125,16 @@ type ClusterConfiguration struct {
 	CertificatesDir string `json:"certificatesDir,omitempty"`
 
 	// ImageRepository sets the container registry to pull images from.
-	// If empty, `registry.k8s.io` will be used by default; in case of kubernetes version is a CI build (kubernetes version starts with `ci/` or `ci-cross/`)
-	// `gcr.io/k8s-staging-ci-images` will be used as a default for control plane components and for kube-proxy, while `registry.k8s.io`
-	// will be used for all the other images.
+	// * If not set, the default registry of kubeadm will be used, i.e.
+	//   * registry.k8s.io (new registry): >= v1.22.17, >= v1.23.15, >= v1.24.9, >= v1.25.0
+	//   * k8s.gcr.io (old registry): all older versions
+	//   Please note that when imageRepository is not set we don't allow upgrades to
+	//   versions >= v1.22.0 which use the old registry (k8s.gcr.io). Please use
+	//   a newer patch version with the new registry instead (i.e. >= v1.22.17,
+	//   >= v1.23.15, >= v1.24.9, >= v1.25.0).
+	// * If the version is a CI build (kubernetes version starts with `ci/` or `ci-cross/`)
+	//  `gcr.io/k8s-staging-ci-images` will be used as a default for control plane components
+	//   and for kube-proxy, while `registry.k8s.io` will be used for all the other images.
 	// +optional
 	ImageRepository string `json:"imageRepository,omitempty"`
 
@@ -150,6 +158,12 @@ type ControlPlaneComponent struct {
 	// ExtraVolumes is an extra set of host volumes, mounted to the control plane component.
 	// +optional
 	ExtraVolumes []HostPathMount `json:"extraVolumes,omitempty"`
+
+	// ExtraEnvs is an extra set of environment variables to pass to the control plane component.
+	// Environment variables passed using ExtraEnvs will override any existing environment variables, or *_proxy environment variables that kubeadm adds by default.
+	// This option takes effect only on Kubernetes >=1.31.0.
+	// +optional
+	ExtraEnvs []EnvVar `json:"extraEnvs,omitempty"`
 }
 
 // APIServer holds settings necessary for API server deployments in the cluster.
@@ -184,13 +198,14 @@ type ImageMeta struct {
 	// +optional
 	ImageTag string `json:"imageTag,omitempty"`
 
-	//TODO: evaluate if we need also a ImageName based on user feedbacks
+	// TODO: evaluate if we need also a ImageName based on user feedbacks
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // ClusterStatus contains the cluster status. The ClusterStatus will be stored in the kubeadm-config
 // ConfigMap in the cluster, and then updated by kubeadm when additional control plane instance joins or leaves the cluster.
+//
 // Deprecated: ClusterStatus has been removed from kubeadm v1beta3 API; This type is preserved only to support
 // conversion to older versions of the kubeadm API.
 type ClusterStatus struct {
@@ -214,6 +229,7 @@ type APIEndpoint struct {
 }
 
 // NodeRegistrationOptions holds fields that relate to registering a new control-plane or node to the cluster, either via "kubeadm init" or "kubeadm join".
+// Note: The NodeRegistrationOptions struct has to be kept in sync with the structs in MarshalJSON.
 type NodeRegistrationOptions struct {
 
 	// Name is the `.Metadata.Name` field of the Node API object that will be created in this `kubeadm init` or `kubeadm join` operation.
@@ -228,7 +244,7 @@ type NodeRegistrationOptions struct {
 
 	// Taints specifies the taints the Node API object should be registered with. If this field is unset, i.e. nil, in the `kubeadm init` process
 	// it will be defaulted to []v1.Taint{'node-role.kubernetes.io/master=""'}. If you don't want to taint your control-plane node, set this field to an
-	// empty slice, i.e. `taints: {}` in the YAML file. This field is solely used for Node registration.
+	// empty slice, i.e. `taints: []` in the YAML file. This field is solely used for Node registration.
 	// +optional
 	Taints []corev1.Taint `json:"taints,omitempty"`
 
@@ -241,6 +257,72 @@ type NodeRegistrationOptions struct {
 	// IgnorePreflightErrors provides a slice of pre-flight errors to be ignored when the current node is registered.
 	// +optional
 	IgnorePreflightErrors []string `json:"ignorePreflightErrors,omitempty"`
+
+	// ImagePullPolicy specifies the policy for image pulling
+	// during kubeadm "init" and "join" operations. The value of
+	// this field must be one of "Always", "IfNotPresent" or
+	// "Never". Defaults to "IfNotPresent". This can be used only
+	// with Kubernetes version equal to 1.22 and later.
+	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never
+	// +optional
+	ImagePullPolicy string `json:"imagePullPolicy,omitempty"`
+
+	// ImagePullSerial specifies if image pulling performed by kubeadm must be done serially or in parallel.
+	// This option takes effect only on Kubernetes >=1.31.0.
+	// Default: true (defaulted in kubeadm)
+	// +optional
+	ImagePullSerial *bool `json:"imagePullSerial,omitempty"`
+}
+
+// MarshalJSON marshals NodeRegistrationOptions in a way that an empty slice in Taints is preserved.
+// Taints are then rendered as:
+// * nil => omitted from the marshalled JSON
+// * [] => rendered as empty array (`[]`)
+// * [regular-array] => rendered as usual
+// We have to do this as the regular Golang JSON marshalling would just omit
+// the empty slice (xref: https://github.com/golang/go/issues/22480).
+// Note: We can't re-use the original struct as that would lead to an infinite recursion.
+// Note: The structs in this func have to be kept in sync with the NodeRegistrationOptions struct.
+func (n *NodeRegistrationOptions) MarshalJSON() ([]byte, error) {
+	// Marshal an empty Taints slice array without omitempty so it's preserved.
+	if n.Taints != nil && len(n.Taints) == 0 {
+		return json.Marshal(struct {
+			Name                  string            `json:"name,omitempty"`
+			CRISocket             string            `json:"criSocket,omitempty"`
+			Taints                []corev1.Taint    `json:"taints"`
+			KubeletExtraArgs      map[string]string `json:"kubeletExtraArgs,omitempty"`
+			IgnorePreflightErrors []string          `json:"ignorePreflightErrors,omitempty"`
+			ImagePullPolicy       string            `json:"imagePullPolicy,omitempty"`
+			ImagePullSerial       *bool             `json:"imagePullSerial,omitempty"`
+		}{
+			Name:                  n.Name,
+			CRISocket:             n.CRISocket,
+			Taints:                n.Taints,
+			KubeletExtraArgs:      n.KubeletExtraArgs,
+			IgnorePreflightErrors: n.IgnorePreflightErrors,
+			ImagePullPolicy:       n.ImagePullPolicy,
+			ImagePullSerial:       n.ImagePullSerial,
+		})
+	}
+
+	// If Taints is nil or not empty we can use omitempty.
+	return json.Marshal(struct {
+		Name                  string            `json:"name,omitempty"`
+		CRISocket             string            `json:"criSocket,omitempty"`
+		Taints                []corev1.Taint    `json:"taints,omitempty"`
+		KubeletExtraArgs      map[string]string `json:"kubeletExtraArgs,omitempty"`
+		IgnorePreflightErrors []string          `json:"ignorePreflightErrors,omitempty"`
+		ImagePullPolicy       string            `json:"imagePullPolicy,omitempty"`
+		ImagePullSerial       *bool             `json:"imagePullSerial,omitempty"`
+	}{
+		Name:                  n.Name,
+		CRISocket:             n.CRISocket,
+		Taints:                n.Taints,
+		KubeletExtraArgs:      n.KubeletExtraArgs,
+		IgnorePreflightErrors: n.IgnorePreflightErrors,
+		ImagePullPolicy:       n.ImagePullPolicy,
+		ImagePullSerial:       n.ImagePullSerial,
+	})
 }
 
 // Networking contains elements describing cluster's networking configuration.
@@ -315,6 +397,12 @@ type LocalEtcd struct {
 	// when run inside a static pod.
 	// +optional
 	ExtraArgs map[string]string `json:"extraArgs,omitempty"`
+
+	// ExtraEnvs is an extra set of environment variables to pass to the control plane component.
+	// Environment variables passed using ExtraEnvs will override any existing environment variables, or *_proxy environment variables that kubeadm adds by default.
+	// This option takes effect only on Kubernetes >=1.31.0.
+	// +optional
+	ExtraEnvs []EnvVar `json:"extraEnvs,omitempty"`
 
 	// ServerCertSANs sets extra Subject Alternative Names for the etcd server signing cert.
 	// +optional
@@ -446,6 +534,137 @@ type BootstrapTokenDiscovery struct {
 type FileDiscovery struct {
 	// KubeConfigPath is used to specify the actual file path or URL to the kubeconfig file from which to load cluster information
 	KubeConfigPath string `json:"kubeConfigPath"`
+
+	// KubeConfig is used (optionally) to generate a KubeConfig based on the KubeadmConfig's information.
+	// The file is generated at the path specified in KubeConfigPath.
+	//
+	// Host address (server field) information is automatically populated based on the Cluster's ControlPlaneEndpoint.
+	// Certificate Authority (certificate-authority-data field) is gathered from the cluster's CA secret.
+	//
+	// +optional
+	KubeConfig *FileDiscoveryKubeConfig `json:"kubeConfig,omitempty"`
+}
+
+// FileDiscoveryKubeConfig contains elements describing how to generate the kubeconfig for bootstrapping.
+type FileDiscoveryKubeConfig struct {
+	// Cluster contains information about how to communicate with the kubernetes cluster.
+	//
+	// By default the following fields are automatically populated:
+	// - Server with the Cluster's ControlPlaneEndpoint.
+	// - CertificateAuthorityData with the Cluster's CA certificate.
+	// +optional
+	Cluster *KubeConfigCluster `json:"cluster,omitempty"`
+
+	// User contains information that describes identity information.
+	// This is used to tell the kubernetes cluster who you are.
+	User KubeConfigUser `json:"user"`
+}
+
+// KubeConfigCluster contains information about how to communicate with a kubernetes cluster.
+//
+// Adapted from clientcmdv1.Cluster.
+type KubeConfigCluster struct {
+	// Server is the address of the kubernetes cluster (https://hostname:port).
+	//
+	// Defaults to https:// + Cluster.Spec.ControlPlaneEndpoint.
+	//
+	// +optional
+	Server string `json:"server,omitempty"`
+
+	// TLSServerName is used to check server certificate. If TLSServerName is empty, the hostname used to contact the server is used.
+	// +optional
+	TLSServerName string `json:"tlsServerName,omitempty"`
+
+	// InsecureSkipTLSVerify skips the validity check for the server's certificate. This will make your HTTPS connections insecure.
+	// +optional
+	InsecureSkipTLSVerify bool `json:"insecureSkipTLSVerify,omitempty"`
+
+	// CertificateAuthorityData contains PEM-encoded certificate authority certificates.
+	//
+	// Defaults to the Cluster's CA certificate if empty.
+	//
+	// +optional
+	CertificateAuthorityData []byte `json:"certificateAuthorityData,omitempty"`
+
+	// ProxyURL is the URL to the proxy to be used for all requests made by this
+	// client. URLs with "http", "https", and "socks5" schemes are supported.  If
+	// this configuration is not provided or the empty string, the client
+	// attempts to construct a proxy configuration from http_proxy and
+	// https_proxy environment variables. If these environment variables are not
+	// set, the client does not attempt to proxy requests.
+	//
+	// socks5 proxying does not currently support spdy streaming endpoints (exec,
+	// attach, port forward).
+	//
+	// +optional
+	ProxyURL string `json:"proxyURL,omitempty"`
+}
+
+// KubeConfigUser contains information that describes identity information.
+// This is used to tell the kubernetes cluster who you are.
+//
+// Either authProvider or exec must be filled.
+//
+// Adapted from clientcmdv1.AuthInfo.
+type KubeConfigUser struct {
+	// AuthProvider specifies a custom authentication plugin for the kubernetes cluster.
+	// +optional
+	AuthProvider *KubeConfigAuthProvider `json:"authProvider,omitempty"`
+
+	// Exec specifies a custom exec-based authentication plugin for the kubernetes cluster.
+	// +optional
+	Exec *KubeConfigAuthExec `json:"exec,omitempty"`
+}
+
+// KubeConfigAuthProvider holds the configuration for a specified auth provider.
+type KubeConfigAuthProvider struct {
+	// Name is the name of the authentication plugin.
+	Name string `json:"name"`
+
+	// Config holds the parameters for the authentication plugin.
+	// +optional
+	Config map[string]string `json:"config,omitempty"`
+}
+
+// KubeConfigAuthExec specifies a command to provide client credentials. The command is exec'd
+// and outputs structured stdout holding credentials.
+//
+// See the client.authentication.k8s.io API group for specifications of the exact input
+// and output format.
+type KubeConfigAuthExec struct {
+	// Command to execute.
+	Command string `json:"command"`
+
+	// Arguments to pass to the command when executing it.
+	// +optional
+	Args []string `json:"args,omitempty"`
+
+	// Env defines additional environment variables to expose to the process. These
+	// are unioned with the host's environment, as well as variables client-go uses
+	// to pass argument to the plugin.
+	// +optional
+	Env []KubeConfigAuthExecEnv `json:"env,omitempty"`
+
+	// Preferred input version of the ExecInfo. The returned ExecCredentials MUST use
+	// the same encoding version as the input.
+	// Defaults to client.authentication.k8s.io/v1 if not set.
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
+
+	// ProvideClusterInfo determines whether or not to provide cluster information,
+	// which could potentially contain very large CA data, to this exec plugin as a
+	// part of the KUBERNETES_EXEC_INFO environment variable. By default, it is set
+	// to false. Package k8s.io/client-go/tools/auth/exec provides helper methods for
+	// reading this environment variable.
+	// +optional
+	ProvideClusterInfo bool `json:"provideClusterInfo,omitempty"`
+}
+
+// KubeConfigAuthExecEnv is used for setting environment variables when executing an exec-based
+// credential plugin.
+type KubeConfigAuthExecEnv struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // HostPathMount contains elements describing volumes that are mounted from the
@@ -503,7 +722,7 @@ func (bts *BootstrapTokenString) UnmarshalJSON(b []byte) error {
 
 // String returns the string representation of the BootstrapTokenString.
 func (bts BootstrapTokenString) String() string {
-	if len(bts.ID) > 0 && len(bts.Secret) > 0 {
+	if bts.ID != "" && bts.Secret != "" {
 		return bootstraputil.TokenFromIDAndSecret(bts.ID, bts.Secret)
 	}
 	return ""
@@ -537,4 +756,9 @@ type Patches struct {
 	// by referencing a secret.
 	// +optional
 	Directory string `json:"directory,omitempty"`
+}
+
+// EnvVar represents an environment variable present in a Container.
+type EnvVar struct {
+	corev1.EnvVar `json:",inline"`
 }

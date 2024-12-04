@@ -19,10 +19,12 @@ package scope
 import (
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/ibm-cos-sdk-go/aws/awserr"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"go.uber.org/mock/gomock"
@@ -30,11 +32,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	tgapiv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	mockP "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs/mock"
+	tgmock "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/transitgateway/mock"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/utils"
+	mockcos "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/cos/mock"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcecontroller"
 	mockRC "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcecontroller/mock"
@@ -43,6 +48,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc/mock"
 
+	"github.com/IBM/ibm-cos-sdk-go/service/s3"
 	. "github.com/onsi/gomega"
 )
 
@@ -1156,6 +1162,793 @@ func TestGetResourceGroupID(t *testing.T) {
 	}
 }
 
+func TestReconcileLoadBalancers(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When LoadBalancer ID is set and GetLoadbalancer fails to fetch loadbalancer details", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							ID: ptr.To("test-lb-instanceid"),
+						},
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(nil, nil, errors.New("failed to fetch VPC load balancer details"))
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(loadBalancerReady).To(BeFalse())
+	})
+
+	t.Run("When LoadBalancer ID is set and the checkLoadBalancerStatus returns status is not active, indicating that load balancer is still not ready", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							ID: ptr.To("test-lb-instanceid"),
+						},
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("test-lb-instanceid"),
+			ProvisioningStatus: ptr.To("update_pending"),
+			Name:               ptr.To("test-lb"),
+		}, nil, nil)
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(err).To(BeNil())
+		g.Expect(loadBalancerReady).To(BeFalse())
+	})
+
+	t.Run("Reconcile should not requeue when one load balancer is ready but another is still initializing or inactive", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							ID: ptr.To("test-active-lb-instanceid"),
+						},
+						{
+							ID: ptr.To("test-inactive-lb-instanceid"),
+						},
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancer(&vpcv1.GetLoadBalancerOptions{ID: ptr.To("test-active-lb-instanceid")}).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("test- active-lb-instanceid"),
+			ProvisioningStatus: ptr.To("active"),
+			Name:               ptr.To("test-active-lb"),
+		}, nil, nil)
+
+		mockVpc.EXPECT().GetLoadBalancer(&vpcv1.GetLoadBalancerOptions{ID: ptr.To("test-inactive-lb-instanceid")}).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("test-inactive-lb-instanceid"),
+			ProvisioningStatus: ptr.To("update_pending"),
+			Name:               ptr.To("test-inactive-lb"),
+		}, nil, nil)
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(err).To(BeNil())
+		g.Expect(loadBalancerReady).To(BeFalse())
+	})
+
+	t.Run("When LoadBalancer ID is set, checkLoadBalancerStatus returns status active", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							ID: ptr.To("test-lb-instanceid"),
+						},
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("test-lb-instanceid"),
+			Hostname:           ptr.To("test-lb-hostname"),
+			ProvisioningStatus: ptr.To("active"),
+			Name:               ptr.To("test-lb"),
+		}, nil, nil)
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(loadBalancerReady).To(BeTrue())
+		g.Expect(err).To(BeNil())
+
+		loadBalancerStatus, ok := clusterScope.IBMPowerVSCluster.Status.LoadBalancers["test-lb"]
+		g.Expect(ok).To(BeTrue())
+		g.Expect(loadBalancerStatus.ID).To(Equal(ptr.To("test-lb-instanceid")))
+		g.Expect(loadBalancerStatus.State).To(BeEquivalentTo(infrav1beta2.VPCLoadBalancerStateActive))
+		g.Expect(loadBalancerStatus.Hostname).To(Equal(ptr.To("test-lb-hostname")))
+	})
+
+	t.Run("When LoadBalancer ID is not set and checkLoadBalancer fails to fetch load balancer", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							ID: nil,
+						},
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, errors.New("failed to get load balancer by name"))
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(loadBalancerReady).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When LoadBalancer ID is not set, the checkLoadBalancer function returns nil, indicating that the load balancer does not exist in the cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							ID: nil,
+						},
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(loadBalancerReady).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When LoadBalancer ID is not set, the checkLoadBalancer function still returns a valid loadBalancerStatus, indicating that the load balancer exists in the cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+						},
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ProvisioningStatus: ptr.To("active"),
+			Hostname:           ptr.To("test-lb-hostname"),
+			Name:               ptr.To("test-lb"),
+			ID:                 ptr.To("test-lb-instanceid"),
+		}, nil)
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(loadBalancerReady).To(BeTrue())
+		g.Expect(err).To(BeNil())
+
+		loadBalancerStatus, ok := clusterScope.IBMPowerVSCluster.Status.LoadBalancers["test-lb"]
+		g.Expect(ok).To(BeTrue())
+		g.Expect(loadBalancerStatus.State).To(BeEquivalentTo(infrav1beta2.VPCLoadBalancerStateActive))
+		g.Expect(loadBalancerStatus.ID).To(Equal(ptr.To("test-lb-instanceid")))
+		g.Expect(loadBalancerStatus.Hostname).To(Equal(ptr.To("test-lb-hostname")))
+	})
+
+	t.Run("when checkLoadBalancerPort returns an error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterNetworkAPIServerPort := int32(9090)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+							AdditionalListeners: []infrav1beta2.AdditionalListenerSpec{
+								{
+									Port: 9090,
+								},
+							},
+						},
+					},
+				},
+			},
+			Cluster: &capiv1beta1.Cluster{
+				Spec: capiv1beta1.ClusterSpec{
+					ClusterNetwork: &capiv1beta1.ClusterNetwork{
+						APIServerPort: &clusterNetworkAPIServerPort,
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(loadBalancerReady).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When createLoadBalancer fails to create load balancer", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterAPIServerPort := int32(9090)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-gid"),
+					},
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+						},
+					},
+					VPCSubnets: []infrav1beta2.Subnet{
+						{
+							Name: ptr.To("test-subnet"),
+							ID:   ptr.To("test-subnetid"),
+						},
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSubnet: map[string]infrav1beta2.ResourceReference{
+						"test-subnet": {
+							ID: ptr.To("test-resource-reference-id"),
+						},
+					},
+				},
+			},
+			Cluster: &capiv1beta1.Cluster{
+				Spec: capiv1beta1.ClusterSpec{
+					ClusterNetwork: &capiv1beta1.ClusterNetwork{
+						APIServerPort: &clusterAPIServerPort,
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
+		mockVpc.EXPECT().CreateLoadBalancer(gomock.Any()).Return(nil, nil, errors.New("failed loadBalancer creation"))
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(loadBalancerReady).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When createLoadBalancer successfully creates load balancer", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterAPIServerPort := int32(9090)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-gid"),
+					},
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+						},
+					},
+					VPCSubnets: []infrav1beta2.Subnet{
+						{
+							Name: ptr.To("test-subnet"),
+							ID:   ptr.To("test-subnetid"),
+						},
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSubnet: map[string]infrav1beta2.ResourceReference{
+						"test-subnet": {
+							ID: ptr.To("test-resource-reference-id"),
+						},
+					},
+				},
+			},
+			Cluster: &capiv1beta1.Cluster{
+				Spec: capiv1beta1.ClusterSpec{
+					ClusterNetwork: &capiv1beta1.ClusterNetwork{
+						APIServerPort: &clusterAPIServerPort,
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
+		mockVpc.EXPECT().CreateLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("test-lb-id"),
+			ProvisioningStatus: ptr.To("active"),
+			Hostname:           ptr.To("test-lb-hostname"),
+		}, nil, nil)
+
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		g.Expect(loadBalancerReady).To(BeFalse())
+		g.Expect(err).To(BeNil())
+
+		loadBalancer, ok := clusterScope.IBMPowerVSCluster.Status.LoadBalancers["test-lb"]
+		g.Expect(ok).To(BeTrue())
+		g.Expect(loadBalancer.State).To(BeEquivalentTo(infrav1beta2.VPCLoadBalancerStateActive))
+		g.Expect(loadBalancer.ControllerCreated).To(Equal(ptr.To(true)))
+		g.Expect(loadBalancer.Hostname).To(Equal(ptr.To("test-lb-hostname")))
+	})
+}
+
+func TestCreateLoadbalancer(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When createLoadBalancer returns error as resource group id is empty", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+						},
+					},
+				},
+			},
+		}
+
+		lb := infrav1beta2.VPCLoadBalancerSpec{
+			Name: "test-lb",
+			AdditionalListeners: []infrav1beta2.AdditionalListenerSpec{
+				{
+					Port: int64(9090),
+				},
+			},
+		}
+
+		loadBalancerStatus, err := clusterScope.createLoadBalancer(lb)
+		g.Expect(loadBalancerStatus).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When createLoadBalancer returns error as no subnets present for load balancer creation", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-gid"),
+					},
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+						},
+					},
+				},
+			},
+		}
+
+		lb := infrav1beta2.VPCLoadBalancerSpec{
+			Name: "test-lb",
+			AdditionalListeners: []infrav1beta2.AdditionalListenerSpec{
+				{
+					Port: int64(9090),
+				},
+			},
+		}
+
+		loadbalancerStatus, err := clusterScope.createLoadBalancer(lb)
+		g.Expect(loadbalancerStatus).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When IBMVPCClient client CreateLoadBalancer returns error due to failed load balancer creation in cloud", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterAPIServerPort := int32(9090)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-gid"),
+					},
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+						},
+					},
+					VPCSubnets: []infrav1beta2.Subnet{
+						{
+							Name: ptr.To("test-subnet"),
+							ID:   ptr.To("test-subnetid"),
+						},
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSubnet: map[string]infrav1beta2.ResourceReference{
+						"test-subnet": {
+							ID: ptr.To("test-resource-reference-id"),
+						},
+					},
+				},
+			},
+			Cluster: &capiv1beta1.Cluster{
+				Spec: capiv1beta1.ClusterSpec{
+					ClusterNetwork: &capiv1beta1.ClusterNetwork{
+						APIServerPort: &clusterAPIServerPort,
+					},
+				},
+			},
+		}
+
+		lb := infrav1beta2.VPCLoadBalancerSpec{
+			Name: "test-lb",
+			AdditionalListeners: []infrav1beta2.AdditionalListenerSpec{
+				{
+					Port: int64(9090),
+				},
+			},
+		}
+
+		mockVpc.EXPECT().CreateLoadBalancer(gomock.Any()).Return(nil, nil, errors.New("failed loadBalancer creation"))
+		loadBalancerStatus, err := clusterScope.createLoadBalancer(lb)
+		g.Expect(loadBalancerStatus).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When IBMVPCClient client CreateLoadBalancer successfully creates load balancer in cloud", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterAPIServerPort := int32(9090)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-gid"),
+					},
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+						},
+					},
+					VPCSubnets: []infrav1beta2.Subnet{
+						{
+							Name: ptr.To("test-subnet"),
+							ID:   ptr.To("test-subnetid"),
+						},
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSubnet: map[string]infrav1beta2.ResourceReference{
+						"test-subnet": {
+							ID: ptr.To("test-resource-reference-id"),
+						},
+					},
+				},
+			},
+			Cluster: &capiv1beta1.Cluster{
+				Spec: capiv1beta1.ClusterSpec{
+					ClusterNetwork: &capiv1beta1.ClusterNetwork{
+						APIServerPort: &clusterAPIServerPort,
+					},
+				},
+			},
+		}
+
+		lb := infrav1beta2.VPCLoadBalancerSpec{
+			Name: "test-lb",
+			AdditionalListeners: []infrav1beta2.AdditionalListenerSpec{
+				{
+					Port: int64(9090),
+				},
+			},
+		}
+
+		mockVpc.EXPECT().CreateLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("test-lb-id"),
+			ProvisioningStatus: ptr.To("active"),
+			Hostname:           ptr.To("test-lb-hostname"),
+		}, nil, nil)
+
+		loadBalancerStatus, err := clusterScope.createLoadBalancer(lb)
+		g.Expect(err).To(BeNil())
+		g.Expect(loadBalancerStatus.State).To(BeEquivalentTo(infrav1beta2.VPCLoadBalancerStateActive))
+		g.Expect(loadBalancerStatus.ControllerCreated).To(Equal(ptr.To(true)))
+		g.Expect(loadBalancerStatus.Hostname).To(Equal(ptr.To("test-lb-hostname")))
+	})
+}
+
+func TestCheckLoadBalancerPort(t *testing.T) {
+	t.Run("When load balancer listener port and powerVS API server port are same", func(t *testing.T) {
+		g := NewWithT(t)
+		lbName := "test-loadbalancer"
+		port := 9090
+		expectedErr := fmt.Errorf("port %d for the %s load balancer cannot be used as an additional listener port, as it is already assigned to the API server", port, lbName)
+
+		clusterScope := PowerVSClusterScope{
+			Cluster: &capiv1beta1.Cluster{
+				Spec: capiv1beta1.ClusterSpec{
+					ClusterNetwork: &capiv1beta1.ClusterNetwork{
+						APIServerPort: ptr.To(int32(port)),
+					},
+				},
+			},
+		}
+
+		loadBalancer := infrav1beta2.VPCLoadBalancerSpec{Name: lbName, AdditionalListeners: []infrav1beta2.AdditionalListenerSpec{
+			{
+				Port: int64(port),
+			},
+		}}
+
+		err := clusterScope.checkLoadBalancerPort(loadBalancer)
+		g.Expect(err).To(MatchError(expectedErr))
+	})
+
+	t.Run("When load balancer listener port and powerVS API server port are different", func(t *testing.T) {
+		g := NewWithT(t)
+		clusterScope := PowerVSClusterScope{
+			Cluster: &capiv1beta1.Cluster{
+				Spec: capiv1beta1.ClusterSpec{
+					ClusterNetwork: &capiv1beta1.ClusterNetwork{
+						APIServerPort: ptr.To(int32(8080)),
+					},
+				},
+			},
+		}
+
+		loadBalancer := infrav1beta2.VPCLoadBalancerSpec{Name: "test-loadbalancer", AdditionalListeners: []infrav1beta2.AdditionalListenerSpec{
+			{
+				Port: int64(9090),
+			},
+		}}
+
+		err := clusterScope.checkLoadBalancerPort(loadBalancer)
+		g.Expect(err).To(BeNil())
+	})
+}
+func TestCheckLoadBalancer(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When checkLoadBalancer returns error due to failure in fetching load balancer details from cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							ID: nil,
+						},
+					},
+				},
+			},
+		}
+
+		lb := infrav1beta2.VPCLoadBalancerSpec{
+			Name: "test-lb",
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, errors.New("failed to get load balancer by name"))
+		loadBalancerStatus, err := clusterScope.checkLoadBalancer(lb)
+		g.Expect(loadBalancerStatus).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When checkLoadBalancer fails to returns load balancer status, indicating that load balancer does not exist in the cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							ID: nil,
+						},
+					},
+				},
+			},
+		}
+
+		lb := infrav1beta2.VPCLoadBalancerSpec{
+			Name: "test-lb",
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
+
+		loadBalancerStatus, err := clusterScope.checkLoadBalancer(lb)
+		g.Expect(loadBalancerStatus).To(BeNil())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When checkLoadBalancer returns valid load balancer status, indicating that load balancer exists in the cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVpc,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1beta2.VPCLoadBalancerSpec{
+						{
+							Name: "test-lb",
+							ID:   nil,
+						},
+					},
+				},
+			},
+		}
+
+		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ProvisioningStatus: ptr.To("active"),
+			Hostname:           ptr.To("test-lb-hostname"),
+			Name:               ptr.To("test-lb"),
+			ID:                 ptr.To("test-lb-instanceid"),
+		}, nil)
+
+		lb := infrav1beta2.VPCLoadBalancerSpec{
+			Name: "test-lb",
+		}
+
+		loadBalancerStatus, err := clusterScope.checkLoadBalancer(lb)
+		g.Expect(err).To(BeNil())
+		g.Expect(loadBalancerStatus.ID).To(Equal(ptr.To("test-lb-instanceid")))
+		g.Expect(loadBalancerStatus.State).To(Equal(infrav1beta2.VPCLoadBalancerStateActive))
+		g.Expect(loadBalancerStatus.Hostname).To(Equal(ptr.To("test-lb-hostname")))
+	})
+}
+
+func TestCheckLoadBalancerStatus(t *testing.T) {
+	testcases := []struct {
+		name           string
+		loadbalancer   vpcv1.LoadBalancer
+		expectedStatus bool
+	}{
+		{
+			name:           "VPC load balancer is in active state",
+			loadbalancer:   vpcv1.LoadBalancer{Name: ptr.To("loadbalancer-active"), ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateActive))},
+			expectedStatus: true,
+		},
+		{
+			name:           "VPC load balancer creation is in pending state",
+			loadbalancer:   vpcv1.LoadBalancer{Name: ptr.To("loadbalancer-createPending"), ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateCreatePending))},
+			expectedStatus: false,
+		},
+		{
+			name:           "VPC load balancer is in updating state",
+			loadbalancer:   vpcv1.LoadBalancer{Name: ptr.To("loadbalancer-updatePending"), ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateUpdatePending))},
+			expectedStatus: false,
+		},
+	}
+
+	for _, tc := range testcases {
+		g := NewWithT(t)
+		clusterScope := PowerVSClusterScope{}
+		t.Run(tc.name, func(_ *testing.T) {
+			isReady := clusterScope.checkLoadBalancerStatus(tc.loadbalancer)
+			g.Expect(isReady).To(Equal(tc.expectedStatus))
+		})
+	}
+}
 func TestReconcilePowerVSServiceInstance(t *testing.T) {
 	var (
 		mockResourceController *mockRC.MockResourceController
@@ -3040,6 +3833,5441 @@ func TestCreateVPCSubnet(t *testing.T) {
 		subnet := infrav1beta2.Subnet{Name: ptr.To("ClusterName-vpcsubnet-eu-de-1")}
 		subnetID, err := clusterScope.createVPCSubnet(subnet)
 		g.Expect(subnetID).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+func TestPowerVSDeleteLoadBalancer(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	powervsClusterScope := func() *PowerVSClusterScope {
+		return &PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					LoadBalancers: map[string]infrav1beta2.VPCLoadBalancerStatus{
+						"lb": {
+							ID:                ptr.To("lb-id"),
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("When load balancer is not found", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteLoadBalancer()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When DeleteLoadBalancer returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("lb-id"),
+			Name:               ptr.To("lb"),
+			ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateActive)),
+		}, nil, nil)
+		mockVpc.EXPECT().DeleteLoadBalancer(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete load balancer"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteLoadBalancer()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When load balancer deletion is in pending state", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("lb-id"),
+			Name:               ptr.To("lb"),
+			ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateDeletePending)),
+		}, nil, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteLoadBalancer()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When GetLoadBalancer returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(nil, nil, errors.New("failed to get loadbalancer"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteLoadBalancer()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When DeleteLoadBalancer successfully deletes load balancer in cloud", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("lb-id"),
+			Name:               ptr.To("lb"),
+			ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateActive)),
+		}, nil, nil)
+		mockVpc.EXPECT().DeleteLoadBalancer(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteLoadBalancer()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When load balancer is not created by controller", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.LoadBalancers = map[string]infrav1beta2.VPCLoadBalancerStatus{
+			"lb": {
+				ID:                ptr.To("lb-id"),
+				ControllerCreated: ptr.To(false),
+			},
+		}
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteLoadBalancer()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When one load balancer is not created by controller", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.LoadBalancers = map[string]infrav1beta2.VPCLoadBalancerStatus{
+			"lb1": {
+				ID:                ptr.To("lb-id"),
+				ControllerCreated: ptr.To(true),
+			},
+			"lb2": {
+				ID:                ptr.To("lb-id"),
+				ControllerCreated: ptr.To(false),
+			},
+		}
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("lb-id"),
+			Name:               ptr.To("lb"),
+			ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateActive)),
+		}, nil, nil)
+		mockVpc.EXPECT().DeleteLoadBalancer(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteLoadBalancer()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When deleting multiple load balancer", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.LoadBalancers = map[string]infrav1beta2.VPCLoadBalancerStatus{
+			"lb1": {
+				ID:                ptr.To("lb-id"),
+				ControllerCreated: ptr.To(true),
+			},
+			"lb2": {
+				ID:                ptr.To("lb-id"),
+				ControllerCreated: ptr.To(true),
+			},
+			"lb3": {
+				ID:                ptr.To("lb-id"),
+				ControllerCreated: ptr.To(true),
+			},
+		}
+		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(&vpcv1.LoadBalancer{
+			ID:                 ptr.To("lb-id"),
+			Name:               ptr.To("lb"),
+			ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateActive)),
+		}, nil, nil).Times(3)
+		mockVpc.EXPECT().DeleteLoadBalancer(gomock.Any()).Return(&core.DetailedResponse{}, nil).Times(3)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteLoadBalancer()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+}
+
+func TestDeleteVPCSecurityGroups(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	powervsClusterScope := func() *PowerVSClusterScope {
+		return &PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSecurityGroups: map[string]infrav1beta2.VPCSecurityGroupStatus{
+						"sc": {
+							ID:                ptr.To("sc-id"),
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("When security group is not found", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCSecurityGroups()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When DeleteSecurityGroup returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{
+			ID:   ptr.To("sc-id"),
+			Name: ptr.To("sc"),
+		}, nil, nil)
+		mockVpc.EXPECT().DeleteSecurityGroup(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete security group"))
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCSecurityGroups()
+		g.Expect(err).To(Not(BeNil()))
+	})
+
+	t.Run("When GetSecurityGroup returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to get security group"))
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCSecurityGroups()
+		g.Expect(err).To(Not(BeNil()))
+	})
+
+	t.Run("When DeleteSecurityGroup successfully deletes security group in cloud", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{
+			ID:   ptr.To("sc-id"),
+			Name: ptr.To("sc"),
+		}, nil, nil)
+		mockVpc.EXPECT().DeleteSecurityGroup(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCSecurityGroups()
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When deleting multiple SecurityGroup", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.VPCSecurityGroups = map[string]infrav1beta2.VPCSecurityGroupStatus{
+			"sc1": {
+				ID:                ptr.To("sc-id"),
+				ControllerCreated: ptr.To(true),
+			},
+			"sc2": {
+				ID:                ptr.To("sc-id"),
+				ControllerCreated: ptr.To(true),
+			},
+			"sc3": {
+				ID:                ptr.To("sc-id"),
+				ControllerCreated: ptr.To(true),
+			},
+		}
+		mockVpc.EXPECT().GetSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{
+			ID:   ptr.To("sc-id"),
+			Name: ptr.To("sc"),
+		}, nil, nil).Times(3)
+		mockVpc.EXPECT().DeleteSecurityGroup(gomock.Any()).Return(&core.DetailedResponse{}, nil).Times(3)
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCSecurityGroups()
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When one security group is not created by controller", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.VPCSecurityGroups = map[string]infrav1beta2.VPCSecurityGroupStatus{
+			"sc1": {
+				ID:                ptr.To("sc-id"),
+				ControllerCreated: ptr.To(false),
+			},
+			"sc2": {
+				ID:                ptr.To("sc-id"),
+				ControllerCreated: ptr.To(true),
+			},
+		}
+		mockVpc.EXPECT().GetSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{
+			ID:   ptr.To("sc-id"),
+			Name: ptr.To("sc"),
+		}, nil, nil)
+		mockVpc.EXPECT().DeleteSecurityGroup(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCSecurityGroups()
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When security group is not created by controller", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.VPCSecurityGroups = map[string]infrav1beta2.VPCSecurityGroupStatus{
+			"sc": {
+				ID:                ptr.To("sc-id"),
+				ControllerCreated: ptr.To(false),
+			},
+		}
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCSecurityGroups()
+		g.Expect(err).To(BeNil())
+	})
+}
+
+func TestDeleteVPCSubnet(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	powervsClusterScope := func() *PowerVSClusterScope {
+		return &PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSubnet: map[string]infrav1beta2.ResourceReference{
+						"subent1": {
+							ID:                ptr.To("subent1"),
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("When VPC Subnet is not found", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPCSubnet()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When DeleteSubnet returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnet1"), Status: ptr.To("active")}, nil, nil)
+		mockVpc.EXPECT().DeleteSubnet(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete subnet"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPCSubnet()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When subnet deletion is in pending state", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnet1"), Status: ptr.To(string(infrav1beta2.VPCSubnetStateDeleting))}, nil, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPCSubnet()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When GetSubnet returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(nil, nil, errors.New("failed to get subnet"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPCSubnet()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When DeleteVPCSubnet successfully deletes subnet in cloud", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnet1"), Status: ptr.To("active")}, nil, nil)
+		mockVpc.EXPECT().DeleteSubnet(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPCSubnet()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When deleting multiple subnet", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.VPCSubnet = map[string]infrav1beta2.ResourceReference{
+			"subent1": {
+				ID:                ptr.To("subentid"),
+				ControllerCreated: ptr.To(true),
+			},
+			"subent2": {
+				ID:                ptr.To("subentid"),
+				ControllerCreated: ptr.To(true),
+			},
+			"subent3": {
+				ID:                ptr.To("subentid"),
+				ControllerCreated: ptr.To(true),
+			},
+		}
+		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnetid"), Status: ptr.To("active")}, nil, nil).Times(3)
+		mockVpc.EXPECT().DeleteSubnet(gomock.Any()).Return(&core.DetailedResponse{}, nil).Times(3)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPCSubnet()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When one subnet is not created by controller", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.VPCSubnet = map[string]infrav1beta2.ResourceReference{
+			"subent1": {
+				ID:                ptr.To("subentid"),
+				ControllerCreated: ptr.To(false),
+			},
+			"subent2": {
+				ID:                ptr.To("subentid"),
+				ControllerCreated: ptr.To(true),
+			},
+		}
+		clusterScope.IBMVPCClient = mockVpc
+		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnetid"), Status: ptr.To("active")}, nil, nil)
+		mockVpc.EXPECT().DeleteSubnet(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		requeue, err := clusterScope.DeleteVPCSubnet()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When subnet is not created by controller", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.VPCSubnet = map[string]infrav1beta2.ResourceReference{
+			"subent1": {
+				ID:                ptr.To("subent1"),
+				ControllerCreated: ptr.To(false),
+			},
+		}
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPCSubnet()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+}
+
+func TestPowerVSDeleteVPC(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	powervsClusterScope := func() *PowerVSClusterScope {
+		return &PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("vpcid"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("When VPC is not found", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPC()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When VPC ID is nil", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.VPC.ID = nil
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPC()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When DeleteVPC returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{ID: ptr.To("vpcid"), Status: ptr.To("active")}, nil, nil)
+		mockVpc.EXPECT().DeleteVPC(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete vpc"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPC()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When vpc deletion is in pending state", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{ID: ptr.To("vpcid"), Status: ptr.To(string(infrav1beta2.VPCStateDeleting))}, nil, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPC()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When GetVPC returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(nil, nil, errors.New("failed to get subnet"))
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPC()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When DeleteVPC successfully deletes VPC in cloud", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{ID: ptr.To("vpcid"), Status: ptr.To("active")}, nil, nil)
+		mockVpc.EXPECT().DeleteVPC(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPC()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When VPC is not created by controller", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.VPC = &infrav1beta2.ResourceReference{
+			ID:                ptr.To("vpcid"),
+			ControllerCreated: ptr.To(false),
+		}
+		clusterScope.IBMVPCClient = mockVpc
+		requeue, err := clusterScope.DeleteVPC()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+}
+
+func TestDeleteTransitGateway(t *testing.T) {
+	var (
+		mockCtrl *gomock.Controller
+		mockTG   *tgmock.MockTransitGateway
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockTG = tgmock.NewMockTransitGateway(mockCtrl)
+	}
+
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	powervsClusterScope := func() *PowerVSClusterScope {
+		return &PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						ID:                ptr.To("transitgatewayID"),
+						ControllerCreated: ptr.To(true),
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+							ID:                ptr.To("connectionID"),
+						},
+						VPCConnection: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+							ID:                ptr.To("connectionID"),
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("When transit gateway is nil", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status = infrav1beta2.IBMPowerVSClusterStatus{}
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When DeleteTransitGateway returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		tgw := &tgapiv1.TransitGateway{
+			Name:   ptr.To("transitGateway"),
+			ID:     ptr.To("transitGatewayID"),
+			Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}
+		clusterScope := powervsClusterScope()
+		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
+		mockTG.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, nil).Times(2)
+		mockTG.EXPECT().DeleteTransitGateway(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete transit gateway"))
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When transit gateway is not found", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		tgw := &tgapiv1.TransitGateway{
+			Name:   ptr.To("transitGateway"),
+			ID:     ptr.To("transitGatewayID"),
+			Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}
+		clusterScope := powervsClusterScope()
+		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When GetTransitGateway returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		tgw := &tgapiv1.TransitGateway{
+			Name:   ptr.To("transitGateway"),
+			ID:     ptr.To("transitGatewayID"),
+			Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}
+		clusterScope := powervsClusterScope()
+		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, errors.New("failed to get transit gateway"))
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When TransitGateway deletion is in pending state", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		tgw := &tgapiv1.TransitGateway{
+			Name:   ptr.To("transitGateway"),
+			ID:     ptr.To("transitGatewayID"),
+			Status: ptr.To(string(infrav1beta2.TransitGatewayStateDeletePending))}
+		clusterScope := powervsClusterScope()
+		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When DeleteTransitGateway successfully deletes transit gateway in cloud", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := powervsClusterScope()
+		tgw := &tgapiv1.TransitGateway{
+			Name:   ptr.To("transitGateway"),
+			ID:     ptr.To("transitGatewayID"),
+			Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}
+		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
+		mockTG.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, nil).Times(2)
+		mockTG.EXPECT().DeleteTransitGateway(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When deleteTransitGatewayConnections returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := powervsClusterScope()
+		tgw := &tgapiv1.TransitGateway{
+			Name:   ptr.To("transitGateway"),
+			ID:     ptr.To("transitGatewayID"),
+			Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}
+		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
+		mockTG.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(nil, &core.DetailedResponse{}, errors.New("failed to get transit gateway connections"))
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(Not(BeNil()))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When deleteTransitGatewayConnections returns requeue as true", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := powervsClusterScope()
+		tgw := &tgapiv1.TransitGateway{
+			Name:   ptr.To("transitGateway"),
+			ID:     ptr.To("transitGatewayID"),
+			Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}
+		tgResponse := &tgapiv1.TransitGatewayConnectionCust{Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateDeleting))}
+		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
+		mockTG.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(tgResponse, &core.DetailedResponse{}, nil)
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When transit gateway is not created by controller", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		tgw := &tgapiv1.TransitGateway{
+			Name:   ptr.To("transitGateway"),
+			ID:     ptr.To("transitGatewayID"),
+			Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}
+		clusterScope := powervsClusterScope()
+		clusterScope.IBMPowerVSCluster.Status.TransitGateway = &infrav1beta2.TransitGatewayStatus{
+			ID:                ptr.To("transitgatewayID"),
+			ControllerCreated: ptr.To(false),
+			PowerVSConnection: &infrav1beta2.ResourceReference{
+				ControllerCreated: ptr.To(false),
+				ID:                ptr.To("connectionID"),
+			},
+			VPCConnection: &infrav1beta2.ResourceReference{
+				ControllerCreated: ptr.To(false),
+				ID:                ptr.To("connectionID"),
+			},
+		}
+		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
+		clusterScope.TransitGatewayClient = mockTG
+		requeue, err := clusterScope.DeleteTransitGateway()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+}
+func TestIsResourceCreatedByController(t *testing.T) {
+	testCases := []struct {
+		name           string
+		resourceType   infrav1beta2.ResourceType
+		clusterScope   PowerVSClusterScope
+		expectedResult bool
+	}{
+		{
+			name: "When resourceType is VPC and VPC status is nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{},
+			},
+			resourceType:   infrav1beta2.ResourceTypeVPC,
+			expectedResult: false,
+		},
+		{
+			name: "When resourceType is VPC and VPC status is not nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+					Status: infrav1beta2.IBMPowerVSClusterStatus{
+						VPC: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			resourceType:   infrav1beta2.ResourceTypeVPC,
+			expectedResult: true,
+		},
+		{
+			name: "When resourceType is ServiceInstance and ServiceInstance status is nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{},
+			},
+			resourceType:   infrav1beta2.ResourceTypeServiceInstance,
+			expectedResult: false,
+		},
+		{
+			name: "When resourceType is ServiceInstance and ServiceInstance status is not nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+					Status: infrav1beta2.IBMPowerVSClusterStatus{
+						ServiceInstance: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			resourceType:   infrav1beta2.ResourceTypeServiceInstance,
+			expectedResult: true,
+		},
+		{
+			name: "When resourceType is TransitGateway and TransitGateway status is nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{},
+			},
+			resourceType:   infrav1beta2.ResourceTypeTransitGateway,
+			expectedResult: false,
+		},
+		{
+			name: "When resourceType is TransitGateway and TransitGateway status is not nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+					Status: infrav1beta2.IBMPowerVSClusterStatus{
+						TransitGateway: &infrav1beta2.TransitGatewayStatus{
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			resourceType:   infrav1beta2.ResourceTypeTransitGateway,
+			expectedResult: true,
+		},
+		{
+			name: "When resourceType is DHCPServer and DHCPServer status is nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{},
+			},
+			resourceType:   infrav1beta2.ResourceTypeDHCPServer,
+			expectedResult: false,
+		},
+		{
+			name: "When resourceType is DHCPServer and DHCPServer status is not nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+					Status: infrav1beta2.IBMPowerVSClusterStatus{
+						DHCPServer: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			resourceType:   infrav1beta2.ResourceTypeDHCPServer,
+			expectedResult: true,
+		},
+		{
+			name: "When resourceType is COSInstance and COSInstance status is nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{},
+			},
+			resourceType:   infrav1beta2.ResourceTypeCOSInstance,
+			expectedResult: false,
+		},
+		{
+			name: "When resourceType is COSInstance and COSInstance status is not nil",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+					Status: infrav1beta2.IBMPowerVSClusterStatus{
+						COSInstance: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			resourceType:   infrav1beta2.ResourceTypeCOSInstance,
+			expectedResult: true,
+		},
+		{
+			name: "When resourceType is not valid",
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{},
+			},
+			resourceType:   infrav1beta2.ResourceTypePublicGateway,
+			expectedResult: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		g := NewWithT(t)
+		t.Run(tc.name, func(_ *testing.T) {
+			isResourceCreated := tc.clusterScope.isResourceCreatedByController(tc.resourceType)
+			g.Expect(isResourceCreated).To(Equal(tc.expectedResult))
+		})
+	}
+}
+
+func TestDeleteCOSInstance(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockCtrl               *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("When COS instance resource is not created by controller", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{}}
+		err := clusterScope.DeleteCOSInstance()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When COS instance ID is nil", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+			Status: infrav1beta2.IBMPowerVSClusterStatus{
+				COSInstance: &infrav1beta2.ResourceReference{
+					ControllerCreated: ptr.To(true),
+				},
+			},
+		}}
+		err := clusterScope.DeleteCOSInstance()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When COS instance state is pending_reclamation", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					COSInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("cosInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		cosInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("cosInstanceID"), State: ptr.To("pending_reclamation")}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(cosInstance, nil, nil)
+		err := clusterScope.DeleteCOSInstance()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When COS instance is not found", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					COSInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("cosInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: ResourceNotFoundCode}, fmt.Errorf("error getting resource instance"))
+		err := clusterScope.DeleteCOSInstance()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When GetResourceInstance returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					COSInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("cosInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, fmt.Errorf("error getting resource instance"))
+		err := clusterScope.DeleteCOSInstance()
+		g.Expect(err.Error()).To(Equal("failed to fetch COS service instance: error getting resource instance"))
+	})
+	t.Run("When COS instance state is active and DeleteResourceInstance succeeds", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					COSInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("cosInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		cosInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("cosInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive))}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(cosInstance, nil, nil)
+		mockResourceController.EXPECT().DeleteResourceInstance(gomock.Any()).Return(nil, nil)
+		err := clusterScope.DeleteCOSInstance()
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When COS instance state is active and DeleteResourceInstance returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					COSInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("cosInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		cosInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("cosInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive))}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(cosInstance, nil, nil)
+		mockResourceController.EXPECT().DeleteResourceInstance(gomock.Any()).Return(nil, fmt.Errorf("error deleting resource instance"))
+		err := clusterScope.DeleteCOSInstance()
+		g.Expect(err).To(Equal(fmt.Errorf("error deleting resource instance")))
+	})
+}
+
+func TestDeleteServiceInstance(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockCtrl               *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("When PowerVS service instance resource is not created by controller", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{}}
+		requeue, err := clusterScope.DeleteServiceInstance()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When PowerVS service instance ID is nil", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+			Status: infrav1beta2.IBMPowerVSClusterStatus{
+				ServiceInstance: &infrav1beta2.ResourceReference{
+					ControllerCreated: ptr.To(true),
+				},
+			},
+		}}
+		requeue, err := clusterScope.DeleteServiceInstance()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When PowerVS service instance is in removed state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("serviceInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		serviceInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("serviceInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateRemoved))}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(serviceInstance, nil, nil)
+		requeue, err := clusterScope.DeleteServiceInstance()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When GetResourceInstance returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("serviceInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, fmt.Errorf("error getting resource instance"))
+		requeue, err := clusterScope.DeleteServiceInstance()
+		g.Expect(err.Error()).To(Equal("failed to fetch PowerVS service instance: error getting resource instance"))
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When PowerVS service instance state is active and DeleteResourceInstance succeeds", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("serviceInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		serviceInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("serviceInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive))}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(serviceInstance, nil, nil)
+		mockResourceController.EXPECT().DeleteResourceInstance(gomock.Any()).Return(nil, nil)
+		requeue, err := clusterScope.DeleteServiceInstance()
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When PowerVS instance state is active and DeleteResourceInstance returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("serviceInstanceID"),
+						ControllerCreated: ptr.To(true),
+					},
+				},
+			},
+			ResourceClient: mockResourceController,
+		}
+		serviceInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("serviceInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive))}
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(serviceInstance, nil, nil)
+		mockResourceController.EXPECT().DeleteResourceInstance(gomock.Any()).Return(nil, fmt.Errorf("error deleting resource instance"))
+		requeue, err := clusterScope.DeleteServiceInstance()
+		g.Expect(err).To(Equal(fmt.Errorf("error deleting resource instance")))
+		g.Expect(requeue).To(BeFalse())
+	})
+}
+
+func TestDeleteDHCPServer(t *testing.T) {
+	var (
+		mockPowerVS *mockP.MockPowerVS
+		mockCtrl    *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockPowerVS = mockP.NewMockPowerVS(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("When DHCP Server resource is not created by controller", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{}}
+		err := clusterScope.DeleteDHCPServer()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When PowerVS service instance is created by controller", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+			Status: infrav1beta2.IBMPowerVSClusterStatus{
+				DHCPServer: &infrav1beta2.ResourceReference{
+					ControllerCreated: ptr.To(true),
+				},
+				ServiceInstance: &infrav1beta2.ResourceReference{
+					ControllerCreated: ptr.To(true),
+				},
+			},
+		}}
+		err := clusterScope.DeleteDHCPServer()
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When DHCP server ID is nil", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+			Status: infrav1beta2.IBMPowerVSClusterStatus{
+				DHCPServer: &infrav1beta2.ResourceReference{
+					ControllerCreated: ptr.To(true),
+				},
+				ServiceInstance: &infrav1beta2.ResourceReference{},
+			},
+		}}
+		err := clusterScope.DeleteDHCPServer()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When the DHCP server is not found", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					DHCPServer: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("dhcpServerID"),
+						ControllerCreated: ptr.To(true),
+					},
+					ServiceInstance: &infrav1beta2.ResourceReference{},
+				},
+			},
+			IBMPowerVSClient: mockPowerVS,
+		}
+		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(nil, fmt.Errorf("dhcp server does not exist"))
+		err := clusterScope.DeleteDHCPServer()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When GetDHCPServer returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					DHCPServer: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("dhcpServerID"),
+						ControllerCreated: ptr.To(true),
+					},
+					ServiceInstance: &infrav1beta2.ResourceReference{},
+				},
+			},
+			IBMPowerVSClient: mockPowerVS,
+		}
+		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(nil, fmt.Errorf("error getting dhcp server"))
+		err := clusterScope.DeleteDHCPServer()
+		g.Expect(err.Error()).To(Equal("failed to fetch DHCP server: error getting dhcp server"))
+	})
+	t.Run("When DeleteDHCPServer returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					DHCPServer: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("dhcpServerID"),
+						ControllerCreated: ptr.To(true),
+					},
+					ServiceInstance: &infrav1beta2.ResourceReference{},
+				},
+			},
+			IBMPowerVSClient: mockPowerVS,
+		}
+		dhcpServer := &models.DHCPServerDetail{ID: ptr.To("dhcpServerID")}
+		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
+		mockPowerVS.EXPECT().DeleteDHCPServer(gomock.Any()).Return(fmt.Errorf("error deleting dhcp server"))
+		err := clusterScope.DeleteDHCPServer()
+		g.Expect(err.Error()).To(Equal("failed to delete DHCP server: error deleting dhcp server"))
+	})
+	t.Run("When DHCP server deletion is successful", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					DHCPServer: &infrav1beta2.ResourceReference{
+						ID:                ptr.To("dhcpServerID"),
+						ControllerCreated: ptr.To(true),
+					},
+					ServiceInstance: &infrav1beta2.ResourceReference{},
+				},
+			},
+			IBMPowerVSClient: mockPowerVS,
+		}
+		dhcpServer := &models.DHCPServerDetail{ID: ptr.To("dhcpServerID")}
+		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
+		mockPowerVS.EXPECT().DeleteDHCPServer(gomock.Any()).Return(nil)
+		err := clusterScope.DeleteDHCPServer()
+		g.Expect(err).To(BeNil())
+	})
+}
+
+func TestDeleteTransitGatewayConnections(t *testing.T) {
+	var (
+		mockTransitGateway *tgmock.MockTransitGateway
+		mockCtrl           *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockTransitGateway = tgmock.NewMockTransitGateway(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("When PowerVS connection of transit gateway is in deleting state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			TransitGatewayClient: mockTransitGateway,
+		}
+		tgResponse := &tgapiv1.TransitGatewayConnectionCust{Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateDeleting))}
+		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When DeleteTransitGatewayConnection for PowerVS connection returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			TransitGatewayClient: mockTransitGateway,
+		}
+		tgResponse := &tgapiv1.TransitGatewayConnectionCust{Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))}
+		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockTransitGateway.EXPECT().DeleteTransitGatewayConnection(gomock.Any()).Return(nil, fmt.Errorf("error deleting transit gateway connection"))
+		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		g.Expect(err.Error()).To(Equal("failed to delete transit gateway connection: error deleting transit gateway connection"))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When DeleteTransitGatewayConnection for PowerVS connection succeeds", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			TransitGatewayClient: mockTransitGateway,
+		}
+		tgResponse := &tgapiv1.TransitGatewayConnectionCust{Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))}
+		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockTransitGateway.EXPECT().DeleteTransitGatewayConnection(gomock.Any()).Return(nil, nil)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When GetTransitGatewayConnection for PowerVS connection returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ID:                ptr.To("powerVStgID"),
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			TransitGatewayClient: mockTransitGateway,
+		}
+		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 400}, fmt.Errorf("error getting transit gateway connection"))
+		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		g.Expect(err.Error()).To(Equal("failed to get transit gateway powervs connection: error getting transit gateway connection"))
+		g.Expect(requeue).To(BeFalse())
+	})
+	t.Run("When PowerVS connection is not found and VPC connection of transit gateway is deleted successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ID:                ptr.To("powerVStgID"),
+							ControllerCreated: ptr.To(true),
+						},
+						VPCConnection: &infrav1beta2.ResourceReference{
+							ID:                ptr.To("vpctgID"),
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			TransitGatewayClient: mockTransitGateway,
+		}
+		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
+		tgResponse := &tgapiv1.TransitGatewayConnectionCust{Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))}
+		powerVSTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("powerVStgID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(powerVSTGOptions).Return(nil, &core.DetailedResponse{StatusCode: ResourceNotFoundCode}, nil)
+		vpcTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("vpctgID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(vpcTGOptions).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockTransitGateway.EXPECT().DeleteTransitGatewayConnection(gomock.Any()).Return(nil, nil)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+	t.Run("When GetTransitGatewayConnection for VPC connection returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(false),
+						},
+						VPCConnection: &infrav1beta2.ResourceReference{
+							ID:                ptr.To("vpctgID"),
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			TransitGatewayClient: mockTransitGateway,
+		}
+		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
+		vpcTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("vpctgID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(vpcTGOptions).Return(nil, &core.DetailedResponse{StatusCode: 500}, fmt.Errorf("error getting transit gateway connection"))
+		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		g.Expect(err.Error()).To(Equal("failed to get transit gateway powervs connection: error getting transit gateway connection"))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When DeleteTransitGatewayConnection for VPC connection succeeds", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(false),
+						},
+						VPCConnection: &infrav1beta2.ResourceReference{
+							ID:                ptr.To("vpctgID"),
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			TransitGatewayClient: mockTransitGateway,
+		}
+		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
+		tgResponse := &tgapiv1.TransitGatewayConnectionCust{Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))}
+		vpcTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("vpctgID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(vpcTGOptions).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockTransitGateway.EXPECT().DeleteTransitGatewayConnection(gomock.Any()).Return(nil, nil)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("When VPC connection of transit gateway is not found", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						PowerVSConnection: &infrav1beta2.ResourceReference{
+							ControllerCreated: ptr.To(false),
+						},
+						VPCConnection: &infrav1beta2.ResourceReference{
+							ID:                ptr.To("vpctgID"),
+							ControllerCreated: ptr.To(true),
+						},
+					},
+				},
+			},
+			TransitGatewayClient: mockTransitGateway,
+		}
+		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
+		vpcTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("vpctgID")}
+		mockTransitGateway.EXPECT().GetTransitGatewayConnection(vpcTGOptions).Return(nil, &core.DetailedResponse{StatusCode: ResourceNotFoundCode}, nil)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+}
+func TestReconcileCOSInstance(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockCtrl               *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When fetch for COS service instance fails", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		err := os.Setenv("IBMCLOUD_APIKEY", "test-api-key")
+		g.Expect(err).To(BeNil())
+		defer os.Unsetenv("IBMCLOUD_APIKEY")
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{
+						BucketRegion: "test-region",
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("error fetching instance by name"))
+
+		err = clusterScope.ReconcileCOSInstance()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance).To(BeNil())
+	})
+
+	t.Run("When COS service instance is found in IBM Cloud and cluster status is updated", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		err := os.Setenv("IBMCLOUD_APIKEY", "test-api-key")
+		g.Expect(err).To(BeNil())
+		defer os.Unsetenv("IBMCLOUD_APIKEY")
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{
+						BucketRegion: "test-region",
+					},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-group-id"),
+					},
+					Zone: ptr.To("test-zone"),
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			Name:  ptr.To("test-cos-resource-name"),
+			State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive)),
+			GUID:  ptr.To("test-cos-instance-guid"),
+		}, nil)
+
+		err = clusterScope.ReconcileCOSInstance()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-cos-instance-guid")))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(false))))
+	})
+
+	t.Run("When COS service instance is not found in IBM Cloud and hence creates COS instance in cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		err := os.Setenv("IBMCLOUD_APIKEY", "test-api-key")
+		g.Expect(err).To(BeNil())
+		defer os.Unsetenv("IBMCLOUD_APIKEY")
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{
+						BucketRegion: "test-region",
+					},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-group-id"),
+					},
+					Zone: ptr.To("test-zone"),
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			ID:   ptr.To("test-resource-instance-id"),
+			GUID: ptr.To("test-resource-instance-guid"),
+			Name: ptr.To("test-resource-instance-name"),
+		}, nil, nil)
+
+		err = clusterScope.ReconcileCOSInstance()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-resource-instance-guid")))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(true))))
+	})
+
+	t.Run("When COS service instance is not found in IBM Cloud and hence creates COS instance in cloud but fails during the creation", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		err := os.Setenv("IBMCLOUD_APIKEY", "test-api-key")
+		g.Expect(err).To(BeNil())
+		defer os.Unsetenv("IBMCLOUD_APIKEY")
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{
+						BucketRegion: "test-region",
+					},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-group-id"),
+					},
+					Zone: ptr.To("test-zone"),
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to create COS service instance"))
+
+		err = clusterScope.ReconcileCOSInstance()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance).To(BeNil())
+	})
+
+	t.Run("When fetch for API_KEY fails", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{
+						BucketRegion: "test-region",
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			Name:  ptr.To("test-cos-resource-name"),
+			State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive)),
+			GUID:  ptr.To("test-cos-instance-guid"),
+		}, nil)
+
+		err := clusterScope.ReconcileCOSInstance()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-cos-instance-guid")))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(false))))
+	})
+
+	t.Run("When COS bucket region is failed to be determined", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		err := os.Setenv("IBMCLOUD_APIKEY", "test-api-key")
+		g.Expect(err).To(BeNil())
+		defer os.Unsetenv("IBMCLOUD_APIKEY")
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-group-id"),
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+
+		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			ID:   ptr.To("test-resource-instance-id"),
+			GUID: ptr.To("test-resource-instance-guid"),
+			Name: ptr.To("test-resource-instance-name"),
+		}, nil, nil)
+
+		err = clusterScope.ReconcileCOSInstance()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-resource-instance-guid")))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(true))))
+	})
+
+	t.Run("When checkCOSBucket fails to determine whether bucket exist in cloud due to an unexpected error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		err := os.Setenv("IBMCLOUD_APIKEY", "test-api-key")
+		g.Expect(err).To(BeNil())
+		defer os.Unsetenv("IBMCLOUD_APIKEY")
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{
+						BucketRegion: "test-bucket-region",
+					},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-group-id"),
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+
+		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			ID:   ptr.To("test-resource-instance-id"),
+			GUID: ptr.To("test-resource-instance-guid"),
+			Name: ptr.To("test-resource-instance-name"),
+		}, nil, nil)
+
+		err = clusterScope.ReconcileCOSInstance()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-resource-instance-guid")))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(true))))
+	})
+
+	//TODO: Complete cases to cover control flow on checkCOSBucket and createCOSBucket
+	// Github issue: https://github.com/kubernetes-sigs/cluster-api-provider-ibmcloud/issues/2034
+}
+
+func TestCheckCOSServiceInstance(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockCtrl               *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When fetching of cos service instance returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("error listing COS instances"))
+
+		cosResourceInstance, err := clusterScope.checkCOSServiceInstance()
+		g.Expect(cosResourceInstance).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When COS service instance is not found in IBM Cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+
+		cosResourceInstance, err := clusterScope.checkCOSServiceInstance()
+		g.Expect(cosResourceInstance).To(BeNil())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When COS service instance exists but state is not active", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			Name:  ptr.To("test-cos-resource-name"),
+			State: ptr.To("failed"),
+		}, nil)
+
+		cosResourceInstance, err := clusterScope.checkCOSServiceInstance()
+		g.Expect(cosResourceInstance).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(err).To(MatchError(fmt.Errorf("COS service instance is not in active state, current state: %s", "failed")))
+	})
+	t.Run("When COS service instance exists and state is active", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			Name:  ptr.To("test-cos-resource-name"),
+			State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive)),
+		}, nil)
+
+		cosResourceInstance, err := clusterScope.checkCOSServiceInstance()
+		g.Expect(cosResourceInstance.Name).To(Equal(ptr.To("test-cos-resource-name")))
+		g.Expect(cosResourceInstance.State).To(Equal(ptr.To(string(infrav1beta2.ServiceInstanceStateActive))))
+		g.Expect(err).To(BeNil())
+	})
+}
+
+func TestCreateCOSBucket(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockCOSController      *mockcos.MockCos
+		mockCtrl               *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+		mockCOSController = mockcos.NewMockCos(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When COS bucket creation fails in cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			COSClient:      mockCOSController,
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+		mockCOSController.EXPECT().CreateBucket(gomock.Any()).Return(nil, fmt.Errorf("failed to create COS bucket"))
+		err := clusterScope.createCOSBucket()
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When COS bucket already exists and is owned by the user", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			COSClient:      mockCOSController,
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockCOSController.EXPECT().CreateBucket(gomock.Any()).Return(nil, awserr.New(s3.ErrCodeBucketAlreadyOwnedByYou, "Bucket already owned by user", nil))
+
+		err := clusterScope.createCOSBucket()
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When COS bucket already exists but is owned by someone else", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			COSClient:      mockCOSController,
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+		mockCOSController.EXPECT().CreateBucket(gomock.Any()).Return(nil, awserr.New(s3.ErrCodeBucketAlreadyExists, "Bucket already exists", nil))
+		err := clusterScope.createCOSBucket()
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When an unexpected error occurs during COS bucket creation", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			COSClient:      mockCOSController,
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockCOSController.EXPECT().CreateBucket(gomock.Any()).Return(nil, awserr.New("UnexpectedError", "An unexpected error occurred", nil))
+
+		err := clusterScope.createCOSBucket()
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(err.Error()).To(ContainSubstring("failed to create COS bucket"))
+	})
+
+	t.Run("When COS bucket is created successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			COSClient:      mockCOSController,
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockCOSController.EXPECT().CreateBucket(gomock.Any()).Return(&s3.CreateBucketOutput{}, nil)
+
+		err := clusterScope.createCOSBucket()
+		g.Expect(err).To(BeNil())
+	})
+}
+
+func TestCheckCOSBucket(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockCOSController      *mockcos.MockCos
+		mockCtrl               *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+		mockCOSController = mockcos.NewMockCos(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("When checking if COS bucket exists in cloud", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			COSClient:      mockCOSController,
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		testScenarios := []struct {
+			name         string
+			mockError    error
+			bucketExists bool
+			expectErr    bool
+		}{
+			{
+				name:         "NoSuchBucket error",
+				mockError:    awserr.New(s3.ErrCodeNoSuchBucket, "NoSuchBucket", nil),
+				bucketExists: false,
+				expectErr:    false,
+			},
+			{
+				name:         "Forbidden error",
+				mockError:    awserr.New("Forbidden", "Forbidden", nil),
+				bucketExists: false,
+				expectErr:    false,
+			},
+			{
+				name:         "NotFound error",
+				mockError:    awserr.New("NotFound", "NotFound", nil),
+				bucketExists: false,
+				expectErr:    false,
+			},
+			{
+				name:         "Other aws error",
+				mockError:    awserr.New("OtherAWSError", "OtherAWSError", nil),
+				bucketExists: false,
+				expectErr:    true,
+			},
+			{
+				name:         "Bucket exists",
+				mockError:    nil,
+				bucketExists: true,
+				expectErr:    false,
+			},
+		}
+
+		for _, scenario := range testScenarios {
+			t.Run(scenario.name, func(_ *testing.T) {
+				mockCOSController.EXPECT().GetBucketByName(gomock.Any()).Return(nil, scenario.mockError)
+				exists, err := clusterScope.checkCOSBucket()
+				g.Expect(exists).To(Equal(scenario.bucketExists))
+				if scenario.expectErr {
+					g.Expect(err).ToNot(BeNil())
+				} else {
+					g.Expect(err).To(BeNil())
+				}
+			})
+		}
+	})
+}
+
+func TestCreateCOSServiceInstance(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockCtrl               *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When creating COS resource instance fails due to missing resource group id", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		cosResourceInstance, err := clusterScope.createCOSServiceInstance()
+		g.Expect(cosResourceInstance).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When creating COS resource instance fails", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resourcegroup-id"),
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(nil, nil, fmt.Errorf("error creating resource instance"))
+
+		cosResourceInstance, err := clusterScope.createCOSServiceInstance()
+		g.Expect(cosResourceInstance).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When COS resource instance creation is successful", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resourcegroup-id"),
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+
+		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			ID: ptr.To("new-resource-instance-id"),
+		}, nil, nil)
+
+		cosResourceInstance, err := clusterScope.createCOSServiceInstance()
+		g.Expect(err).To(BeNil())
+		g.Expect(cosResourceInstance.ID).To(Equal(ptr.To("new-resource-instance-id")))
+	})
+}
+
+func TestReconcileTransitGateway(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockVPC                *mock.MockVpc
+		mockTransitGateway     *tgmock.MockTransitGateway
+		mockCtrl               *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockTransitGateway = tgmock.NewMockTransitGateway(mockCtrl)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("when TransitGatewayID is set in status and returns error getting TransitGateway", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						ID: ptr.To("transitGatewayID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(nil, nil, errors.New("failed to get transit gateway"))
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When TransitGateway ID is set in status and already exists but returns error when getting TransitGateway connections", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						ID: ptr.To("transitGatewayID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}, nil, nil)
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(nil, nil, errors.New("failed to get transitGateway connections"))
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When TransitGatewayID is set in status and TransitGateway not in available state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					TransitGateway: &infrav1beta2.TransitGatewayStatus{
+						ID: ptr.To("transitGatewayID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStatePending))}, nil, nil)
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When TransitGatewayID is set in spec already exists in cloud and is in available state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					TransitGateway: &infrav1beta2.TransitGateway{
+						ID: ptr.To("transitGatewayID"),
+					},
+					VPC: &infrav1beta2.VPCResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+					ServiceInstance: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}, nil, nil)
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeFalse())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeTrue())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ControllerCreated).To(BeTrue())
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When TransitGatewayID is set in spec and returns error while getting TransitGateway details", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					TransitGateway: &infrav1beta2.TransitGateway{
+						ID: ptr.To("transitGatewayID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(nil, nil, errors.New("failed to get transit gateway"))
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When TransitGatewayID is not set in spec and fetching using name returns with transit gateway in failed state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{},
+			},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGatewayByName(gomock.Any()).Return(&tgapiv1.TransitGateway{Name: ptr.To("transitGatewayName"), ID: ptr.To("transitGatewayID"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateFailed))}, nil)
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When TransitGatewayID is not set in spec and fetching using name returns with transit gateway in pending state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{},
+			},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGatewayByName(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStatePending))}, nil)
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("Creates TransitGateway and transitGatewayConnections successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("us-east-1"),
+					VPC:           &infrav1beta2.VPCResourceReference{Region: ptr.To("region")},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGatewayByName(gomock.Any()).Return(nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeTrue())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ControllerCreated).To(BeTrue())
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When PowerVS service Instance and VPC details are not set in status and fails to create transit gateway", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster:    &infrav1beta2.IBMPowerVSCluster{},
+		}
+
+		mockTransitGateway.EXPECT().GetTransitGatewayByName(gomock.Any()).Return(nil, nil)
+		requeue, err := clusterScope.ReconcileTransitGateway()
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockVPC                *mock.MockVpc
+		mockTransitGateway     *tgmock.MockTransitGateway
+		mockCtrl               *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockTransitGateway = tgmock.NewMockTransitGateway(mockCtrl)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("Returns error when getting VPC details", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(nil, nil, errors.New("failed to get vpc"))
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("Returns error when getting PowerVS service Instance details", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to get serviceInstance"))
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When TransitGateway connections doesn't exist and creates connections", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeTrue())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ControllerCreated).To(BeTrue())
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When TransitGateway connections doesn't exist and return error while creating PowerVSConnection", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(nil, nil, errors.New("error while creating connections"))
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When TransitGateway connections exist and both are in attached state already", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("vpc"), ID: ptr.To("vpc-connID"), NetworkType: ptr.To("vpc"), NetworkID: ptr.To("vpc-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		conn = append(conn, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("pvs"), ID: ptr.To("pvs-connID"), NetworkType: ptr.To("power_virtual_server"), NetworkID: ptr.To("pvs-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeFalse())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ControllerCreated).To(BeFalse())
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("WHen PowerVSConnection exist and is in pending state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("vpc"), NetworkType: ptr.To("vpc"), NetworkID: ptr.To("vpc-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		conn = append(conn, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("pvs"), NetworkType: ptr.To("power_virtual_server"), NetworkID: ptr.To("pvs-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When VPCConnection exist and is in pending state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("vpc"), NetworkType: ptr.To("vpc"), NetworkID: ptr.To("vpc-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStatePending))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When VPCConnection status exist and is in failed state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("vpc"), NetworkType: ptr.To("vpc"), NetworkID: ptr.To("vpc-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateFailed))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When PowerVSConnection status exist and is in failed state", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("vpc"), NetworkType: ptr.To("vpc"), NetworkID: ptr.To("vpc-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		conn = append(conn, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("pvs"), NetworkType: ptr.To("power_virtual_server"), NetworkID: ptr.To("pvs-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateFailed))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When PowerVSConnection doesn't exist and creates it", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("vpc"), NetworkType: ptr.To("vpc"), NetworkID: ptr.To("vpc-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeTrue())
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When PowerVSConnection doesn't exist and returns error while creating it", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("vpc"), NetworkType: ptr.To("vpc"), NetworkID: ptr.To("vpc-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(nil, nil, errors.New("failed to create transit gateway connection"))
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When VPCConnection doesn't exist and creates it", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("pvs"), NetworkType: ptr.To("power_virtual_server"), NetworkID: ptr.To("pvs-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ControllerCreated).To(BeTrue())
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When VPCConnection doesn't exist and returns error while creating it", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := makePowerVSClusterScope(mockTransitGateway, mockVPC, mockResourceController)
+
+		conn := append([]tgapiv1.TransitGatewayConnectionCust{}, tgapiv1.TransitGatewayConnectionCust{Name: ptr.To("pvs"), NetworkType: ptr.To("power_virtual_server"), NetworkID: ptr.To("pvs-crn"), Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateAttached))})
+		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(nil, nil, errors.New("failed to create transit gateway connection"))
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestCreateTransitGateway(t *testing.T) {
+	var (
+		mockResourceController *mockRC.MockResourceController
+		mockVPC                *mock.MockVpc
+		mockTransitGateway     *tgmock.MockTransitGateway
+		mockCtrl               *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockTransitGateway = tgmock.NewMockTransitGateway(mockCtrl)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("when PowerVS serviceInstance ID and VPC ID is not set in Status", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("us-east-1"),
+					VPC:           &infrav1beta2.VPCResourceReference{Region: ptr.To("region")},
+				},
+			},
+		}
+
+		err := clusterScope.createTransitGateway()
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.TransitGateway).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("Fails to get TransitGateway location and routing", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("zone-ID"),
+					VPC:           &infrav1beta2.VPCResourceReference{},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+				},
+			},
+		}
+
+		err := clusterScope.createTransitGateway()
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.TransitGateway).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("Return error while creating TransitGateway", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("us-east-1"),
+					VPC:           &infrav1beta2.VPCResourceReference{Region: ptr.To("region")},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(nil, nil, errors.New("failed to create transit Gateway"))
+		err := clusterScope.createTransitGateway()
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.TransitGateway).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("Creates TransitGateway but return error when getting VPC details", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("us-east-1"),
+					VPC:           &infrav1beta2.VPCResourceReference{Region: ptr.To("region")},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To("pending")}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(nil, nil, errors.New("failed to get vpc"))
+		err := clusterScope.createTransitGateway()
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("Creates TransitGateway but return error while getting PowerVS details", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("us-east-1"),
+					VPC:           &infrav1beta2.VPCResourceReference{Region: ptr.To("region")},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to get power vs instance"))
+		err := clusterScope.createTransitGateway()
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When PowerVSConnection creation is completed but fails to create VPCConnection", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("us-east-1"),
+					VPC:           &infrav1beta2.VPCResourceReference{Region: ptr.To("region")},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(nil, nil, errors.New("failed to create transit Gateway connection"))
+		err := clusterScope.createTransitGateway()
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeTrue())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When local routing is configured but global routing is required", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					TransitGateway: &infrav1beta2.TransitGateway{
+						GlobalRouting: ptr.To(false),
+					},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("us-east-1"),
+					VPC:           &infrav1beta2.VPCResourceReference{Region: ptr.To("region")},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+				},
+			},
+		}
+
+		err := clusterScope.createTransitGateway()
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.TransitGateway).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When global routing is set to true", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := PowerVSClusterScope{
+			TransitGatewayClient: mockTransitGateway,
+			IBMVPCClient:         mockVPC,
+			ResourceClient:       mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					TransitGateway: &infrav1beta2.TransitGateway{
+						GlobalRouting: ptr.To(true),
+					},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{ID: ptr.To("resourceGroupID")},
+					Zone:          ptr.To("zone-ID"),
+					VPC:           &infrav1beta2.VPCResourceReference{Region: ptr.To("region")},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("serviceInstanceID"),
+					},
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("vpcID"),
+					},
+				},
+			},
+		}
+
+		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}, nil, nil)
+		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
+		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
+		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
+		err := clusterScope.createTransitGateway()
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeTrue())
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
+		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ControllerCreated).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+}
+
+func makePowerVSClusterScope(mockTransitGateway *tgmock.MockTransitGateway, mockVPC *mock.MockVpc, mockResourceController *mockRC.MockResourceController) PowerVSClusterScope {
+	clusterScope := PowerVSClusterScope{
+		TransitGatewayClient: mockTransitGateway,
+		IBMVPCClient:         mockVPC,
+		ResourceClient:       mockResourceController,
+		IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+			Status: infrav1beta2.IBMPowerVSClusterStatus{
+				TransitGateway: &infrav1beta2.TransitGatewayStatus{
+					ID: ptr.To("transitGatewayID"),
+				},
+				ServiceInstance: &infrav1beta2.ResourceReference{
+					ID: ptr.To("serviceInstanceID"),
+				},
+				VPC: &infrav1beta2.ResourceReference{
+					ID: ptr.To("vpcID"),
+				},
+			},
+		},
+	}
+
+	return clusterScope
+}
+
+func TestReconcileVPCSecurityGroups(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	securityGroupID := "securityGroupID"
+	securityGroupName := "securityGroupName"
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When SecurityGroup ID is set and returns error while getting SecurityGroup", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						ID: ptr.To("securityGroupID"),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to get security group"))
+		err := clusterScope.ReconcileVPCSecurityGroups()
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("When SecurityGroup Name is set and returns error while creating SecurityGroup", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, nil)
+		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to create security group"))
+		err := clusterScope.ReconcileVPCSecurityGroups()
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When SecurityGroup Name is set and creates SecurityGroup successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, nil)
+		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{ID: ptr.To("securityGroupID")}, nil, nil)
+		err := clusterScope.ReconcileVPCSecurityGroups()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroup Name is set and SecurityGroup already exists", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(&vpcv1.SecurityGroup{Name: &securityGroupName, ID: &securityGroupID, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}, nil)
+		err := clusterScope.ReconcileVPCSecurityGroups()
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When SecurityGroup ID is set and SecurityGroup already exists", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						ID: ptr.To("securityGroupID"),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{Name: &securityGroupName, ID: &securityGroupID, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}, nil, nil)
+		err := clusterScope.ReconcileVPCSecurityGroups()
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroup Name is set and GetSecurityGroup returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		vpcSecurityGroupStatus := make(map[string]infrav1beta2.VPCSecurityGroupStatus)
+		vpcSecurityGroupStatus[securityGroupName] = infrav1beta2.VPCSecurityGroupStatus{ID: ptr.To("securityGroupID"), RuleIDs: []*string{ptr.To("ruleID")}, ControllerCreated: ptr.To(true)}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSecurityGroups: vpcSecurityGroupStatus,
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to get security group"))
+		err := clusterScope.ReconcileVPCSecurityGroups()
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("When SecurityGroup Name is set  and returns error while getting SecurityGroupRules", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		vpcSecurityGroupStatus := make(map[string]infrav1beta2.VPCSecurityGroupStatus)
+		vpcSecurityGroupStatus[securityGroupName] = infrav1beta2.VPCSecurityGroupStatus{ID: &securityGroupID, RuleIDs: []*string{ptr.To("ruleID")}, ControllerCreated: ptr.To(true)}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSecurityGroups: vpcSecurityGroupStatus,
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{ID: ptr.To("securityGroupID"), Name: ptr.To("securityGroupName")}, nil, nil)
+		mockVPC.EXPECT().GetSecurityGroupRule(gomock.Any()).Return(nil, nil, errors.New("failed to get security group rule"))
+		err := clusterScope.ReconcileVPCSecurityGroups()
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When SecurityGroup is created successfully but returns error while creating SecurityGroupRules", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					Address:    ptr.To("192.168.0.1/24"),
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, nil)
+		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{ID: ptr.To("securityGroupID")}, nil, nil)
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(nil, nil, errors.New("failed to create security group rule"))
+		err := clusterScope.ReconcileVPCSecurityGroups()
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestValidateVPCSecurityGroup(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When SecurityGroup by name exists and SecurityGroupRule matches", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("0.0.0.0/0"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), Rules: vpcSecurityGroupRules, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
+		g.Expect(sg).To(BeEquivalentTo(securityGroupDetails))
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When SecurityGroup by id exists and SecurityGroupRule matches", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("0.0.0.0/0"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), Rules: vpcSecurityGroupRules, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
+		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(securityGroupDetails, nil, nil)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
+		g.Expect(sg).To(BeEquivalentTo(securityGroupDetails))
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When SecurityGroup by name doesn't exist and return error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name: ptr.To("securityGroupNamw"),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, errors.New("failed to get SecurityGroup"))
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(sg).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When SecurityGroup by id doesn't exist and return error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID: ptr.To("securityGroupID"),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to get SecurityGroup"))
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(sg).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When SecurityGroup by name exists but is not attached to VPC", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name: ptr.To("securityGroupName"),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+			},
+		}
+
+		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("sgID")}
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeEmpty())
+		g.Expect(sg).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When SecurityGroup by name exists but VPC id not matching", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name: ptr.To("securityGroupName"),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("sgID"), VPC: &vpcv1.VPCReference{ID: ptr.To("vpcID")}}
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(sg).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When SecurityGroup by id exists but VPC id not matching", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID: ptr.To("securityGroupID"),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("sgID"), VPC: &vpcv1.VPCReference{ID: ptr.To("vpcID")}}
+		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(securityGroupDetails, nil, nil)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(sg).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When it returns error while validating SecurityGroupRules", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					CIDRSubnetName: ptr.To("CIDRSubnetName"),
+					RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				PortRange: &infrav1beta2.VPCSecurityGroupPortRange{MaximumPort: 65535,
+					MinimumPort: 1,
+				},
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("192.168.1.1/24"),
+			},
+			ID:      ptr.To("ruleID"),
+			PortMax: (ptr.To(int64(65535))),
+			PortMin: (ptr.To(int64(1))),
+		}
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), Rules: vpcSecurityGroupRules, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
+		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(securityGroupDetails, nil, nil)
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, errors.New("failed to get VPC subnet"))
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(sg).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When SecurityGroupRule doesn't exist and creates it", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					Address:    ptr.To("192.168.1.1/24"),
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{Protocol: ptr.To("tcp"), ID: ptr.To("ruleID")}, nil, nil)
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(sg).To(BeNil())
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When SecurityGroupRule doesn't match and return error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("192.168.1.1/24"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroupStatus := make(map[string]infrav1beta2.VPCSecurityGroupStatus)
+		vpcSecurityGroupStatus["securityGroupName"] = infrav1beta2.VPCSecurityGroupStatus{ID: ptr.To("securityGroupID"), RuleIDs: []*string{}, ControllerCreated: ptr.To(false)}
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPCSecurityGroups: vpcSecurityGroupStatus,
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), Rules: vpcSecurityGroupRules, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(sg).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestValidateVPCSecurityGroupRule(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When it matches SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolTcpudp", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				PortRange: &infrav1beta2.VPCSecurityGroupPortRange{MaximumPort: 65535,
+					MinimumPort: 1,
+				},
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("0.0.0.0/0"),
+			},
+			ID:      ptr.To("ruleID"),
+			PortMax: (ptr.To(int64(65535))),
+			PortMin: (ptr.To(int64(1))),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(*ruleID).To(BeEquivalentTo("ruleID"))
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it doesn't match SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolTcpudp", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				PortRange: &infrav1beta2.VPCSecurityGroupPortRange{MaximumPort: 65535,
+					MinimumPort: 1,
+				},
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("192.168.1.1/24"),
+			},
+			ID:      ptr.To("ruleID"),
+			PortMax: (ptr.To(int64(65535))),
+			PortMin: (ptr.To(int64(1))),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolTcpudp returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			CIDRSubnetName: ptr.To("CIDRSubnetName"),
+			RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				PortRange: &infrav1beta2.VPCSecurityGroupPortRange{MaximumPort: 65535,
+					MinimumPort: 1,
+				},
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("192.168.1.1/24"),
+			},
+			ID:      ptr.To("ruleID"),
+			PortMax: (ptr.To(int64(65535))),
+			PortMin: (ptr.To(int64(1))),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, errors.New("failed to get VPC subnet"))
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("When it matches SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolAll", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("0.0.0.0/0"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+
+		vpcSecurityGroupRules := []vpcv1.SecurityGroupRuleIntf{}
+		vpcSecurityGroupRules = append(vpcSecurityGroupRules, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(*ruleID).To(BeEquivalentTo("ruleID"))
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it doesn't match SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolAll", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			Address:    ptr.To("192.168.0.1/24"),
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				Address: ptr.To("192.168.1.1/24"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+
+		vpcSecurityGroupRules := []vpcv1.SecurityGroupRuleIntf{}
+		vpcSecurityGroupRules = append(vpcSecurityGroupRules, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolAll returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			CIDRSubnetName: ptr.To("CIDRSubnetName"),
+			RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("192.168.1.1/24"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, errors.New("failed to get VPC subnet"))
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("When it matches SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolIcmp", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				ICMPCode: (ptr.To(int64(12))),
+				ICMPType: (ptr.To(int64(3))),
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CRN: ptr.To("crn"),
+			},
+			ID:   ptr.To("ruleID"),
+			Code: (ptr.To(int64(12))),
+			Type: (ptr.To(int64(3))),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(&vpcv1.SecurityGroup{Name: ptr.To("crn"), CRN: ptr.To("crn")}, nil)
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(*ruleID).To(BeEquivalentTo("ruleID"))
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it doesn't match SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolIcmp", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				ICMPCode: (ptr.To(int64(12))),
+				ICMPType: (ptr.To(int64(3))),
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CRN: ptr.To("crn"),
+			},
+			ID:   ptr.To("ruleID"),
+			Code: (ptr.To(int64(12))),
+			Type: (ptr.To(int64(3))),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(&vpcv1.SecurityGroup{Name: ptr.To("crn"), CRN: ptr.To("CRN")}, nil)
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroupRule of protocolType SecurityGroupRuleSecurityGroupRuleProtocolIcmp returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				ICMPCode: (ptr.To(int64(12))),
+				ICMPType: (ptr.To(int64(3))),
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CRN: ptr.To("crn"),
+			},
+			ID:   ptr.To("ruleID"),
+			Code: (ptr.To(int64(12))),
+			Type: (ptr.To(int64(3))),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, errors.New("failed to get securityGroup"))
+		ruleID, match, err := clusterScope.validateSecurityGroupRule(vpcSecurityGroupRules, rules.Direction, rules.Destination, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestValidateVPCSecurityGroupRules(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When SecurityGroupRule of Direction Inbound matches", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("inbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("0.0.0.0/0"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		ruleIDs, match, err := clusterScope.validateVPCSecurityGroupRules(vpcSecurityGroupRules, vpcSecurityGroup.Rules)
+		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroupRule of Direction Inbound doesn't match", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("inbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("192.168.1.1/24"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("securityGroupID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		ruleIDs, match, err := clusterScope.validateVPCSecurityGroupRules(vpcSecurityGroupRules, vpcSecurityGroup.Rules)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroupRule of Direction Inbound returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			CIDRSubnetName: ptr.To("CIDRSubnetName"),
+			RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("inbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("192.168.1.1/24"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, errors.New("failed to get VPC subnet"))
+		ruleIDs, match, err := clusterScope.validateVPCSecurityGroupRules(vpcSecurityGroupRules, vpcSecurityGroup.Rules)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("When SecurityGroupRule of Direction Outbound matches", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("0.0.0.0/0"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		ruleIDs, match, err := clusterScope.validateVPCSecurityGroupRules(vpcSecurityGroupRules, vpcSecurityGroup.Rules)
+		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroupRule of Direction Outbound doesn't match", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{
+			Direction: ptr.To("outbound"),
+			Protocol:  ptr.To("tcp"),
+			Remote: &vpcv1.SecurityGroupRuleRemote{
+				CIDRBlock: ptr.To("192.168.1.1/24"),
+			},
+			ID: ptr.To("ruleID"),
+		}
+
+		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			ID:    ptr.To("securityGroupID"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		ruleIDs, match, err := clusterScope.validateVPCSecurityGroupRules(vpcSecurityGroupRules, vpcSecurityGroup.Rules)
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+}
+
+func TestValidateVPCSecurityGroupRuleRemote(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("When it matches the remoteType Address", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			Address:    ptr.To("192.168.0.1/24"),
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{Address: ptr.To("192.168.0.1/24")}, remote)
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it doesn't match the remoteType Address", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			Address:    ptr.To("192.168.0.1/24"),
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{Address: ptr.To("192.168.1.1/24")}, remote)
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it matches the remoteType Any", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{CIDRBlock: ptr.To("0.0.0.0/0")}, remote)
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it doesn't match the remoteType Any", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{CIDRBlock: ptr.To("192.168.1.1/24")}, remote)
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it matches the remoteType CIDR", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			CIDRSubnetName: ptr.To("CIDRSubnetName"),
+			RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(&vpcv1.Subnet{Ipv4CIDRBlock: ptr.To("192.168.1.1/24")}, nil)
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{CIDRBlock: ptr.To("192.168.1.1/24")}, remote)
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it doesn't match the remoteType CIDR", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			CIDRSubnetName: ptr.To("CIDRSubnetName"),
+			RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(&vpcv1.Subnet{Ipv4CIDRBlock: ptr.To("192.168.0.1/24")}, nil)
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{CIDRBlock: ptr.To("192.168.1.1/24")}, remote)
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When the remoteType CIDR and it returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			CIDRSubnetName: ptr.To("CIDRSubnetName"),
+			RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, errors.New("failed to get VPC subnet"))
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{CIDRBlock: ptr.To("192.168.1.1/24")}, remote)
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("When it matches the remoteType SG", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(&vpcv1.SecurityGroup{Name: ptr.To("192.168.1.1/24"), CRN: ptr.To("crn")}, nil)
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{CRN: ptr.To("crn")}, remote)
+		g.Expect(match).To(BeTrue())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When it doesn't match the remoteType SG", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(&vpcv1.SecurityGroup{Name: ptr.To("192.168.1.1/24"), CRN: ptr.To("CRN")}, nil)
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{CRN: ptr.To("crn")}, remote)
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When the remoteType SG and it returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, errors.New("failed to get security group"))
+		match, err := clusterScope.validateVPCSecurityGroupRuleRemote(&vpcv1.SecurityGroupRuleRemote{CRN: ptr.To("crn")}, remote)
+		g.Expect(match).To(BeFalse())
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestCreateVPCSecurityGroupRule(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	securityGroupID := "securityGroupID"
+	var portMax int64 = 65535
+	var portMin int64 = 1
+	var protocol = "tcp"
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("Creates SecurityGroupRule of remoteType Address successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			Address:    ptr.To("192.168.0.1/24"),
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
+		g.Expect(ruleID).To(BeEquivalentTo(ptr.To("ruleID")))
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("Creates SecurityGroupRule of remoteType CIDR successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			CIDRSubnetName: ptr.To("CIDRSubnetName"),
+			RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(&vpcv1.Subnet{Ipv4CIDRBlock: ptr.To("192.168.1.1/24")}, nil)
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
+		g.Expect(ruleID).To(BeEquivalentTo(ptr.To("ruleID")))
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("SecurityGroupRule of remoteType CIDR returns error when getting VPC subnet", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			CIDRSubnetName: ptr.To("CIDRSubnetName"),
+			RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, errors.New("failed to get VPC subnet"))
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("Creates SecurityGroupRule of remoteType Any successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAny,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
+		g.Expect(ruleID).To(BeEquivalentTo(ptr.To("ruleID")))
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("Creates SecurityGroupRule of remoteType SG successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(&vpcv1.SecurityGroup{CRN: ptr.To("crn"), Name: ptr.To("securityGroupName")}, nil)
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp{Direction: ptr.To("inbound"), ID: ptr.To("ruleID")}, nil, nil)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
+		g.Expect(ruleID).To(BeEquivalentTo(ptr.To("ruleID")))
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("SecurityGroupRule of remoteType SG returns error while getting securityGroup", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, errors.New("failed to get security group"))
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("SecurityGroupRule of remoteType SG returns error when SecurityGroup doesn't exist", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		remote := infrav1beta2.VPCSecurityGroupRuleRemote{
+			SecurityGroupName: ptr.To("securityGroupName"),
+			RemoteType:        infrav1beta2.VPCSecurityGroupRuleRemoteTypeSG,
+		}
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name:  ptr.To("securityGroupName"),
+						Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+					}),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, nil)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
+		g.Expect(ruleID).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestCreateVPCSecurityGroupRules(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("When SecurityGroupRule of Direction Outbound created successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					Address:    ptr.To("192.168.0.1/24"),
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				PortRange: &infrav1beta2.VPCSecurityGroupPortRange{MaximumPort: 65535,
+					MinimumPort: 1,
+				},
+			},
+		}
+
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
+		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
+		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroupRule of Direction Outbound returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					CIDRSubnetName: ptr.To("CIDRSubnetName"),
+					RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil)
+		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+	t.Run("When SecurityGroupRule of Direction Inbound created successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					Address:    ptr.To("192.168.0.1/24"),
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+				PortRange: &infrav1beta2.VPCSecurityGroupPortRange{MaximumPort: 65535,
+					MinimumPort: 1,
+				},
+			},
+		}
+
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{Direction: ptr.To("inbound"), ID: ptr.To("ruleID")}, nil, nil)
+		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
+		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroupRule of Direction Inbound returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionInbound,
+			Source: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					CIDRSubnetName: ptr.To("CIDRSubnetName"),
+					RemoteType:     infrav1beta2.VPCSecurityGroupRuleRemoteTypeCIDR,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					VPC: &infrav1beta2.ResourceReference{
+						ID: ptr.To("VPCID"),
+					},
+				},
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, vpcSecurityGroup),
+				},
+			},
+		}
+
+		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil)
+		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
+		g.Expect(ruleIDs).To(BeNil())
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestCreateVPCSecurityGroupRulesAndSetStatus(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("When SecurityGroupRule is created successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					Address:    ptr.To("192.168.0.1/24"),
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("resourceGroupID"),
+					},
+				},
+			},
+		}
+
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
+		err := clusterScope.createVPCSecurityGroupRulesAndSetStatus(vpcSecurityGroup.Rules, ptr.To("securityGroupID"), ptr.To("securityGroupName"))
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When CreateSecurityGroupRule returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		rules := infrav1beta2.VPCSecurityGroupRule{
+			Direction: infrav1beta2.VPCSecurityGroupRuleDirectionOutbound,
+			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
+				Remotes: append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, infrav1beta2.VPCSecurityGroupRuleRemote{
+					Address:    ptr.To("192.168.0.1/24"),
+					RemoteType: infrav1beta2.VPCSecurityGroupRuleRemoteTypeAddress,
+				}),
+				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
+			},
+		}
+		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
+			Name:  ptr.To("securityGroupName"),
+			Rules: append([]*infrav1beta2.VPCSecurityGroupRule{}, &rules),
+		}
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("resourceGroupID"),
+					},
+				},
+			},
+		}
+
+		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(nil, nil, errors.New("failed to create securityGroupRules"))
+		err := clusterScope.createVPCSecurityGroupRulesAndSetStatus(vpcSecurityGroup.Rules, ptr.To("securityGroupID"), ptr.To("securityGroupName"))
+		g.Expect(err).ToNot(BeNil())
+	})
+}
+
+func TestCreateVPCSecurityGroup(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+	t.Run("When SecurityGroup is created successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("resourceGroupID"),
+					},
+				},
+			},
+		}
+
+		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{ID: ptr.To("securityGroupID")}, nil, nil)
+		sg, err := clusterScope.createVPCSecurityGroup(clusterScope.IBMPowerVSCluster.Spec.VPCSecurityGroups[0])
+		g.Expect(*sg).To(BeEquivalentTo("securityGroupID"))
+		g.Expect(err).To(BeNil())
+	})
+	t.Run("When SecurityGroup returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := PowerVSClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					VPCSecurityGroups: append([]infrav1beta2.VPCSecurityGroup{}, infrav1beta2.VPCSecurityGroup{
+						Name: ptr.To("securityGroupName"),
+					}),
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("resourceGroupID"),
+					},
+				},
+			},
+		}
+
+		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to create SecurityGroup"))
+		sg, err := clusterScope.createVPCSecurityGroup(clusterScope.IBMPowerVSCluster.Spec.VPCSecurityGroups[0])
+		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
 }

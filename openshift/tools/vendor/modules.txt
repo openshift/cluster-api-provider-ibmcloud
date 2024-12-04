@@ -72,9 +72,6 @@ github.com/drone/envsubst/v2/path
 ## explicit; go 1.13
 github.com/emicklei/go-restful/v3
 github.com/emicklei/go-restful/v3/log
-# github.com/evanphx/json-patch v5.7.0+incompatible
-## explicit
-github.com/evanphx/json-patch
 # github.com/evanphx/json-patch/v5 v5.9.0
 ## explicit; go 1.18
 github.com/evanphx/json-patch/v5
@@ -204,8 +201,8 @@ github.com/munnerz/goautoneg
 # github.com/opencontainers/go-digest v1.0.0
 ## explicit; go 1.13
 github.com/opencontainers/go-digest
-# github.com/openshift/cluster-capi-operator/manifests-gen v0.0.0-20241031122839-87f4fd28a59e
-## explicit; go 1.22.0
+# github.com/openshift/cluster-capi-operator/manifests-gen v0.0.0-20241109004937-ec9120bb11ac
+## explicit; go 1.22.7
 github.com/openshift/cluster-capi-operator/manifests-gen
 # github.com/pelletier/go-toml/v2 v2.2.2
 ## explicit; go 1.16
@@ -277,14 +274,6 @@ github.com/subosito/gotenv
 # github.com/xlab/treeprint v1.2.0
 ## explicit; go 1.13
 github.com/xlab/treeprint
-# go.starlark.net v0.0.0-20230525235612-a134d8f9ddca
-## explicit; go 1.16
-go.starlark.net/internal/compile
-go.starlark.net/internal/spell
-go.starlark.net/resolve
-go.starlark.net/starlark
-go.starlark.net/starlarkstruct
-go.starlark.net/syntax
 # go.uber.org/multierr v1.11.0
 ## explicit; go 1.19
 go.uber.org/multierr
@@ -373,6 +362,9 @@ google.golang.org/protobuf/types/gofeaturespb
 google.golang.org/protobuf/types/known/anypb
 google.golang.org/protobuf/types/known/durationpb
 google.golang.org/protobuf/types/known/timestamppb
+# gopkg.in/evanphx/json-patch.v4 v4.12.0
+## explicit
+gopkg.in/evanphx/json-patch.v4
 # gopkg.in/inf.v0 v0.9.1
 ## explicit
 gopkg.in/inf.v0
@@ -757,8 +749,8 @@ sigs.k8s.io/gateway-api/apis/v1
 ## explicit; go 1.18
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
-# sigs.k8s.io/kustomize/api v0.13.5-0.20230601165947-6ce0bf390ce3
-## explicit; go 1.19
+# sigs.k8s.io/kustomize/api v0.18.0
+## explicit; go 1.22.7
 sigs.k8s.io/kustomize/api/filters/annotations
 sigs.k8s.io/kustomize/api/filters/fieldspec
 sigs.k8s.io/kustomize/api/filters/filtersutil
@@ -778,12 +770,14 @@ sigs.k8s.io/kustomize/api/filters/suffix
 sigs.k8s.io/kustomize/api/filters/valueadd
 sigs.k8s.io/kustomize/api/hasher
 sigs.k8s.io/kustomize/api/ifc
-sigs.k8s.io/kustomize/api/image
 sigs.k8s.io/kustomize/api/internal/accumulator
 sigs.k8s.io/kustomize/api/internal/builtins
 sigs.k8s.io/kustomize/api/internal/generators
 sigs.k8s.io/kustomize/api/internal/git
+sigs.k8s.io/kustomize/api/internal/image
+sigs.k8s.io/kustomize/api/internal/konfig/builtinpluginconsts
 sigs.k8s.io/kustomize/api/internal/kusterr
+sigs.k8s.io/kustomize/api/internal/loader
 sigs.k8s.io/kustomize/api/internal/plugins/builtinconfig
 sigs.k8s.io/kustomize/api/internal/plugins/builtinhelpers
 sigs.k8s.io/kustomize/api/internal/plugins/execplugin
@@ -794,17 +788,15 @@ sigs.k8s.io/kustomize/api/internal/target
 sigs.k8s.io/kustomize/api/internal/utils
 sigs.k8s.io/kustomize/api/internal/validate
 sigs.k8s.io/kustomize/api/konfig
-sigs.k8s.io/kustomize/api/konfig/builtinpluginconsts
 sigs.k8s.io/kustomize/api/krusty
 sigs.k8s.io/kustomize/api/kv
-sigs.k8s.io/kustomize/api/loader
 sigs.k8s.io/kustomize/api/provenance
 sigs.k8s.io/kustomize/api/provider
 sigs.k8s.io/kustomize/api/resmap
 sigs.k8s.io/kustomize/api/resource
 sigs.k8s.io/kustomize/api/types
-# sigs.k8s.io/kustomize/kyaml v0.14.3-0.20230601165947-6ce0bf390ce3
-## explicit; go 1.19
+# sigs.k8s.io/kustomize/kyaml v0.18.1
+## explicit; go 1.22.7
 sigs.k8s.io/kustomize/kyaml/comments
 sigs.k8s.io/kustomize/kyaml/errors
 sigs.k8s.io/kustomize/kyaml/ext
@@ -813,11 +805,7 @@ sigs.k8s.io/kustomize/kyaml/filesys
 sigs.k8s.io/kustomize/kyaml/fn/runtime/container
 sigs.k8s.io/kustomize/kyaml/fn/runtime/exec
 sigs.k8s.io/kustomize/kyaml/fn/runtime/runtimeutil
-sigs.k8s.io/kustomize/kyaml/fn/runtime/starlark
-sigs.k8s.io/kustomize/kyaml/internal/forked/github.com/go-yaml/yaml
-sigs.k8s.io/kustomize/kyaml/internal/forked/github.com/qri-io/starlib/util
 sigs.k8s.io/kustomize/kyaml/kio
-sigs.k8s.io/kustomize/kyaml/kio/filters
 sigs.k8s.io/kustomize/kyaml/kio/kioutil
 sigs.k8s.io/kustomize/kyaml/openapi
 sigs.k8s.io/kustomize/kyaml/openapi/kubernetesapi
@@ -837,7 +825,6 @@ sigs.k8s.io/kustomize/kyaml/yaml/internal/k8sgen/pkg/util/sets
 sigs.k8s.io/kustomize/kyaml/yaml/internal/k8sgen/pkg/util/validation
 sigs.k8s.io/kustomize/kyaml/yaml/internal/k8sgen/pkg/util/validation/field
 sigs.k8s.io/kustomize/kyaml/yaml/merge2
-sigs.k8s.io/kustomize/kyaml/yaml/merge3
 sigs.k8s.io/kustomize/kyaml/yaml/schema
 sigs.k8s.io/kustomize/kyaml/yaml/walk
 # sigs.k8s.io/structured-merge-diff/v4 v4.4.1
@@ -851,3 +838,4 @@ sigs.k8s.io/structured-merge-diff/v4/value
 ## explicit; go 1.12
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
+sigs.k8s.io/yaml/goyaml.v3

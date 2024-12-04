@@ -14,13 +14,14 @@ require (
 	github.com/IBM/go-sdk-core/v5 v5.18.1
 	github.com/IBM/ibm-cos-sdk-go v1.11.1
 	github.com/IBM/networking-go-sdk v0.45.0
-	github.com/IBM/platform-services-go-sdk v0.71.0
-	github.com/IBM/vpc-go-sdk v0.61.0
+	github.com/IBM/platform-services-go-sdk v0.71.1
+	github.com/IBM/vpc-go-sdk v0.63.1
 	github.com/blang/semver/v4 v4.0.0
 	github.com/coreos/ignition/v2 v2.20.0
 	github.com/go-logr/logr v1.4.2
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
+	github.com/google/go-cmp v0.6.0
 	github.com/onsi/ginkgo/v2 v2.19.1
 	github.com/onsi/gomega v1.34.0
 	github.com/pkg/errors v0.9.1
@@ -29,9 +30,9 @@ require (
 	github.com/spf13/pflag v1.0.6-0.20210604193023-d5e0c0615ace
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/mock v0.5.0
-	golang.org/x/crypto v0.28.0
-	golang.org/x/net v0.30.0
-	golang.org/x/text v0.19.0
+	golang.org/x/crypto v0.29.0
+	golang.org/x/net v0.31.0
+	golang.org/x/text v0.20.0
 	k8s.io/api v0.30.3
 	k8s.io/apiextensions-apiserver v0.30.3
 	k8s.io/apimachinery v0.30.3
@@ -101,7 +102,6 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/cel-go v0.17.8 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/go-github/v53 v53.2.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
@@ -167,9 +167,9 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.26.0 // indirect
-	golang.org/x/term v0.25.0 // indirect
+	golang.org/x/sync v0.9.0 // indirect
+	golang.org/x/sys v0.27.0 // indirect
+	golang.org/x/term v0.26.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.22.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect

@@ -261,30 +261,54 @@ type ClientConn struct {
 	idleTimeout time.Duration // or 0 for never
 	idleTimer   *time.Timer
 
-	mu              sync.Mutex // guards following
-	cond            *sync.Cond // hold mu; broadcast on flow/closed changes
-	flow            flow       // our conn-level flow control quota (cs.flow is per stream)
-	inflow          flow       // peer's conn-level flow control
-	doNotReuse      bool       // whether conn is marked to not be reused for any future requests
-	closing         bool
-	closed          bool
-	seenSettings    bool                     // true if we've seen a settings frame, false otherwise
-	wantSettingsAck bool                     // we sent a SETTINGS frame and haven't heard back
-	goAway          *GoAwayFrame             // if non-nil, the GoAwayFrame we received
-	goAwayDebug     string                   // goAway frame's debug data, retained as a string
-	streams         map[uint32]*clientStream // client-initiated
-	streamsReserved int                      // incr by ReserveNewRequest; decr on RoundTrip
-	nextStreamID    uint32
-	pendingRequests int                       // requests blocked and waiting to be sent because len(streams) == maxConcurrentStreams
-	pings           map[[8]byte]chan struct{} // in flight ping data to notification channel
-	br              *bufio.Reader
-	lastActive      time.Time
-	lastIdle        time.Time // time last idle
+	mu               sync.Mutex // guards following
+	cond             *sync.Cond // hold mu; broadcast on flow/closed changes
+	flow             outflow    // our conn-level flow control quota (cs.outflow is per stream)
+	inflow           inflow     // peer's conn-level flow control
+	doNotReuse       bool       // whether conn is marked to not be reused for any future requests
+	closing          bool
+	closed           bool
+	seenSettings     bool                     // true if we've seen a settings frame, false otherwise
+	seenSettingsChan chan struct{}            // closed when seenSettings is true or frame reading fails
+	wantSettingsAck  bool                     // we sent a SETTINGS frame and haven't heard back
+	goAway           *GoAwayFrame             // if non-nil, the GoAwayFrame we received
+	goAwayDebug      string                   // goAway frame's debug data, retained as a string
+	streams          map[uint32]*clientStream // client-initiated
+	streamsReserved  int                      // incr by ReserveNewRequest; decr on RoundTrip
+	nextStreamID     uint32
+	pendingRequests  int                       // requests blocked and waiting to be sent because len(streams) == maxConcurrentStreams
+	pings            map[[8]byte]chan struct{} // in flight ping data to notification channel
+	br               *bufio.Reader
+	lastActive       time.Time
+	lastIdle         time.Time // time last idle
 	// Settings from peer: (also guarded by wmu)
-	maxFrameSize          uint32
-	maxConcurrentStreams  uint32
-	peerMaxHeaderListSize uint64
-	initialWindowSize     uint32
+	maxFrameSize                uint32
+	maxConcurrentStreams        uint32
+	peerMaxHeaderListSize       uint64
+	peerMaxHeaderTableSize      uint32
+	initialWindowSize           uint32
+	initialStreamRecvWindowSize int32
+	readIdleTimeout             time.Duration
+	pingTimeout                 time.Duration
+	extendedConnectAllowed      bool
+
+	// rstStreamPingsBlocked works around an unfortunate gRPC behavior.
+	// gRPC strictly limits the number of PING frames that it will receive.
+	// The default is two pings per two hours, but the limit resets every time
+	// the gRPC endpoint sends a HEADERS or DATA frame. See golang/go#70575.
+	//
+	// rstStreamPingsBlocked is set after receiving a response to a PING frame
+	// bundled with an RST_STREAM (see pendingResets below), and cleared after
+	// receiving a HEADERS or DATA frame.
+	rstStreamPingsBlocked bool
+
+	// pendingResets is the number of RST_STREAM frames we have sent to the peer,
+	// without confirming that the peer has received them. When we send a RST_STREAM,
+	// we bundle it with a PING frame, unless a PING is already in flight. We count
+	// the reset stream against the connection's concurrency limit until we get
+	// a PING response. This limits the number of requests we'll try to send to a
+	// completely unresponsive connection.
+	pendingResets int
 
 	// reqHeaderMu is a 1-element semaphore channel controlling access to sending new requests.
 	// Write to reqHeaderMu to lock it, read from it to unlock.
@@ -652,19 +676,24 @@ func (t *Transport) NewClientConn(c net.Conn) (*ClientConn, error) {
 
 func (t *Transport) newClientConn(c net.Conn, singleUse bool) (*ClientConn, error) {
 	cc := &ClientConn{
-		t:                     t,
-		tconn:                 c,
-		readerDone:            make(chan struct{}),
-		nextStreamID:          1,
-		maxFrameSize:          16 << 10,                    // spec default
-		initialWindowSize:     65535,                       // spec default
-		maxConcurrentStreams:  initialMaxConcurrentStreams, // "infinite", per spec. Use a smaller value until we have received server settings.
-		peerMaxHeaderListSize: 0xffffffffffffffff,          // "infinite", per spec. Use 2^64-1 instead.
-		streams:               make(map[uint32]*clientStream),
-		singleUse:             singleUse,
-		wantSettingsAck:       true,
-		pings:                 make(map[[8]byte]chan struct{}),
-		reqHeaderMu:           make(chan struct{}, 1),
+		t:                           t,
+		tconn:                       c,
+		readerDone:                  make(chan struct{}),
+		nextStreamID:                1,
+		maxFrameSize:                16 << 10, // spec default
+		initialWindowSize:           65535,    // spec default
+		initialStreamRecvWindowSize: conf.MaxUploadBufferPerStream,
+		maxConcurrentStreams:        initialMaxConcurrentStreams, // "infinite", per spec. Use a smaller value until we have received server settings.
+		peerMaxHeaderListSize:       0xffffffffffffffff,          // "infinite", per spec. Use 2^64-1 instead.
+		streams:                     make(map[uint32]*clientStream),
+		singleUse:                   singleUse,
+		seenSettingsChan:            make(chan struct{}),
+		wantSettingsAck:             true,
+		readIdleTimeout:             conf.SendPingTimeout,
+		pingTimeout:                 conf.PingTimeout,
+		pings:                       make(map[[8]byte]chan struct{}),
+		reqHeaderMu:                 make(chan struct{}, 1),
+		lastActive:                  t.now(),
 	}
 	if d := t.idleConnTimeout(); d != 0 {
 		cc.idleTimeout = d
@@ -1207,6 +1236,8 @@ func (cs *clientStream) doRequest(req *http.Request) {
 	cs.cleanupWriteRequest(err)
 }
 
+var errExtendedConnectNotSupported = errors.New("net/http: extended connect not supported by peer")
+
 // writeRequest sends a request.
 //
 // It returns nil after the request is written, the response read,
@@ -1222,11 +1253,30 @@ func (cs *clientStream) writeRequest(req *http.Request) (err error) {
 		return err
 	}
 
+	// wait for setting frames to be received, a server can change this value later,
+	// but we just wait for the first settings frame
+	var isExtendedConnect bool
+	if req.Method == "CONNECT" && req.Header.Get(":protocol") != "" {
+		isExtendedConnect = true
+	}
+
 	// Acquire the new-request lock by writing to reqHeaderMu.
 	// This lock guards the critical section covering allocating a new stream ID
 	// (requires mu) and creating the stream (requires wmu).
 	if cc.reqHeaderMu == nil {
 		panic("RoundTrip on uninitialized ClientConn") // for tests
+	}
+	if isExtendedConnect {
+		select {
+		case <-cs.reqCancel:
+			return errRequestCanceled
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-cc.seenSettingsChan:
+			if !cc.extendedConnectAllowed {
+				return errExtendedConnectNotSupported
+			}
+		}
 	}
 	select {
 	case cc.reqHeaderMu <- struct{}{}:
@@ -1444,7 +1494,35 @@ func (cs *clientStream) cleanupWriteRequest(err error) {
 					cc.writeStreamReset(cs.ID, se.Code, err)
 				}
 			} else {
-				cc.writeStreamReset(cs.ID, ErrCodeCancel, err)
+				// We're cancelling an in-flight request.
+				//
+				// This could be due to the server becoming unresponsive.
+				// To avoid sending too many requests on a dead connection,
+				// we let the request continue to consume a concurrency slot
+				// until we can confirm the server is still responding.
+				// We do this by sending a PING frame along with the RST_STREAM
+				// (unless a ping is already in flight).
+				//
+				// For simplicity, we don't bother tracking the PING payload:
+				// We reset cc.pendingResets any time we receive a PING ACK.
+				//
+				// We skip this if the conn is going to be closed on idle,
+				// because it's short lived and will probably be closed before
+				// we get the ping response.
+				ping := false
+				if !closeOnIdle {
+					cc.mu.Lock()
+					// rstStreamPingsBlocked works around a gRPC behavior:
+					// see comment on the field for details.
+					if !cc.rstStreamPingsBlocked {
+						if cc.pendingResets == 0 {
+							ping = true
+						}
+						cc.pendingResets++
+					}
+					cc.mu.Unlock()
+				}
+				cc.writeStreamReset(cs.ID, ErrCodeCancel, ping, err)
 			}
 		}
 		cs.bufPipe.CloseWithError(err) // no-op if already closed
@@ -1726,7 +1804,27 @@ func (cs *clientStream) awaitFlowControl(maxBytes int) (taken int32, err error) 
 	}
 }
 
+func validateHeaders(hdrs http.Header) string {
+	for k, vv := range hdrs {
+		if !httpguts.ValidHeaderFieldName(k) && k != ":protocol" {
+			return fmt.Sprintf("name %q", k)
+		}
+		for _, v := range vv {
+			if !httpguts.ValidHeaderFieldValue(v) {
+				// Don't include the value in the error,
+				// because it may be sensitive.
+				return fmt.Sprintf("value for header %q", k)
+			}
+		}
+	}
+	return ""
+}
+
 var errNilRequestURL = errors.New("http2: Request.URI is nil")
+
+func isNormalConnect(req *http.Request) bool {
+	return req.Method == "CONNECT" && req.Header.Get(":protocol") == ""
+}
 
 // requires cc.wmu be held.
 func (cc *ClientConn) encodeHeaders(req *http.Request, addGzipHeader bool, trailers string, contentLength int64) ([]byte, error) {
@@ -1745,7 +1843,7 @@ func (cc *ClientConn) encodeHeaders(req *http.Request, addGzipHeader bool, trail
 	}
 
 	var path string
-	if req.Method != "CONNECT" {
+	if !isNormalConnect(req) {
 		path = req.URL.RequestURI()
 		if !validPseudoPath(path) {
 			orig := path
@@ -1787,7 +1885,7 @@ func (cc *ClientConn) encodeHeaders(req *http.Request, addGzipHeader bool, trail
 			m = http.MethodGet
 		}
 		f(":method", m)
-		if req.Method != "CONNECT" {
+		if !isNormalConnect(req) {
 			f(":path", path)
 			f(":scheme", req.URL.Scheme)
 		}
@@ -2128,7 +2226,7 @@ func (rl *clientConnReadLoop) run() error {
 			cc.vlogf("http2: Transport readFrame error on conn %p: (%T) %v", cc, err, err)
 		}
 		if se, ok := err.(StreamError); ok {
-			if cs := rl.streamByID(se.StreamID); cs != nil {
+			if cs := rl.streamByID(se.StreamID, notHeaderOrDataFrame); cs != nil {
 				if se.Cause == nil {
 					se.Cause = cc.fr.errDetail
 				}
@@ -2174,13 +2272,16 @@ func (rl *clientConnReadLoop) run() error {
 			if VerboseLogs {
 				cc.vlogf("http2: Transport conn %p received error from processing frame %v: %v", cc, summarizeFrame(f), err)
 			}
+			if !cc.seenSettings {
+				close(cc.seenSettingsChan)
+			}
 			return err
 		}
 	}
 }
 
 func (rl *clientConnReadLoop) processHeaders(f *MetaHeadersFrame) error {
-	cs := rl.streamByID(f.StreamID)
+	cs := rl.streamByID(f.StreamID, headerOrDataFrame)
 	if cs == nil {
 		// We'd get here if we canceled a request while the
 		// server had its response still in flight. So if this
@@ -2503,7 +2604,7 @@ func (b transportResponseBody) Close() error {
 
 func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 	cc := rl.cc
-	cs := rl.streamByID(f.StreamID)
+	cs := rl.streamByID(f.StreamID, headerOrDataFrame)
 	data := f.Data()
 	if cs == nil {
 		cc.mu.Lock()
@@ -2634,9 +2735,22 @@ func (rl *clientConnReadLoop) endStreamError(cs *clientStream, err error) {
 	cs.abortStream(err)
 }
 
-func (rl *clientConnReadLoop) streamByID(id uint32) *clientStream {
+// Constants passed to streamByID for documentation purposes.
+const (
+	headerOrDataFrame    = true
+	notHeaderOrDataFrame = false
+)
+
+// streamByID returns the stream with the given id, or nil if no stream has that id.
+// If headerOrData is true, it clears rst.StreamPingsBlocked.
+func (rl *clientConnReadLoop) streamByID(id uint32, headerOrData bool) *clientStream {
 	rl.cc.mu.Lock()
 	defer rl.cc.mu.Unlock()
+	if headerOrData {
+		// Work around an unfortunate gRPC behavior.
+		// See comment on ClientConn.rstStreamPingsBlocked for details.
+		rl.cc.rstStreamPingsBlocked = false
+	}
 	cs := rl.cc.streams[id]
 	if cs != nil && !cs.readAborted {
 		return cs
@@ -2728,6 +2842,24 @@ func (rl *clientConnReadLoop) processSettingsNoWrite(f *SettingsFrame) error {
 			cc.cond.Broadcast()
 
 			cc.initialWindowSize = s.Val
+		case SettingHeaderTableSize:
+			cc.henc.SetMaxDynamicTableSize(s.Val)
+			cc.peerMaxHeaderTableSize = s.Val
+		case SettingEnableConnectProtocol:
+			if err := s.Valid(); err != nil {
+				return err
+			}
+			// If the peer wants to send us SETTINGS_ENABLE_CONNECT_PROTOCOL,
+			// we require that it do so in the first SETTINGS frame.
+			//
+			// When we attempt to use extended CONNECT, we wait for the first
+			// SETTINGS frame to see if the server supports it. If we let the
+			// server enable the feature with a later SETTINGS frame, then
+			// users will see inconsistent results depending on whether we've
+			// seen that frame or not.
+			if !cc.seenSettings {
+				cc.extendedConnectAllowed = s.Val == 1
+			}
 		default:
 			// TODO(bradfitz): handle more settings? SETTINGS_HEADER_TABLE_SIZE probably.
 			cc.vlogf("Unhandled Setting: %v", s)
@@ -2746,6 +2878,7 @@ func (rl *clientConnReadLoop) processSettingsNoWrite(f *SettingsFrame) error {
 			// connection can establish to our default.
 			cc.maxConcurrentStreams = defaultMaxConcurrentStreams
 		}
+		close(cc.seenSettingsChan)
 		cc.seenSettings = true
 	}
 
@@ -2754,7 +2887,7 @@ func (rl *clientConnReadLoop) processSettingsNoWrite(f *SettingsFrame) error {
 
 func (rl *clientConnReadLoop) processWindowUpdate(f *WindowUpdateFrame) error {
 	cc := rl.cc
-	cs := rl.streamByID(f.StreamID)
+	cs := rl.streamByID(f.StreamID, notHeaderOrDataFrame)
 	if f.StreamID != 0 && cs == nil {
 		return nil
 	}
@@ -2774,7 +2907,7 @@ func (rl *clientConnReadLoop) processWindowUpdate(f *WindowUpdateFrame) error {
 }
 
 func (rl *clientConnReadLoop) processResetStream(f *RSTStreamFrame) error {
-	cs := rl.streamByID(f.StreamID)
+	cs := rl.streamByID(f.StreamID, notHeaderOrDataFrame)
 	if cs == nil {
 		// TODO: return error if server tries to RST_STREAM an idle stream
 		return nil
@@ -2846,6 +2979,12 @@ func (rl *clientConnReadLoop) processPing(f *PingFrame) error {
 		if c, ok := cc.pings[f.Data]; ok {
 			close(c)
 			delete(cc.pings, f.Data)
+		}
+		if cc.pendingResets > 0 {
+			// See clientStream.cleanupWriteRequest.
+			cc.pendingResets = 0
+			cc.rstStreamPingsBlocked = true
+			cc.cond.Broadcast()
 		}
 		return nil
 	}

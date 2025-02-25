@@ -31,6 +31,7 @@ import (
 	tgapiv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
+	regionUtil "github.com/ppc64le-cloud/powervs-utils"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -635,10 +636,7 @@ func TestIBMPowerVSClusterReconciler_reconcile(t *testing.T) {
 				}
 				mockPowerVS := powervsmock.NewMockPowerVS(gomock.NewController(t))
 				mockPowerVS.EXPECT().GetDatacenterCapabilities(gomock.Any()).Return(map[string]bool{"power-edge-router": true}, nil)
-				mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(&models.DHCPServerDetail{
-					ID:     ptr.To("dhcpID"),
-					Status: ptr.To(string(infrav1beta2.DHCPServerStateBuild)),
-				}, nil)
+				mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(nil, fmt.Errorf("error get networkByID"))
 				mockPowerVS.EXPECT().WithClients(gomock.Any())
 				clusterScope.IBMPowerVSClient = mockPowerVS
 
@@ -719,7 +717,11 @@ func TestIBMPowerVSClusterReconciler_reconcile(t *testing.T) {
 			powerVSClusterScope := tc.powervsClusterScope()
 			res, err := reconciler.reconcile(powerVSClusterScope)
 			if tc.expectedError != nil {
-				g.Expect(err).To(Equal(tc.expectedError))
+				if errAggregate, ok := err.(kerrors.Aggregate); ok {
+					g.Expect(errAggregate.Errors()).To(ConsistOf(tc.expectedError))
+				} else {
+					g.Expect(err).To(Equal(tc.expectedError))
+				}
 			} else {
 				g.Expect(err).To(BeNil())
 			}
@@ -1381,11 +1383,11 @@ func TestReconcileVPCResources(t *testing.T) {
 						},
 					},
 				}
+				vpcZones, _ := regionUtil.VPCZonesForVPCRegion("us-south")
 				mockVPC := vpcmock.NewMockVpc(gomock.NewController(t))
 				mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{Status: ptr.To("active")}, nil, nil)
-				mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil)
-				mockVPC.EXPECT().GetSubnetAddrPrefix(gomock.Any(), gomock.Any()).Return("cidr", nil)
-				mockVPC.EXPECT().CreateSubnet(gomock.Any()).Return(&vpcv1.Subnet{Status: ptr.To("active")}, nil, nil)
+				mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil).Times(len(vpcZones))
+				mockVPC.EXPECT().CreateSubnet(gomock.Any()).Return(&vpcv1.Subnet{Status: ptr.To("active")}, nil, nil).Times(len(vpcZones))
 				clusterScope.IBMVPCClient = mockVPC
 				return clusterScope
 			},
@@ -1643,14 +1645,13 @@ func TestReconcilePowerVSResources(t *testing.T) {
 							ServiceInstanceID: "serviceInstanceID",
 						},
 						Status: infrav1beta2.IBMPowerVSClusterStatus{
-							DHCPServer:      &infrav1beta2.ResourceReference{ID: ptr.To("DHCPServerID")},
+							Network:         &infrav1beta2.ResourceReference{ID: ptr.To("NetworkID")},
 							ServiceInstance: &infrav1beta2.ResourceReference{ID: ptr.To("serviceInstanceID")},
 						},
 					},
 				}
 				mockPowerVS := powervsmock.NewMockPowerVS(gomock.NewController(t))
-				dhcpServer := &models.DHCPServerDetail{ID: ptr.To("dhcpID"), Status: ptr.To(string(infrav1beta2.DHCPServerStateError))}
-				mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
+				mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(nil, fmt.Errorf("error getting network"))
 				mockPowerVS.EXPECT().WithClients(gomock.Any())
 				mockResourceController := resourceclientmock.NewMockResourceController(gomock.NewController(t))
 				mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive)), Name: ptr.To("serviceInstanceName")}, nil, nil)
@@ -1659,7 +1660,7 @@ func TestReconcilePowerVSResources(t *testing.T) {
 				return clusterScope
 			},
 			reconcileResult: reconcileResult{
-				error: errors.New("DHCP server creation failed and is in error state"),
+				error: errors.New("error getting network"),
 			},
 			conditions: capiv1beta1.Conditions{
 				capiv1beta1.Condition{
@@ -1668,7 +1669,7 @@ func TestReconcilePowerVSResources(t *testing.T) {
 					Severity:           capiv1beta1.ConditionSeverityError,
 					LastTransitionTime: metav1.Time{},
 					Reason:             infrav1beta2.NetworkReconciliationFailedReason,
-					Message:            "DHCP server creation failed and is in error state",
+					Message:            "error getting network",
 				},
 				getServiceInstanceReadyCondition(),
 			},
@@ -1682,14 +1683,13 @@ func TestReconcilePowerVSResources(t *testing.T) {
 							ServiceInstanceID: "serviceInstanceID",
 						},
 						Status: infrav1beta2.IBMPowerVSClusterStatus{
-							DHCPServer:      &infrav1beta2.ResourceReference{ID: ptr.To("DHCPServerID")},
+							Network:         &infrav1beta2.ResourceReference{ID: ptr.To("netID")},
 							ServiceInstance: &infrav1beta2.ResourceReference{ID: ptr.To("serviceInstanceID")},
 						},
 					},
 				}
 				mockPowerVS := powervsmock.NewMockPowerVS(gomock.NewController(t))
-				dhcpServer := &models.DHCPServerDetail{ID: ptr.To("dhcpID"), Status: ptr.To(string(infrav1beta2.DHCPServerStateActive))}
-				mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
+				mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(&models.Network{NetworkID: ptr.To("netID")}, nil)
 				mockPowerVS.EXPECT().WithClients(gomock.Any())
 				mockResourceController := resourceclientmock.NewMockResourceController(gomock.NewController(t))
 				mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive)), Name: ptr.To("serviceInstanceName")}, nil, nil)
@@ -1793,8 +1793,8 @@ func getPowerVSClusterWithSpecAndStatus() *infrav1beta2.IBMPowerVSCluster {
 			ServiceInstance: &infrav1beta2.ResourceReference{
 				ID: ptr.To("serviceInstanceID"),
 			},
-			DHCPServer: &infrav1beta2.ResourceReference{
-				ID: ptr.To("DHCPServerID"),
+			Network: &infrav1beta2.ResourceReference{
+				ID: ptr.To("NetworkID"),
 			},
 			VPC: &infrav1beta2.ResourceReference{
 				ID: ptr.To("vpcID"),
@@ -1810,10 +1810,8 @@ func getMockPowerVS(t *testing.T) *powervsmock.MockPowerVS {
 	t.Helper()
 	mockPowerVS := powervsmock.NewMockPowerVS(gomock.NewController(t))
 	mockPowerVS.EXPECT().GetDatacenterCapabilities(gomock.Any()).Return(map[string]bool{"power-edge-router": true}, nil)
-	mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(&models.DHCPServerDetail{
-		ID:     ptr.To("dhcpID"),
-		Status: ptr.To(string(infrav1beta2.DHCPServerStateActive)),
-	}, nil)
+	network := &models.Network{NetworkID: ptr.To("netID")}
+	mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
 	mockPowerVS.EXPECT().WithClients(gomock.Any())
 	return mockPowerVS
 }

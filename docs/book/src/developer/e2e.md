@@ -4,7 +4,7 @@
 
 * The end-to-end tests for `VPC` and `PowerVS` run on an internal prow cluster on IBM Cloud.
 * Resource management is handled via [boskos](https://github.com/kubernetes-sigs/boskos) which is an efficient way to lease infra and clean up after every run.
-* The E2E tests use the Cluster API test framework. For more information on developing E2E tests, refer [here](https://cluster-api.sigs.k8s.io/developer/e2e).
+* The E2E tests use the Cluster API test framework. For more information on developing E2E tests, refer [here](https://cluster-api.sigs.k8s.io/developer/core/e2e).
 
 ### Jobs
 
@@ -13,7 +13,7 @@ The following periodic jobs are being run on main branch once every day.
 1. [periodic-capi-provider-ibmcloud-e2e-powervs](https://prow.ppc64le-cloud.cis.ibm.net/job-history/gs/ppc64le-kubernetes/logs/periodic-capi-provider-ibmcloud-e2e-powervs)
 2. [periodic-capi-provider-ibmcloud-e2e-vpc](https://prow.ppc64le-cloud.cis.ibm.net/job-history/gs/ppc64le-kubernetes/logs/periodic-capi-provider-ibmcloud-e2e-vpc)
 
-We also test the last two releases, `release-0.5` and `release-0.6` once every week.
+We also test the last two releases, once every week.
 
 ### Running the end-to-end tests locally
 

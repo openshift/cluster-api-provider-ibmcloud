@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -17,7 +16,7 @@ import (
 
 const name = "gojq"
 
-const version = "0.12.9"
+const version = "0.12.17"
 
 var revision = "HEAD"
 
@@ -35,58 +34,60 @@ type cli struct {
 	outStream io.Writer
 	errStream io.Writer
 
-	outputCompact bool
 	outputRaw     bool
+	outputRaw0    bool
 	outputJoin    bool
-	outputNul     bool
-	outputYAML    bool
+	outputCompact bool
 	outputIndent  *int
 	outputTab     bool
+	outputYAML    bool
 	inputRaw      bool
-	inputSlurp    bool
 	inputStream   bool
 	inputYAML     bool
+	inputSlurp    bool
 
 	argnames  []string
-	argvalues []interface{}
+	argvalues []any
 
 	outputYAMLSeparator bool
 	exitCodeError       error
 }
 
 type flagopts struct {
-	OutputCompact bool              `short:"c" long:"compact-output" description:"compact output"`
 	OutputRaw     bool              `short:"r" long:"raw-output" description:"output raw strings"`
-	OutputJoin    bool              `short:"j" long:"join-output" description:"stop printing a newline after each output"`
-	OutputNul     bool              `short:"0" long:"nul-output" description:"print NUL after each output"`
-	OutputColor   bool              `short:"C" long:"color-output" description:"colorize output even if piped"`
-	OutputMono    bool              `short:"M" long:"monochrome-output" description:"stop colorizing output"`
-	OutputYAML    bool              `long:"yaml-output" description:"output by YAML"`
-	OutputIndent  *int              `long:"indent" description:"number of spaces for indentation"`
+	OutputRaw0    bool              `long:"raw-output0" description:"implies -r with NUL character delimiter"`
+	OutputJoin    bool              `short:"j" long:"join-output" description:"implies -r with no newline delimiter"`
+	OutputCompact bool              `short:"c" long:"compact-output" description:"output without pretty-printing"`
+	OutputIndent  *int              `long:"indent" args:"number" description:"number of spaces for indentation"`
 	OutputTab     bool              `long:"tab" description:"use tabs for indentation"`
+	OutputYAML    bool              `long:"yaml-output" description:"output in YAML format"`
+	OutputColor   bool              `short:"C" long:"color-output" description:"output with colors even if piped"`
+	OutputMono    bool              `short:"M" long:"monochrome-output" description:"output without colors"`
 	InputNull     bool              `short:"n" long:"null-input" description:"use null as input value"`
 	InputRaw      bool              `short:"R" long:"raw-input" description:"read input as raw strings"`
-	InputSlurp    bool              `short:"s" long:"slurp" description:"read all inputs into an array"`
 	InputStream   bool              `long:"stream" description:"parse input in stream fashion"`
-	InputYAML     bool              `long:"yaml-input" description:"read input as YAML"`
-	FromFile      string            `short:"f" long:"from-file" description:"load query from file"`
-	ModulePaths   []string          `short:"L" description:"directory to search modules from"`
-	Arg           map[string]string `long:"arg" description:"set variable to string value"`
-	ArgJSON       map[string]string `long:"argjson" description:"set variable to JSON value"`
-	SlurpFile     map[string]string `long:"slurpfile" description:"set variable to the JSON contents of the file"`
-	RawFile       map[string]string `long:"rawfile" description:"set variable to the contents of the file"`
-	Args          []interface{}     `long:"args" positional:"" description:"consume remaining arguments as positional string values"`
-	JSONArgs      []interface{}     `long:"jsonargs" positional:"" description:"consume remaining arguments as positional JSON values"`
+	InputYAML     bool              `long:"yaml-input" description:"read input as YAML format"`
+	InputSlurp    bool              `short:"s" long:"slurp" description:"read all inputs into an array"`
+	FromFile      bool              `short:"f" long:"from-file" description:"load query from file"`
+	ModulePaths   []string          `short:"L" long:"library-path" args:"dir" description:"directory to search modules from"`
+	Arg           map[string]string `long:"arg" args:"name value" description:"set a string value to a variable"`
+	ArgJSON       map[string]string `long:"argjson" args:"name value" description:"set a JSON value to a variable"`
+	SlurpFile     map[string]string `long:"slurpfile" args:"name file" description:"set the JSON contents of a file to a variable"`
+	RawFile       map[string]string `long:"rawfile" args:"name file" description:"set the contents of a file to a variable"`
+	Args          []any             `long:"args" positional:"" description:"consume remaining arguments as positional string values"`
+	JSONArgs      []any             `long:"jsonargs" positional:"" description:"consume remaining arguments as positional JSON values"`
 	ExitStatus    bool              `short:"e" long:"exit-status" description:"exit 1 when the last value is false or null"`
-	Version       bool              `short:"v" long:"version" description:"print version"`
-	Help          bool              `short:"h" long:"help" description:"print this help"`
+	Version       bool              `short:"v" long:"version" description:"display version information"`
+	Help          bool              `short:"h" long:"help" description:"display this help information"`
 }
 
 var addDefaultModulePaths = true
 
 func (cli *cli) run(args []string) int {
 	if err := cli.runInternal(args); err != nil {
-		cli.printError(err)
+		if _, ok := err.(interface{ isEmptyError() }); !ok {
+			fmt.Fprintf(cli.errStream, "%s: %s\n", name, err)
+		}
 		if err, ok := err.(interface{ ExitCode() int }); ok {
 			return err.ExitCode()
 		}
@@ -121,10 +122,10 @@ Usage:
 		fmt.Fprintf(cli.outStream, "%s %s (rev: %s/%s)\n", name, version, revision, runtime.Version())
 		return nil
 	}
-	cli.outputCompact, cli.outputRaw, cli.outputJoin, cli.outputNul,
-		cli.outputYAML, cli.outputIndent, cli.outputTab =
-		opts.OutputCompact, opts.OutputRaw, opts.OutputJoin, opts.OutputNul,
-		opts.OutputYAML, opts.OutputIndent, opts.OutputTab
+	cli.outputRaw, cli.outputRaw0, cli.outputJoin,
+		cli.outputCompact, cli.outputIndent, cli.outputTab, cli.outputYAML =
+		opts.OutputRaw, opts.OutputRaw0, opts.OutputJoin,
+		opts.OutputCompact, opts.OutputIndent, opts.OutputTab, opts.OutputYAML
 	defer func(x bool) { noColor = x }(noColor)
 	if opts.OutputColor || opts.OutputMono {
 		noColor = opts.OutputMono
@@ -151,8 +152,8 @@ Usage:
 	if opts.OutputYAML && opts.OutputTab {
 		return errors.New("cannot use tabs for YAML output")
 	}
-	cli.inputRaw, cli.inputSlurp, cli.inputStream, cli.inputYAML =
-		opts.InputRaw, opts.InputSlurp, opts.InputStream, opts.InputYAML
+	cli.inputRaw, cli.inputStream, cli.inputYAML, cli.inputSlurp =
+		opts.InputRaw, opts.InputStream, opts.InputYAML, opts.InputSlurp
 	for k, v := range opts.Arg {
 		cli.argnames = append(cli.argnames, "$"+k)
 		cli.argvalues = append(cli.argvalues, v)
@@ -181,7 +182,7 @@ Usage:
 		cli.argnames = append(cli.argnames, "$"+k)
 		cli.argvalues = append(cli.argvalues, string(val))
 	}
-	named := make(map[string]interface{}, len(cli.argnames))
+	named := make(map[string]any, len(cli.argnames))
 	for i, name := range cli.argnames {
 		named[name[1:]] = cli.argvalues[i]
 	}
@@ -200,22 +201,24 @@ Usage:
 		}
 	}
 	cli.argnames = append(cli.argnames, "$ARGS")
-	cli.argvalues = append(cli.argvalues, map[string]interface{}{
+	cli.argvalues = append(cli.argvalues, map[string]any{
 		"named":      named,
 		"positional": positional,
 	})
 	var arg, fname string
-	if opts.FromFile != "" {
-		src, err := os.ReadFile(opts.FromFile)
+	if opts.FromFile {
+		if len(args) == 0 {
+			return errors.New("expected a query file for flag `-f'")
+		}
+		src, err := os.ReadFile(args[0])
 		if err != nil {
 			return err
 		}
-		arg, fname = string(src), opts.FromFile
+		arg, args, fname = string(src), args[1:], args[0]
 	} else if len(args) == 0 {
 		arg = "."
 	} else {
-		arg, fname = strings.TrimSpace(args[0]), "<arg>"
-		args = args[1:]
+		arg, args, fname = strings.TrimSpace(args[0]), args[1:], "<arg>"
 	}
 	if opts.ExitStatus {
 		cli.exitCodeError = &exitCodeError{exitCodeNoValueErr}
@@ -231,7 +234,7 @@ Usage:
 	}
 	modulePaths := opts.ModulePaths
 	if len(modulePaths) == 0 && addDefaultModulePaths {
-		modulePaths = listDefaultModulePaths()
+		modulePaths = []string{"~/.jq", "$ORIGIN/../lib/gojq", "$ORIGIN/../lib"}
 	}
 	iter := cli.createInputIter(args)
 	defer iter.Close()
@@ -242,8 +245,8 @@ Usage:
 		gojq.WithFunction("debug", 0, 0, cli.funcDebug),
 		gojq.WithFunction("stderr", 0, 0, cli.funcStderr),
 		gojq.WithFunction("input_filename", 0, 0,
-			func(iter inputIter) func(interface{}, []interface{}) interface{} {
-				return func(interface{}, []interface{}) interface{} {
+			func(iter inputIter) func(any, []any) any {
+				return func(any, []any) any {
 					if fname := iter.Name(); fname != "" && (len(args) > 0 || !opts.InputNull) {
 						return fname
 					}
@@ -274,24 +277,7 @@ Usage:
 	return cli.process(iter, code)
 }
 
-func listDefaultModulePaths() []string {
-	modulePaths := []string{"", "../lib/gojq", "lib"}
-	if executable, err := os.Executable(); err == nil {
-		if executable, err := filepath.EvalSymlinks(executable); err == nil {
-			origin := filepath.Dir(executable)
-			modulePaths[1] = filepath.Join(origin, modulePaths[1])
-			modulePaths[2] = filepath.Join(origin, modulePaths[2])
-		}
-	}
-	if homeDir, err := os.UserHomeDir(); err == nil {
-		modulePaths[0] = filepath.Join(homeDir, ".jq")
-	} else {
-		modulePaths = modulePaths[1:]
-	}
-	return modulePaths
-}
-
-func slurpFile(name string) (interface{}, error) {
+func slurpFile(name string) (any, error) {
 	iter := newSlurpInputIter(
 		newFilesInputIter(newJSONInputIter, []string{name}, nil),
 	)
@@ -339,18 +325,35 @@ func (cli *cli) process(iter inputIter, code *gojq.Code) error {
 	for {
 		v, ok := iter.Next()
 		if !ok {
-			return err
+			break
 		}
-		if er, ok := v.(error); ok {
-			cli.printError(er)
-			err = &emptyError{er}
+		if e, ok := v.(error); ok {
+			fmt.Fprintf(cli.errStream, "%s: %s\n", name, e)
+			err = e
 			continue
 		}
-		if er := cli.printValues(code.Run(v, cli.argvalues...)); er != nil {
-			cli.printError(er)
-			err = &emptyError{er}
+		if e := cli.printValues(code.Run(v, cli.argvalues...)); e != nil {
+			if e, ok := e.(*gojq.HaltError); ok {
+				if v := e.Value(); v != nil {
+					if str, ok := v.(string); ok {
+						cli.errStream.Write([]byte(str))
+					} else {
+						bs, _ := gojq.Marshal(v)
+						cli.errStream.Write(bs)
+						cli.errStream.Write([]byte{'\n'})
+					}
+				}
+				err = e
+				break
+			}
+			fmt.Fprintf(cli.errStream, "%s: %s\n", name, e)
+			err = e
 		}
 	}
+	if err != nil {
+		return &emptyError{err}
+	}
+	return nil
 }
 
 func (cli *cli) printValues(iter gojq.Iter) error {
@@ -378,10 +381,10 @@ func (cli *cli) printValues(iter gojq.Iter) error {
 				cli.exitCodeError = &exitCodeError{exitCodeOK}
 			}
 		}
-		if !cli.outputJoin && !cli.outputYAML {
-			if cli.outputNul {
+		if !cli.outputYAML {
+			if cli.outputRaw0 {
 				cli.outStream.Write([]byte{'\x00'})
-			} else {
+			} else if !cli.outputJoin {
 				cli.outStream.Write([]byte{'\n'})
 			}
 		}
@@ -402,36 +405,27 @@ func (cli *cli) createMarshaler() marshaler {
 		indent = *i
 	}
 	f := newEncoder(cli.outputTab, indent)
-	if cli.outputRaw || cli.outputJoin || cli.outputNul {
-		return &rawMarshaler{f}
+	if cli.outputRaw || cli.outputRaw0 || cli.outputJoin {
+		return &rawMarshaler{f, cli.outputRaw0}
 	}
 	return f
 }
 
-func (cli *cli) funcDebug(v interface{}, _ []interface{}) interface{} {
-	newEncoder(false, 0).marshal([]interface{}{"DEBUG:", v}, cli.errStream)
-	cli.errStream.Write([]byte{'\n'})
-	return v
-}
-
-func (cli *cli) funcStderr(v interface{}, _ []interface{}) interface{} {
-	newEncoder(false, 0).marshal(v, cli.errStream)
-	return v
-}
-
-func (cli *cli) printError(err error) {
-	if er, ok := err.(interface{ IsEmptyError() bool }); !ok || !er.IsEmptyError() {
-		if er, ok := err.(interface{ IsHaltError() bool }); !ok || !er.IsHaltError() {
-			fmt.Fprintf(cli.errStream, "%s: %s\n", name, err)
-		} else if er, ok := err.(gojq.ValueError); ok {
-			v := er.Value()
-			if str, ok := v.(string); ok {
-				cli.errStream.Write([]byte(str))
-			} else {
-				bs, _ := gojq.Marshal(v)
-				cli.errStream.Write(bs)
-				cli.errStream.Write([]byte{'\n'})
-			}
-		}
+func (cli *cli) funcDebug(v any, _ []any) any {
+	if err := newEncoder(false, 0).
+		marshal([]any{"DEBUG:", v}, cli.errStream); err != nil {
+		return err
 	}
+	if _, err := cli.errStream.Write([]byte{'\n'}); err != nil {
+		return err
+	}
+	return v
+}
+
+func (cli *cli) funcStderr(v any, _ []any) any {
+	if err := (&rawMarshaler{m: newEncoder(false, 0)}).
+		marshal(v, cli.errStream); err != nil {
+		return err
+	}
+	return v
 }

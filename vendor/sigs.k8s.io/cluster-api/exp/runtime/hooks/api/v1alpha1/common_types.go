@@ -20,6 +20,33 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// RequestObject is a runtime.Object extended with methods to handle request-specific fields.
+// +kubebuilder:object:generate=false
+type RequestObject interface {
+	runtime.Object
+	GetSettings() map[string]string
+	SetSettings(settings map[string]string)
+}
+
+// CommonRequest is the data structure common to all request types.
+// Note: By embedding CommonRequest in a runtime.Object the RequestObject
+// interface is satisfied.
+type CommonRequest struct {
+	// settings defines key value pairs to be passed to the call.
+	// +optional
+	Settings map[string]string `json:"settings,omitempty"`
+}
+
+// GetSettings get the Settings field from the CommonRequest.
+func (r *CommonRequest) GetSettings() map[string]string {
+	return r.Settings
+}
+
+// SetSettings sets the Settings field in the CommonRequest.
+func (r *CommonRequest) SetSettings(settings map[string]string) {
+	r.Settings = settings
+}
+
 // ResponseObject is a runtime.Object extended with methods to handle response-specific fields.
 // +kubebuilder:object:generate=false
 type ResponseObject interface {
@@ -43,7 +70,7 @@ type RetryResponseObject interface {
 // Note: By embedding CommonResponse in a runtime.Object the ResponseObject
 // interface is satisfied.
 type CommonResponse struct {
-	// Status of the call. One of "Success" or "Failure".
+	// status of the call. One of "Success" or "Failure".
 	Status ResponseStatus `json:"status"`
 
 	// A human-readable description of the status of the call.
@@ -90,7 +117,7 @@ type CommonRetryResponse struct {
 	// CommonResponse contains Status and Message fields common to all response types.
 	CommonResponse `json:",inline"`
 
-	// RetryAfterSeconds when set to a non-zero value signifies that the hook
+	// retryAfterSeconds when set to a non-zero value signifies that the hook
 	// will be called again at a future time.
 	RetryAfterSeconds int32 `json:"retryAfterSeconds"`
 }

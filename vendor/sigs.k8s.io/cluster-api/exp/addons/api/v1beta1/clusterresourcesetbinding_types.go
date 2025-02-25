@@ -20,8 +20,7 @@ import (
 	"reflect"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"sigs.k8s.io/cluster-api/util"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // ANCHOR: ResourceBinding
@@ -31,16 +30,16 @@ type ResourceBinding struct {
 	// ResourceRef specifies a resource.
 	ResourceRef `json:",inline"`
 
-	// Hash is the hash of a resource's data. This can be used to decide if a resource is changed.
+	// hash is the hash of a resource's data. This can be used to decide if a resource is changed.
 	// For "ApplyOnce" ClusterResourceSet.spec.strategy, this is no-op as that strategy does not act on change.
 	// +optional
 	Hash string `json:"hash,omitempty"`
 
-	// LastAppliedTime identifies when this resource was last applied to the cluster.
+	// lastAppliedTime identifies when this resource was last applied to the cluster.
 	// +optional
 	LastAppliedTime *metav1.Time `json:"lastAppliedTime,omitempty"`
 
-	// Applied is to track if a resource is applied to the cluster or not.
+	// applied is to track if a resource is applied to the cluster or not.
 	Applied bool `json:"applied"`
 }
 
@@ -48,27 +47,31 @@ type ResourceBinding struct {
 
 // ResourceSetBinding keeps info on all of the resources in a ClusterResourceSet.
 type ResourceSetBinding struct {
-	// ClusterResourceSetName is the name of the ClusterResourceSet that is applied to the owner cluster of the binding.
+	// clusterResourceSetName is the name of the ClusterResourceSet that is applied to the owner cluster of the binding.
 	ClusterResourceSetName string `json:"clusterResourceSetName"`
 
-	// Resources is a list of resources that the ClusterResourceSet has.
+	// resources is a list of resources that the ClusterResourceSet has.
 	// +optional
 	Resources []ResourceBinding `json:"resources,omitempty"`
 }
 
 // IsApplied returns true if the resource is applied to the cluster by checking the cluster's binding.
 func (r *ResourceSetBinding) IsApplied(resourceRef ResourceRef) bool {
-	for _, resource := range r.Resources {
-		if reflect.DeepEqual(resource.ResourceRef, resourceRef) {
-			if resource.Applied {
-				return true
-			}
-		}
-	}
-	return false
+	resourceBinding := r.GetResource(resourceRef)
+	return resourceBinding != nil && resourceBinding.Applied
 }
 
-// SetBinding sets resourceBinding for a resource in resourceSetbinding either by updating the existing one or
+// GetResource returns a ResourceBinding for a resource ref if present.
+func (r *ResourceSetBinding) GetResource(resourceRef ResourceRef) *ResourceBinding {
+	for _, resource := range r.Resources {
+		if reflect.DeepEqual(resource.ResourceRef, resourceRef) {
+			return &resource
+		}
+	}
+	return nil
+}
+
+// SetBinding sets resourceBinding for a resource in ResourceSetBinding either by updating the existing one or
 // creating a new one.
 func (r *ResourceSetBinding) SetBinding(resourceBinding ResourceBinding) {
 	for i := range r.Resources {
@@ -93,7 +96,20 @@ func (c *ClusterResourceSetBinding) GetOrCreateBinding(clusterResourceSet *Clust
 	return binding
 }
 
+// RemoveBinding removes the ClusterResourceSet from the ClusterResourceSetBinding Bindings list.
+func (c *ClusterResourceSetBinding) RemoveBinding(clusterResourceSet *ClusterResourceSet) {
+	for i, binding := range c.Spec.Bindings {
+		if binding.ClusterResourceSetName == clusterResourceSet.Name {
+			copy(c.Spec.Bindings[i:], c.Spec.Bindings[i+1:])
+			c.Spec.Bindings = c.Spec.Bindings[:len(c.Spec.Bindings)-1]
+			break
+		}
+	}
+}
+
 // DeleteBinding removes the ClusterResourceSet from the ClusterResourceSetBinding Bindings list.
+//
+// Deprecated: This function is deprecated and will be removed in an upcoming release of Cluster API.
 func (c *ClusterResourceSetBinding) DeleteBinding(clusterResourceSet *ClusterResourceSet) {
 	for i, binding := range c.Spec.Bindings {
 		if binding.ClusterResourceSetName == clusterResourceSet.Name {
@@ -102,11 +118,51 @@ func (c *ClusterResourceSetBinding) DeleteBinding(clusterResourceSet *ClusterRes
 			break
 		}
 	}
-	clusterResourceSet.OwnerReferences = util.RemoveOwnerRef(c.OwnerReferences, metav1.OwnerReference{
-		APIVersion: clusterResourceSet.APIVersion,
-		Kind:       clusterResourceSet.Kind,
+	c.OwnerReferences = removeOwnerRef(c.GetOwnerReferences(), metav1.OwnerReference{
+		APIVersion: GroupVersion.String(),
+		Kind:       "ClusterResourceSet",
 		Name:       clusterResourceSet.Name,
 	})
+}
+
+// removeOwnerRef returns the slice of owner references after removing the supplied owner ref.
+// Note: removeOwnerRef ignores apiVersion and UID. It will remove the passed ownerReference where it matches Name, Group and Kind.
+//
+// Deprecated: This function is deprecated and will be removed in an upcoming release of Cluster API.
+func removeOwnerRef(ownerReferences []metav1.OwnerReference, inputRef metav1.OwnerReference) []metav1.OwnerReference {
+	if index := indexOwnerRef(ownerReferences, inputRef); index != -1 {
+		return append(ownerReferences[:index], ownerReferences[index+1:]...)
+	}
+	return ownerReferences
+}
+
+// indexOwnerRef returns the index of the owner reference in the slice if found, or -1.
+//
+// Deprecated: This function is deprecated and will be removed in an upcoming release of Cluster API.
+func indexOwnerRef(ownerReferences []metav1.OwnerReference, ref metav1.OwnerReference) int {
+	for index, r := range ownerReferences {
+		if referSameObject(r, ref) {
+			return index
+		}
+	}
+	return -1
+}
+
+// Returns true if a and b point to the same object based on Group, Kind and Name.
+//
+// Deprecated: This function is deprecated and will be removed in an upcoming release of Cluster API.
+func referSameObject(a, b metav1.OwnerReference) bool {
+	aGV, err := schema.ParseGroupVersion(a.APIVersion)
+	if err != nil {
+		return false
+	}
+
+	bGV, err := schema.ParseGroupVersion(b.APIVersion)
+	if err != nil {
+		return false
+	}
+
+	return aGV.Group == bGV.Group && a.Kind == b.Kind && a.Name == b.Name
 }
 
 // +kubebuilder:object:root=true
@@ -126,9 +182,14 @@ type ClusterResourceSetBinding struct {
 
 // ClusterResourceSetBindingSpec defines the desired state of ClusterResourceSetBinding.
 type ClusterResourceSetBindingSpec struct {
-	// Bindings is a list of ClusterResourceSets and their resources.
+	// bindings is a list of ClusterResourceSets and their resources.
 	// +optional
 	Bindings []*ResourceSetBinding `json:"bindings,omitempty"`
+
+	// clusterName is the name of the Cluster this binding applies to.
+	// Note: this field mandatory in v1beta2.
+	// +optional
+	ClusterName string `json:"clusterName,omitempty"`
 }
 
 // ANCHOR_END: ClusterResourceSetBindingSpec
@@ -143,5 +204,5 @@ type ClusterResourceSetBindingList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ClusterResourceSetBinding{}, &ClusterResourceSetBindingList{})
+	objectTypes = append(objectTypes, &ClusterResourceSetBinding{}, &ClusterResourceSetBindingList{})
 }

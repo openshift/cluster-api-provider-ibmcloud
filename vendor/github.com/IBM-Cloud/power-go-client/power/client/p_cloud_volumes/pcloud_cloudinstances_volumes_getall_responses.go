@@ -6,6 +6,7 @@ package p_cloud_volumes
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -41,6 +42,12 @@ func (o *PcloudCloudinstancesVolumesGetallReader) ReadResponse(response runtime.
 			return nil, err
 		}
 		return nil, result
+	case 403:
+		result := NewPcloudCloudinstancesVolumesGetallForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 404:
 		result := NewPcloudCloudinstancesVolumesGetallNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -54,7 +61,7 @@ func (o *PcloudCloudinstancesVolumesGetallReader) ReadResponse(response runtime.
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes] pcloud.cloudinstances.volumes.getall", response, response.Code())
 	}
 }
 
@@ -63,7 +70,8 @@ func NewPcloudCloudinstancesVolumesGetallOK() *PcloudCloudinstancesVolumesGetall
 	return &PcloudCloudinstancesVolumesGetallOK{}
 }
 
-/* PcloudCloudinstancesVolumesGetallOK describes a response with status code 200, with default header values.
+/*
+PcloudCloudinstancesVolumesGetallOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -71,9 +79,46 @@ type PcloudCloudinstancesVolumesGetallOK struct {
 	Payload *models.Volumes
 }
 
-func (o *PcloudCloudinstancesVolumesGetallOK) Error() string {
-	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallOK  %+v", 200, o.Payload)
+// IsSuccess returns true when this pcloud cloudinstances volumes getall o k response has a 2xx status code
+func (o *PcloudCloudinstancesVolumesGetallOK) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud cloudinstances volumes getall o k response has a 3xx status code
+func (o *PcloudCloudinstancesVolumesGetallOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud cloudinstances volumes getall o k response has a 4xx status code
+func (o *PcloudCloudinstancesVolumesGetallOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud cloudinstances volumes getall o k response has a 5xx status code
+func (o *PcloudCloudinstancesVolumesGetallOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud cloudinstances volumes getall o k response a status code equal to that given
+func (o *PcloudCloudinstancesVolumesGetallOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the pcloud cloudinstances volumes getall o k response
+func (o *PcloudCloudinstancesVolumesGetallOK) Code() int {
+	return 200
+}
+
+func (o *PcloudCloudinstancesVolumesGetallOK) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallOK %s", 200, payload)
+}
+
+func (o *PcloudCloudinstancesVolumesGetallOK) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallOK %s", 200, payload)
+}
+
 func (o *PcloudCloudinstancesVolumesGetallOK) GetPayload() *models.Volumes {
 	return o.Payload
 }
@@ -95,7 +140,8 @@ func NewPcloudCloudinstancesVolumesGetallBadRequest() *PcloudCloudinstancesVolum
 	return &PcloudCloudinstancesVolumesGetallBadRequest{}
 }
 
-/* PcloudCloudinstancesVolumesGetallBadRequest describes a response with status code 400, with default header values.
+/*
+PcloudCloudinstancesVolumesGetallBadRequest describes a response with status code 400, with default header values.
 
 Bad Request
 */
@@ -103,9 +149,46 @@ type PcloudCloudinstancesVolumesGetallBadRequest struct {
 	Payload *models.Error
 }
 
-func (o *PcloudCloudinstancesVolumesGetallBadRequest) Error() string {
-	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallBadRequest  %+v", 400, o.Payload)
+// IsSuccess returns true when this pcloud cloudinstances volumes getall bad request response has a 2xx status code
+func (o *PcloudCloudinstancesVolumesGetallBadRequest) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud cloudinstances volumes getall bad request response has a 3xx status code
+func (o *PcloudCloudinstancesVolumesGetallBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud cloudinstances volumes getall bad request response has a 4xx status code
+func (o *PcloudCloudinstancesVolumesGetallBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud cloudinstances volumes getall bad request response has a 5xx status code
+func (o *PcloudCloudinstancesVolumesGetallBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud cloudinstances volumes getall bad request response a status code equal to that given
+func (o *PcloudCloudinstancesVolumesGetallBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the pcloud cloudinstances volumes getall bad request response
+func (o *PcloudCloudinstancesVolumesGetallBadRequest) Code() int {
+	return 400
+}
+
+func (o *PcloudCloudinstancesVolumesGetallBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallBadRequest %s", 400, payload)
+}
+
+func (o *PcloudCloudinstancesVolumesGetallBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallBadRequest %s", 400, payload)
+}
+
 func (o *PcloudCloudinstancesVolumesGetallBadRequest) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -127,7 +210,8 @@ func NewPcloudCloudinstancesVolumesGetallUnauthorized() *PcloudCloudinstancesVol
 	return &PcloudCloudinstancesVolumesGetallUnauthorized{}
 }
 
-/* PcloudCloudinstancesVolumesGetallUnauthorized describes a response with status code 401, with default header values.
+/*
+PcloudCloudinstancesVolumesGetallUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized
 */
@@ -135,9 +219,46 @@ type PcloudCloudinstancesVolumesGetallUnauthorized struct {
 	Payload *models.Error
 }
 
-func (o *PcloudCloudinstancesVolumesGetallUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallUnauthorized  %+v", 401, o.Payload)
+// IsSuccess returns true when this pcloud cloudinstances volumes getall unauthorized response has a 2xx status code
+func (o *PcloudCloudinstancesVolumesGetallUnauthorized) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud cloudinstances volumes getall unauthorized response has a 3xx status code
+func (o *PcloudCloudinstancesVolumesGetallUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud cloudinstances volumes getall unauthorized response has a 4xx status code
+func (o *PcloudCloudinstancesVolumesGetallUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud cloudinstances volumes getall unauthorized response has a 5xx status code
+func (o *PcloudCloudinstancesVolumesGetallUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud cloudinstances volumes getall unauthorized response a status code equal to that given
+func (o *PcloudCloudinstancesVolumesGetallUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the pcloud cloudinstances volumes getall unauthorized response
+func (o *PcloudCloudinstancesVolumesGetallUnauthorized) Code() int {
+	return 401
+}
+
+func (o *PcloudCloudinstancesVolumesGetallUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallUnauthorized %s", 401, payload)
+}
+
+func (o *PcloudCloudinstancesVolumesGetallUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallUnauthorized %s", 401, payload)
+}
+
 func (o *PcloudCloudinstancesVolumesGetallUnauthorized) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -154,12 +275,83 @@ func (o *PcloudCloudinstancesVolumesGetallUnauthorized) readResponse(response ru
 	return nil
 }
 
+// NewPcloudCloudinstancesVolumesGetallForbidden creates a PcloudCloudinstancesVolumesGetallForbidden with default headers values
+func NewPcloudCloudinstancesVolumesGetallForbidden() *PcloudCloudinstancesVolumesGetallForbidden {
+	return &PcloudCloudinstancesVolumesGetallForbidden{}
+}
+
+/*
+PcloudCloudinstancesVolumesGetallForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type PcloudCloudinstancesVolumesGetallForbidden struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud cloudinstances volumes getall forbidden response has a 2xx status code
+func (o *PcloudCloudinstancesVolumesGetallForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud cloudinstances volumes getall forbidden response has a 3xx status code
+func (o *PcloudCloudinstancesVolumesGetallForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud cloudinstances volumes getall forbidden response has a 4xx status code
+func (o *PcloudCloudinstancesVolumesGetallForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud cloudinstances volumes getall forbidden response has a 5xx status code
+func (o *PcloudCloudinstancesVolumesGetallForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud cloudinstances volumes getall forbidden response a status code equal to that given
+func (o *PcloudCloudinstancesVolumesGetallForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the pcloud cloudinstances volumes getall forbidden response
+func (o *PcloudCloudinstancesVolumesGetallForbidden) Code() int {
+	return 403
+}
+
+func (o *PcloudCloudinstancesVolumesGetallForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallForbidden %s", 403, payload)
+}
+
+func (o *PcloudCloudinstancesVolumesGetallForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallForbidden %s", 403, payload)
+}
+
+func (o *PcloudCloudinstancesVolumesGetallForbidden) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudCloudinstancesVolumesGetallForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewPcloudCloudinstancesVolumesGetallNotFound creates a PcloudCloudinstancesVolumesGetallNotFound with default headers values
 func NewPcloudCloudinstancesVolumesGetallNotFound() *PcloudCloudinstancesVolumesGetallNotFound {
 	return &PcloudCloudinstancesVolumesGetallNotFound{}
 }
 
-/* PcloudCloudinstancesVolumesGetallNotFound describes a response with status code 404, with default header values.
+/*
+PcloudCloudinstancesVolumesGetallNotFound describes a response with status code 404, with default header values.
 
 Not Found
 */
@@ -167,9 +359,46 @@ type PcloudCloudinstancesVolumesGetallNotFound struct {
 	Payload *models.Error
 }
 
-func (o *PcloudCloudinstancesVolumesGetallNotFound) Error() string {
-	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallNotFound  %+v", 404, o.Payload)
+// IsSuccess returns true when this pcloud cloudinstances volumes getall not found response has a 2xx status code
+func (o *PcloudCloudinstancesVolumesGetallNotFound) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud cloudinstances volumes getall not found response has a 3xx status code
+func (o *PcloudCloudinstancesVolumesGetallNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud cloudinstances volumes getall not found response has a 4xx status code
+func (o *PcloudCloudinstancesVolumesGetallNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud cloudinstances volumes getall not found response has a 5xx status code
+func (o *PcloudCloudinstancesVolumesGetallNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud cloudinstances volumes getall not found response a status code equal to that given
+func (o *PcloudCloudinstancesVolumesGetallNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the pcloud cloudinstances volumes getall not found response
+func (o *PcloudCloudinstancesVolumesGetallNotFound) Code() int {
+	return 404
+}
+
+func (o *PcloudCloudinstancesVolumesGetallNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallNotFound %s", 404, payload)
+}
+
+func (o *PcloudCloudinstancesVolumesGetallNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallNotFound %s", 404, payload)
+}
+
 func (o *PcloudCloudinstancesVolumesGetallNotFound) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -191,7 +420,8 @@ func NewPcloudCloudinstancesVolumesGetallInternalServerError() *PcloudCloudinsta
 	return &PcloudCloudinstancesVolumesGetallInternalServerError{}
 }
 
-/* PcloudCloudinstancesVolumesGetallInternalServerError describes a response with status code 500, with default header values.
+/*
+PcloudCloudinstancesVolumesGetallInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -199,9 +429,46 @@ type PcloudCloudinstancesVolumesGetallInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *PcloudCloudinstancesVolumesGetallInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this pcloud cloudinstances volumes getall internal server error response has a 2xx status code
+func (o *PcloudCloudinstancesVolumesGetallInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud cloudinstances volumes getall internal server error response has a 3xx status code
+func (o *PcloudCloudinstancesVolumesGetallInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud cloudinstances volumes getall internal server error response has a 4xx status code
+func (o *PcloudCloudinstancesVolumesGetallInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud cloudinstances volumes getall internal server error response has a 5xx status code
+func (o *PcloudCloudinstancesVolumesGetallInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud cloudinstances volumes getall internal server error response a status code equal to that given
+func (o *PcloudCloudinstancesVolumesGetallInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the pcloud cloudinstances volumes getall internal server error response
+func (o *PcloudCloudinstancesVolumesGetallInternalServerError) Code() int {
+	return 500
+}
+
+func (o *PcloudCloudinstancesVolumesGetallInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallInternalServerError %s", 500, payload)
+}
+
+func (o *PcloudCloudinstancesVolumesGetallInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/volumes][%d] pcloudCloudinstancesVolumesGetallInternalServerError %s", 500, payload)
+}
+
 func (o *PcloudCloudinstancesVolumesGetallInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }

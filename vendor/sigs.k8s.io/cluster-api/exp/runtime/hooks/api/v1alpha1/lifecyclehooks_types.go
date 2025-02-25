@@ -28,7 +28,10 @@ import (
 type BeforeClusterCreateRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Cluster is the cluster object the lifecycle hook corresponds to.
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
+	// cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
 
@@ -51,7 +54,10 @@ func BeforeClusterCreate(*BeforeClusterCreateRequest, *BeforeClusterCreateRespon
 type AfterControlPlaneInitializedRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Cluster is the cluster object the lifecycle hook corresponds to.
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
+	// cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
 
@@ -75,13 +81,16 @@ func AfterControlPlaneInitialized(*AfterControlPlaneInitializedRequest, *AfterCo
 type BeforeClusterUpgradeRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Cluster is the cluster object the lifecycle hook corresponds to.
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
+	// cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 
-	// FromKubernetesVersion is the current Kubernetes version of the cluster.
+	// fromKubernetesVersion is the current Kubernetes version of the cluster.
 	FromKubernetesVersion string `json:"fromKubernetesVersion"`
 
-	// ToKubernetesVersion is the target Kubernetes version of the upgrade.
+	// toKubernetesVersion is the target Kubernetes version of the upgrade.
 	ToKubernetesVersion string `json:"toKubernetesVersion"`
 }
 
@@ -105,10 +114,13 @@ func BeforeClusterUpgrade(*BeforeClusterUpgradeRequest, *BeforeClusterUpgradeRes
 type AfterControlPlaneUpgradeRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Cluster is the cluster object the lifecycle hook corresponds to.
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
+	// cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 
-	// KubernetesVersion is the Kubernetes version of the Control Plane after the upgrade.
+	// kubernetesVersion is the Kubernetes version of the Control Plane after the upgrade.
 	KubernetesVersion string `json:"kubernetesVersion"`
 }
 
@@ -132,10 +144,13 @@ func AfterControlPlaneUpgrade(*AfterControlPlaneUpgradeRequest, *AfterControlPla
 type AfterClusterUpgradeRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Cluster is the cluster object the lifecycle hook corresponds to.
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
+	// cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 
-	// KubernetesVersion is the Kubernetes version after upgrade.
+	// kubernetesVersion is the Kubernetes version after upgrade.
 	KubernetesVersion string `json:"kubernetesVersion"`
 }
 
@@ -159,7 +174,10 @@ func AfterClusterUpgrade(*AfterClusterUpgradeRequest, *AfterClusterUpgradeRespon
 type BeforeClusterDeleteRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Cluster is the cluster object the lifecycle hook corresponds to.
+	// CommonRequest contains fields common to all request types.
+	CommonRequest `json:",inline"`
+
+	// cluster is the cluster object the lifecycle hook corresponds to.
 	Cluster clusterv1.Cluster `json:"cluster"`
 }
 

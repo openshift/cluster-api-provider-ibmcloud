@@ -6,6 +6,7 @@ package authentication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -29,6 +30,30 @@ func (o *ServiceBrokerAuthInfoUserReader) ReadResponse(response runtime.ClientRe
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewServiceBrokerAuthInfoUserBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 401:
+		result := NewServiceBrokerAuthInfoUserUnauthorized()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 403:
+		result := NewServiceBrokerAuthInfoUserForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 404:
+		result := NewServiceBrokerAuthInfoUserNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewServiceBrokerAuthInfoUserInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -36,7 +61,7 @@ func (o *ServiceBrokerAuthInfoUserReader) ReadResponse(response runtime.ClientRe
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /auth/v1/info/user] serviceBroker.auth.info.user", response, response.Code())
 	}
 }
 
@@ -45,7 +70,8 @@ func NewServiceBrokerAuthInfoUserOK() *ServiceBrokerAuthInfoUserOK {
 	return &ServiceBrokerAuthInfoUserOK{}
 }
 
-/* ServiceBrokerAuthInfoUserOK describes a response with status code 200, with default header values.
+/*
+ServiceBrokerAuthInfoUserOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -53,9 +79,46 @@ type ServiceBrokerAuthInfoUserOK struct {
 	Payload *models.UserInfo
 }
 
-func (o *ServiceBrokerAuthInfoUserOK) Error() string {
-	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserOK  %+v", 200, o.Payload)
+// IsSuccess returns true when this service broker auth info user o k response has a 2xx status code
+func (o *ServiceBrokerAuthInfoUserOK) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this service broker auth info user o k response has a 3xx status code
+func (o *ServiceBrokerAuthInfoUserOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth info user o k response has a 4xx status code
+func (o *ServiceBrokerAuthInfoUserOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service broker auth info user o k response has a 5xx status code
+func (o *ServiceBrokerAuthInfoUserOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth info user o k response a status code equal to that given
+func (o *ServiceBrokerAuthInfoUserOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the service broker auth info user o k response
+func (o *ServiceBrokerAuthInfoUserOK) Code() int {
+	return 200
+}
+
+func (o *ServiceBrokerAuthInfoUserOK) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserOK %s", 200, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserOK) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserOK %s", 200, payload)
+}
+
 func (o *ServiceBrokerAuthInfoUserOK) GetPayload() *models.UserInfo {
 	return o.Payload
 }
@@ -72,12 +135,293 @@ func (o *ServiceBrokerAuthInfoUserOK) readResponse(response runtime.ClientRespon
 	return nil
 }
 
+// NewServiceBrokerAuthInfoUserBadRequest creates a ServiceBrokerAuthInfoUserBadRequest with default headers values
+func NewServiceBrokerAuthInfoUserBadRequest() *ServiceBrokerAuthInfoUserBadRequest {
+	return &ServiceBrokerAuthInfoUserBadRequest{}
+}
+
+/*
+ServiceBrokerAuthInfoUserBadRequest describes a response with status code 400, with default header values.
+
+Bad Request
+*/
+type ServiceBrokerAuthInfoUserBadRequest struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this service broker auth info user bad request response has a 2xx status code
+func (o *ServiceBrokerAuthInfoUserBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service broker auth info user bad request response has a 3xx status code
+func (o *ServiceBrokerAuthInfoUserBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth info user bad request response has a 4xx status code
+func (o *ServiceBrokerAuthInfoUserBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service broker auth info user bad request response has a 5xx status code
+func (o *ServiceBrokerAuthInfoUserBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth info user bad request response a status code equal to that given
+func (o *ServiceBrokerAuthInfoUserBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the service broker auth info user bad request response
+func (o *ServiceBrokerAuthInfoUserBadRequest) Code() int {
+	return 400
+}
+
+func (o *ServiceBrokerAuthInfoUserBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserBadRequest %s", 400, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserBadRequest %s", 400, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserBadRequest) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *ServiceBrokerAuthInfoUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewServiceBrokerAuthInfoUserUnauthorized creates a ServiceBrokerAuthInfoUserUnauthorized with default headers values
+func NewServiceBrokerAuthInfoUserUnauthorized() *ServiceBrokerAuthInfoUserUnauthorized {
+	return &ServiceBrokerAuthInfoUserUnauthorized{}
+}
+
+/*
+ServiceBrokerAuthInfoUserUnauthorized describes a response with status code 401, with default header values.
+
+Unauthorized
+*/
+type ServiceBrokerAuthInfoUserUnauthorized struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this service broker auth info user unauthorized response has a 2xx status code
+func (o *ServiceBrokerAuthInfoUserUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service broker auth info user unauthorized response has a 3xx status code
+func (o *ServiceBrokerAuthInfoUserUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth info user unauthorized response has a 4xx status code
+func (o *ServiceBrokerAuthInfoUserUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service broker auth info user unauthorized response has a 5xx status code
+func (o *ServiceBrokerAuthInfoUserUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth info user unauthorized response a status code equal to that given
+func (o *ServiceBrokerAuthInfoUserUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the service broker auth info user unauthorized response
+func (o *ServiceBrokerAuthInfoUserUnauthorized) Code() int {
+	return 401
+}
+
+func (o *ServiceBrokerAuthInfoUserUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserUnauthorized %s", 401, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserUnauthorized %s", 401, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserUnauthorized) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *ServiceBrokerAuthInfoUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewServiceBrokerAuthInfoUserForbidden creates a ServiceBrokerAuthInfoUserForbidden with default headers values
+func NewServiceBrokerAuthInfoUserForbidden() *ServiceBrokerAuthInfoUserForbidden {
+	return &ServiceBrokerAuthInfoUserForbidden{}
+}
+
+/*
+ServiceBrokerAuthInfoUserForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type ServiceBrokerAuthInfoUserForbidden struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this service broker auth info user forbidden response has a 2xx status code
+func (o *ServiceBrokerAuthInfoUserForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service broker auth info user forbidden response has a 3xx status code
+func (o *ServiceBrokerAuthInfoUserForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth info user forbidden response has a 4xx status code
+func (o *ServiceBrokerAuthInfoUserForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service broker auth info user forbidden response has a 5xx status code
+func (o *ServiceBrokerAuthInfoUserForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth info user forbidden response a status code equal to that given
+func (o *ServiceBrokerAuthInfoUserForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the service broker auth info user forbidden response
+func (o *ServiceBrokerAuthInfoUserForbidden) Code() int {
+	return 403
+}
+
+func (o *ServiceBrokerAuthInfoUserForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserForbidden %s", 403, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserForbidden %s", 403, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserForbidden) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *ServiceBrokerAuthInfoUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewServiceBrokerAuthInfoUserNotFound creates a ServiceBrokerAuthInfoUserNotFound with default headers values
+func NewServiceBrokerAuthInfoUserNotFound() *ServiceBrokerAuthInfoUserNotFound {
+	return &ServiceBrokerAuthInfoUserNotFound{}
+}
+
+/*
+ServiceBrokerAuthInfoUserNotFound describes a response with status code 404, with default header values.
+
+Not Found
+*/
+type ServiceBrokerAuthInfoUserNotFound struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this service broker auth info user not found response has a 2xx status code
+func (o *ServiceBrokerAuthInfoUserNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this service broker auth info user not found response has a 3xx status code
+func (o *ServiceBrokerAuthInfoUserNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth info user not found response has a 4xx status code
+func (o *ServiceBrokerAuthInfoUserNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this service broker auth info user not found response has a 5xx status code
+func (o *ServiceBrokerAuthInfoUserNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this service broker auth info user not found response a status code equal to that given
+func (o *ServiceBrokerAuthInfoUserNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the service broker auth info user not found response
+func (o *ServiceBrokerAuthInfoUserNotFound) Code() int {
+	return 404
+}
+
+func (o *ServiceBrokerAuthInfoUserNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserNotFound %s", 404, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserNotFound %s", 404, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserNotFound) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *ServiceBrokerAuthInfoUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewServiceBrokerAuthInfoUserInternalServerError creates a ServiceBrokerAuthInfoUserInternalServerError with default headers values
 func NewServiceBrokerAuthInfoUserInternalServerError() *ServiceBrokerAuthInfoUserInternalServerError {
 	return &ServiceBrokerAuthInfoUserInternalServerError{}
 }
 
-/* ServiceBrokerAuthInfoUserInternalServerError describes a response with status code 500, with default header values.
+/*
+ServiceBrokerAuthInfoUserInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -85,9 +429,46 @@ type ServiceBrokerAuthInfoUserInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *ServiceBrokerAuthInfoUserInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this service broker auth info user internal server error response has a 2xx status code
+func (o *ServiceBrokerAuthInfoUserInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this service broker auth info user internal server error response has a 3xx status code
+func (o *ServiceBrokerAuthInfoUserInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this service broker auth info user internal server error response has a 4xx status code
+func (o *ServiceBrokerAuthInfoUserInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this service broker auth info user internal server error response has a 5xx status code
+func (o *ServiceBrokerAuthInfoUserInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this service broker auth info user internal server error response a status code equal to that given
+func (o *ServiceBrokerAuthInfoUserInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the service broker auth info user internal server error response
+func (o *ServiceBrokerAuthInfoUserInternalServerError) Code() int {
+	return 500
+}
+
+func (o *ServiceBrokerAuthInfoUserInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserInternalServerError %s", 500, payload)
+}
+
+func (o *ServiceBrokerAuthInfoUserInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /auth/v1/info/user][%d] serviceBrokerAuthInfoUserInternalServerError %s", 500, payload)
+}
+
 func (o *ServiceBrokerAuthInfoUserInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }

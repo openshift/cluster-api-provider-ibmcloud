@@ -1,0 +1,9 @@
+---
+- id: CMD-0003
+  key: kubeControllerManagerSpecFilePermission
+  title: Controller manager pod specification file permissions
+  nodeType: master
+  audit: stat -c %a $controllermanager.confs
+  platforms:
+    - k8s
+    - rke2

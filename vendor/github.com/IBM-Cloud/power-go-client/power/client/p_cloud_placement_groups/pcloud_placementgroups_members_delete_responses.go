@@ -6,6 +6,7 @@ package p_cloud_placement_groups
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -35,6 +36,18 @@ func (o *PcloudPlacementgroupsMembersDeleteReader) ReadResponse(response runtime
 			return nil, err
 		}
 		return nil, result
+	case 401:
+		result := NewPcloudPlacementgroupsMembersDeleteUnauthorized()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 403:
+		result := NewPcloudPlacementgroupsMembersDeleteForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 404:
 		result := NewPcloudPlacementgroupsMembersDeleteNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -60,7 +73,7 @@ func (o *PcloudPlacementgroupsMembersDeleteReader) ReadResponse(response runtime
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members] pcloud.placementgroups.members.delete", response, response.Code())
 	}
 }
 
@@ -69,7 +82,8 @@ func NewPcloudPlacementgroupsMembersDeleteOK() *PcloudPlacementgroupsMembersDele
 	return &PcloudPlacementgroupsMembersDeleteOK{}
 }
 
-/* PcloudPlacementgroupsMembersDeleteOK describes a response with status code 200, with default header values.
+/*
+PcloudPlacementgroupsMembersDeleteOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -77,9 +91,46 @@ type PcloudPlacementgroupsMembersDeleteOK struct {
 	Payload *models.PlacementGroup
 }
 
-func (o *PcloudPlacementgroupsMembersDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteOK  %+v", 200, o.Payload)
+// IsSuccess returns true when this pcloud placementgroups members delete o k response has a 2xx status code
+func (o *PcloudPlacementgroupsMembersDeleteOK) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud placementgroups members delete o k response has a 3xx status code
+func (o *PcloudPlacementgroupsMembersDeleteOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud placementgroups members delete o k response has a 4xx status code
+func (o *PcloudPlacementgroupsMembersDeleteOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud placementgroups members delete o k response has a 5xx status code
+func (o *PcloudPlacementgroupsMembersDeleteOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud placementgroups members delete o k response a status code equal to that given
+func (o *PcloudPlacementgroupsMembersDeleteOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the pcloud placementgroups members delete o k response
+func (o *PcloudPlacementgroupsMembersDeleteOK) Code() int {
+	return 200
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteOK) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteOK %s", 200, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteOK) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteOK %s", 200, payload)
+}
+
 func (o *PcloudPlacementgroupsMembersDeleteOK) GetPayload() *models.PlacementGroup {
 	return o.Payload
 }
@@ -101,7 +152,8 @@ func NewPcloudPlacementgroupsMembersDeleteBadRequest() *PcloudPlacementgroupsMem
 	return &PcloudPlacementgroupsMembersDeleteBadRequest{}
 }
 
-/* PcloudPlacementgroupsMembersDeleteBadRequest describes a response with status code 400, with default header values.
+/*
+PcloudPlacementgroupsMembersDeleteBadRequest describes a response with status code 400, with default header values.
 
 Bad Request
 */
@@ -109,9 +161,46 @@ type PcloudPlacementgroupsMembersDeleteBadRequest struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPlacementgroupsMembersDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteBadRequest  %+v", 400, o.Payload)
+// IsSuccess returns true when this pcloud placementgroups members delete bad request response has a 2xx status code
+func (o *PcloudPlacementgroupsMembersDeleteBadRequest) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud placementgroups members delete bad request response has a 3xx status code
+func (o *PcloudPlacementgroupsMembersDeleteBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud placementgroups members delete bad request response has a 4xx status code
+func (o *PcloudPlacementgroupsMembersDeleteBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud placementgroups members delete bad request response has a 5xx status code
+func (o *PcloudPlacementgroupsMembersDeleteBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud placementgroups members delete bad request response a status code equal to that given
+func (o *PcloudPlacementgroupsMembersDeleteBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the pcloud placementgroups members delete bad request response
+func (o *PcloudPlacementgroupsMembersDeleteBadRequest) Code() int {
+	return 400
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteBadRequest %s", 400, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteBadRequest %s", 400, payload)
+}
+
 func (o *PcloudPlacementgroupsMembersDeleteBadRequest) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -128,12 +217,153 @@ func (o *PcloudPlacementgroupsMembersDeleteBadRequest) readResponse(response run
 	return nil
 }
 
+// NewPcloudPlacementgroupsMembersDeleteUnauthorized creates a PcloudPlacementgroupsMembersDeleteUnauthorized with default headers values
+func NewPcloudPlacementgroupsMembersDeleteUnauthorized() *PcloudPlacementgroupsMembersDeleteUnauthorized {
+	return &PcloudPlacementgroupsMembersDeleteUnauthorized{}
+}
+
+/*
+PcloudPlacementgroupsMembersDeleteUnauthorized describes a response with status code 401, with default header values.
+
+Unauthorized
+*/
+type PcloudPlacementgroupsMembersDeleteUnauthorized struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud placementgroups members delete unauthorized response has a 2xx status code
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud placementgroups members delete unauthorized response has a 3xx status code
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud placementgroups members delete unauthorized response has a 4xx status code
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud placementgroups members delete unauthorized response has a 5xx status code
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud placementgroups members delete unauthorized response a status code equal to that given
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the pcloud placementgroups members delete unauthorized response
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) Code() int {
+	return 401
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteUnauthorized %s", 401, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteUnauthorized %s", 401, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudPlacementgroupsMembersDeleteForbidden creates a PcloudPlacementgroupsMembersDeleteForbidden with default headers values
+func NewPcloudPlacementgroupsMembersDeleteForbidden() *PcloudPlacementgroupsMembersDeleteForbidden {
+	return &PcloudPlacementgroupsMembersDeleteForbidden{}
+}
+
+/*
+PcloudPlacementgroupsMembersDeleteForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type PcloudPlacementgroupsMembersDeleteForbidden struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud placementgroups members delete forbidden response has a 2xx status code
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud placementgroups members delete forbidden response has a 3xx status code
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud placementgroups members delete forbidden response has a 4xx status code
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud placementgroups members delete forbidden response has a 5xx status code
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud placementgroups members delete forbidden response a status code equal to that given
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the pcloud placementgroups members delete forbidden response
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) Code() int {
+	return 403
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteForbidden %s", 403, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteForbidden %s", 403, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewPcloudPlacementgroupsMembersDeleteNotFound creates a PcloudPlacementgroupsMembersDeleteNotFound with default headers values
 func NewPcloudPlacementgroupsMembersDeleteNotFound() *PcloudPlacementgroupsMembersDeleteNotFound {
 	return &PcloudPlacementgroupsMembersDeleteNotFound{}
 }
 
-/* PcloudPlacementgroupsMembersDeleteNotFound describes a response with status code 404, with default header values.
+/*
+PcloudPlacementgroupsMembersDeleteNotFound describes a response with status code 404, with default header values.
 
 Not Found
 */
@@ -141,9 +371,46 @@ type PcloudPlacementgroupsMembersDeleteNotFound struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPlacementgroupsMembersDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteNotFound  %+v", 404, o.Payload)
+// IsSuccess returns true when this pcloud placementgroups members delete not found response has a 2xx status code
+func (o *PcloudPlacementgroupsMembersDeleteNotFound) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud placementgroups members delete not found response has a 3xx status code
+func (o *PcloudPlacementgroupsMembersDeleteNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud placementgroups members delete not found response has a 4xx status code
+func (o *PcloudPlacementgroupsMembersDeleteNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud placementgroups members delete not found response has a 5xx status code
+func (o *PcloudPlacementgroupsMembersDeleteNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud placementgroups members delete not found response a status code equal to that given
+func (o *PcloudPlacementgroupsMembersDeleteNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the pcloud placementgroups members delete not found response
+func (o *PcloudPlacementgroupsMembersDeleteNotFound) Code() int {
+	return 404
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteNotFound %s", 404, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteNotFound %s", 404, payload)
+}
+
 func (o *PcloudPlacementgroupsMembersDeleteNotFound) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -165,7 +432,8 @@ func NewPcloudPlacementgroupsMembersDeleteConflict() *PcloudPlacementgroupsMembe
 	return &PcloudPlacementgroupsMembersDeleteConflict{}
 }
 
-/* PcloudPlacementgroupsMembersDeleteConflict describes a response with status code 409, with default header values.
+/*
+PcloudPlacementgroupsMembersDeleteConflict describes a response with status code 409, with default header values.
 
 Conflict
 */
@@ -173,9 +441,46 @@ type PcloudPlacementgroupsMembersDeleteConflict struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPlacementgroupsMembersDeleteConflict) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteConflict  %+v", 409, o.Payload)
+// IsSuccess returns true when this pcloud placementgroups members delete conflict response has a 2xx status code
+func (o *PcloudPlacementgroupsMembersDeleteConflict) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud placementgroups members delete conflict response has a 3xx status code
+func (o *PcloudPlacementgroupsMembersDeleteConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud placementgroups members delete conflict response has a 4xx status code
+func (o *PcloudPlacementgroupsMembersDeleteConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud placementgroups members delete conflict response has a 5xx status code
+func (o *PcloudPlacementgroupsMembersDeleteConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud placementgroups members delete conflict response a status code equal to that given
+func (o *PcloudPlacementgroupsMembersDeleteConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the pcloud placementgroups members delete conflict response
+func (o *PcloudPlacementgroupsMembersDeleteConflict) Code() int {
+	return 409
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteConflict) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteConflict %s", 409, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteConflict) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteConflict %s", 409, payload)
+}
+
 func (o *PcloudPlacementgroupsMembersDeleteConflict) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -197,7 +502,8 @@ func NewPcloudPlacementgroupsMembersDeleteUnprocessableEntity() *PcloudPlacement
 	return &PcloudPlacementgroupsMembersDeleteUnprocessableEntity{}
 }
 
-/* PcloudPlacementgroupsMembersDeleteUnprocessableEntity describes a response with status code 422, with default header values.
+/*
+PcloudPlacementgroupsMembersDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
 Unprocessable Entity
 */
@@ -205,9 +511,46 @@ type PcloudPlacementgroupsMembersDeleteUnprocessableEntity struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteUnprocessableEntity  %+v", 422, o.Payload)
+// IsSuccess returns true when this pcloud placementgroups members delete unprocessable entity response has a 2xx status code
+func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud placementgroups members delete unprocessable entity response has a 3xx status code
+func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud placementgroups members delete unprocessable entity response has a 4xx status code
+func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud placementgroups members delete unprocessable entity response has a 5xx status code
+func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud placementgroups members delete unprocessable entity response a status code equal to that given
+func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the pcloud placementgroups members delete unprocessable entity response
+func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteUnprocessableEntity %s", 422, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteUnprocessableEntity %s", 422, payload)
+}
+
 func (o *PcloudPlacementgroupsMembersDeleteUnprocessableEntity) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -229,7 +572,8 @@ func NewPcloudPlacementgroupsMembersDeleteInternalServerError() *PcloudPlacement
 	return &PcloudPlacementgroupsMembersDeleteInternalServerError{}
 }
 
-/* PcloudPlacementgroupsMembersDeleteInternalServerError describes a response with status code 500, with default header values.
+/*
+PcloudPlacementgroupsMembersDeleteInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -237,9 +581,46 @@ type PcloudPlacementgroupsMembersDeleteInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this pcloud placementgroups members delete internal server error response has a 2xx status code
+func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud placementgroups members delete internal server error response has a 3xx status code
+func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud placementgroups members delete internal server error response has a 4xx status code
+func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud placementgroups members delete internal server error response has a 5xx status code
+func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud placementgroups members delete internal server error response a status code equal to that given
+func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the pcloud placementgroups members delete internal server error response
+func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) Code() int {
+	return 500
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteInternalServerError %s", 500, payload)
+}
+
+func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/placement-groups/{placement_group_id}/members][%d] pcloudPlacementgroupsMembersDeleteInternalServerError %s", 500, payload)
+}
+
 func (o *PcloudPlacementgroupsMembersDeleteInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }

@@ -33,7 +33,7 @@ type CloudConnectionUpdate struct {
 	Name *string `json:"name,omitempty"`
 
 	// speed of the cloud connection (speed in megabits per second)
-	// Enum: [50 100 200 500 1000 2000 5000 10000]
+	// Enum: [50,100,200,500,1000,2000,5000,10000]
 	Speed *int64 `json:"speed,omitempty"`
 
 	// vpc
@@ -154,6 +154,11 @@ func (m *CloudConnectionUpdate) ContextValidate(ctx context.Context, formats str
 func (m *CloudConnectionUpdate) contextValidateClassic(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Classic != nil {
+
+		if swag.IsZero(m.Classic) { // not required
+			return nil
+		}
+
 		if err := m.Classic.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("classic")
@@ -170,6 +175,11 @@ func (m *CloudConnectionUpdate) contextValidateClassic(ctx context.Context, form
 func (m *CloudConnectionUpdate) contextValidateVpc(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Vpc != nil {
+
+		if swag.IsZero(m.Vpc) { // not required
+			return nil
+		}
+
 		if err := m.Vpc.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("vpc")

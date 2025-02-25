@@ -11,19 +11,21 @@ import (
 
 // FunctionLength lint.
 type FunctionLength struct {
-	maxStmt  int
-	maxLines int
+	maxStmt    int
+	maxLines   int
+	configured bool
 	sync.Mutex
 }
 
 func (r *FunctionLength) configure(arguments lint.Arguments) {
 	r.Lock()
-	if r.maxLines == 0 {
+	defer r.Unlock()
+	if !r.configured {
 		maxStmt, maxLines := r.parseArguments(arguments)
 		r.maxStmt = int(maxStmt)
 		r.maxLines = int(maxLines)
+		r.configured = true
 	}
-	r.Unlock()
 }
 
 // Apply applies the rule to given file.
@@ -51,7 +53,14 @@ func (*FunctionLength) Name() string {
 	return "function-length"
 }
 
+const defaultFuncStmtsLimit = 50
+const defaultFuncLinesLimit = 75
+
 func (*FunctionLength) parseArguments(arguments lint.Arguments) (maxStmt, maxLines int64) {
+	if len(arguments) == 0 {
+		return defaultFuncStmtsLimit, defaultFuncLinesLimit
+	}
+
 	if len(arguments) != 2 {
 		panic(fmt.Sprintf(`invalid configuration for "function-length" rule, expected 2 arguments but got %d`, len(arguments)))
 	}
@@ -162,7 +171,7 @@ func (w lintFuncLength) countFuncLitStmts(stmt ast.Expr) int {
 	return 0
 }
 
-func (w lintFuncLength) countBodyListStmts(t interface{}) int {
+func (w lintFuncLength) countBodyListStmts(t any) int {
 	i := reflect.ValueOf(t).Elem().FieldByName(`Body`).Elem().FieldByName(`List`).Interface()
 	return w.countStmts(i.([]ast.Stmt))
 }

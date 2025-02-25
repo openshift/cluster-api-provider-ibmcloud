@@ -17,6 +17,7 @@ limitations under the License.
 package alpha
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -24,21 +25,34 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/cluster"
+	"sigs.k8s.io/cluster-api/util/annotations"
 )
 
 // ObjectPauser will issue a pause on the specified cluster-api resource.
-func (r *rollout) ObjectPauser(proxy cluster.Proxy, ref corev1.ObjectReference) error {
+func (r *rollout) ObjectPauser(ctx context.Context, proxy cluster.Proxy, ref corev1.ObjectReference) error {
 	switch ref.Kind {
 	case MachineDeployment:
-		deployment, err := getMachineDeployment(proxy, ref.Name, ref.Namespace)
+		deployment, err := getMachineDeployment(ctx, proxy, ref.Name, ref.Namespace)
 		if err != nil || deployment == nil {
 			return errors.Wrapf(err, "failed to fetch %v/%v", ref.Kind, ref.Name)
 		}
 		if deployment.Spec.Paused {
-			return errors.Errorf("MachineDeploymet is already paused: %v/%v\n", ref.Kind, ref.Name) //nolint:revive // MachineDeployment is intentionally capitalized.
+			return errors.Errorf("MachineDeployment is already paused: %v/%v\n", ref.Kind, ref.Name) //nolint:revive // MachineDeployment is intentionally capitalized.
 		}
-		if err := pauseMachineDeployment(proxy, ref.Name, ref.Namespace); err != nil {
+		if err := pauseMachineDeployment(ctx, proxy, ref.Name, ref.Namespace); err != nil {
+			return err
+		}
+	case KubeadmControlPlane:
+		kcp, err := getKubeadmControlPlane(ctx, proxy, ref.Name, ref.Namespace)
+		if err != nil || kcp == nil {
+			return errors.Wrapf(err, "failed to fetch %v/%v", ref.Kind, ref.Name)
+		}
+		if annotations.HasPaused(kcp.GetObjectMeta()) {
+			return errors.Errorf("KubeadmControlPlane is already paused: %v/%v\n", ref.Kind, ref.Name) //nolint:revive // KubeadmControlPlane is intentionally capitalized.
+		}
+		if err := pauseKubeadmControlPlane(ctx, proxy, ref.Name, ref.Namespace); err != nil {
 			return err
 		}
 	default:
@@ -48,7 +62,13 @@ func (r *rollout) ObjectPauser(proxy cluster.Proxy, ref corev1.ObjectReference) 
 }
 
 // pauseMachineDeployment sets Paused to true in the MachineDeployment's spec.
-func pauseMachineDeployment(proxy cluster.Proxy, name, namespace string) error {
+func pauseMachineDeployment(ctx context.Context, proxy cluster.Proxy, name, namespace string) error {
 	patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf("{\"spec\":{\"paused\":%t}}", true)))
-	return patchMachineDeployemt(proxy, name, namespace, patch)
+	return patchMachineDeployment(ctx, proxy, name, namespace, patch)
+}
+
+// pauseKubeadmControlPlane sets paused annotation to true.
+func pauseKubeadmControlPlane(ctx context.Context, proxy cluster.Proxy, name, namespace string) error {
+	patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf("{\"metadata\":{\"annotations\":{%q: \"%t\"}}}", clusterv1.PausedAnnotation, true)))
+	return patchKubeadmControlPlane(ctx, proxy, name, namespace, patch)
 }

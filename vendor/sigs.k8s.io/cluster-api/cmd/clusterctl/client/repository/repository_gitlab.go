@@ -66,12 +66,12 @@ func NewGitLabRepository(providerConfig config.Provider, configVariablesClient c
 		return nil, errors.Wrap(err, "invalid url")
 	}
 
-	urlSplit := strings.Split(strings.TrimPrefix(rURL.RawPath, "/"), "/")
+	urlSplit := strings.Split(strings.TrimPrefix(rURL.EscapedPath(), "/"), "/")
 
 	// Check if the url is a Gitlab repository
 	if rURL.Scheme != httpsScheme ||
 		len(urlSplit) != 9 ||
-		!strings.HasPrefix(rURL.RawPath, gitlabPackagesAPIPrefix) ||
+		!strings.HasPrefix(rURL.EscapedPath(), gitlabPackagesAPIPrefix) ||
 		urlSplit[4] != gitlabPackagesAPIPackages ||
 		urlSplit[5] != gitlabPackagesAPIGeneric {
 		return nil, errors.New("invalid url: a GitLab repository url should be in the form https://{host}/api/v4/projects/{projectSlug}/packages/generic/{packageName}/{defaultVersion}/{componentsPath}")
@@ -117,8 +117,8 @@ func (g *gitLabRepository) DefaultVersion() string {
 }
 
 // GetVersions returns the list of versions that are available in a provider repository.
-func (g *gitLabRepository) GetVersions() ([]string, error) {
-	// FIXME Get versions from GitLab API
+func (g *gitLabRepository) GetVersions(_ context.Context) ([]string, error) {
+	// TODO Get versions from GitLab API
 	return []string{g.defaultVersion}, nil
 }
 
@@ -133,8 +133,7 @@ func (g *gitLabRepository) ComponentsPath() string {
 }
 
 // GetFile returns a file for a given provider version.
-func (g *gitLabRepository) GetFile(version, path string) ([]byte, error) {
-	ctx := context.TODO()
+func (g *gitLabRepository) GetFile(ctx context.Context, version, path string) ([]byte, error) {
 	url := fmt.Sprintf(
 		"https://%s/api/v4/projects/%s/packages/generic/%s/%s/%s",
 		g.host,

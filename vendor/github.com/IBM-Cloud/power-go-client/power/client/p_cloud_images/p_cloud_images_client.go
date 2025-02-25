@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud images API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud images API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud images API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -60,7 +86,7 @@ type ClientService interface {
 }
 
 /*
-  PcloudCloudinstancesImagesDelete deletes an image from a cloud instance
+PcloudCloudinstancesImagesDelete deletes an image from a cloud instance
 */
 func (a *Client) PcloudCloudinstancesImagesDelete(params *PcloudCloudinstancesImagesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -99,7 +125,11 @@ func (a *Client) PcloudCloudinstancesImagesDelete(params *PcloudCloudinstancesIm
 }
 
 /*
-  PcloudCloudinstancesImagesExportPost exports an image
+	PcloudCloudinstancesImagesExportPost exports an image
+
+	This API is deprecated for /pcloud/v2/cloud-instances/{cloud_instance_id}/images/{image_id}/export.
+
+>*Note*: Support for this API is available till Oct 2022.
 */
 func (a *Client) PcloudCloudinstancesImagesExportPost(params *PcloudCloudinstancesImagesExportPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesExportPostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -138,7 +168,7 @@ func (a *Client) PcloudCloudinstancesImagesExportPost(params *PcloudCloudinstanc
 }
 
 /*
-  PcloudCloudinstancesImagesGet detaileds info of an image
+PcloudCloudinstancesImagesGet detaileds info of an image
 */
 func (a *Client) PcloudCloudinstancesImagesGet(params *PcloudCloudinstancesImagesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -177,7 +207,7 @@ func (a *Client) PcloudCloudinstancesImagesGet(params *PcloudCloudinstancesImage
 }
 
 /*
-  PcloudCloudinstancesImagesGetall lists all images for this cloud instance
+PcloudCloudinstancesImagesGetall lists all images for this cloud instance
 */
 func (a *Client) PcloudCloudinstancesImagesGetall(params *PcloudCloudinstancesImagesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -216,7 +246,7 @@ func (a *Client) PcloudCloudinstancesImagesGetall(params *PcloudCloudinstancesIm
 }
 
 /*
-  PcloudCloudinstancesImagesPost creates a new image from available images
+PcloudCloudinstancesImagesPost creates a new image from available images
 */
 func (a *Client) PcloudCloudinstancesImagesPost(params *PcloudCloudinstancesImagesPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesPostOK, *PcloudCloudinstancesImagesPostCreated, error) {
 	// TODO: Validate the params before sending
@@ -256,7 +286,7 @@ func (a *Client) PcloudCloudinstancesImagesPost(params *PcloudCloudinstancesImag
 }
 
 /*
-  PcloudCloudinstancesStockimagesGet detaileds info of an available stock image
+PcloudCloudinstancesStockimagesGet detaileds info of an available stock image
 */
 func (a *Client) PcloudCloudinstancesStockimagesGet(params *PcloudCloudinstancesStockimagesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesStockimagesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -295,7 +325,7 @@ func (a *Client) PcloudCloudinstancesStockimagesGet(params *PcloudCloudinstances
 }
 
 /*
-  PcloudCloudinstancesStockimagesGetall lists all available stock images
+PcloudCloudinstancesStockimagesGetall lists all available stock images
 */
 func (a *Client) PcloudCloudinstancesStockimagesGetall(params *PcloudCloudinstancesStockimagesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesStockimagesGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -334,7 +364,11 @@ func (a *Client) PcloudCloudinstancesStockimagesGetall(params *PcloudCloudinstan
 }
 
 /*
-  PcloudImagesGet deprecateds for pcloud v1 cloud instances cloud instance id stock images image id detailed info of an available stock image
+	PcloudImagesGet detaileds info of an image in the image catalog
+
+	This API is deprecated for /pcloud/v1/cloud-instances/{cloud_instance_id}/stock-images/{image_id}.
+
+>*Note*: Support for this API will be available till 31st March 2023.
 */
 func (a *Client) PcloudImagesGet(params *PcloudImagesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudImagesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -373,7 +407,11 @@ func (a *Client) PcloudImagesGet(params *PcloudImagesGetParams, authInfo runtime
 }
 
 /*
-  PcloudImagesGetall deprecateds for pcloud v1 cloud instances cloud instance id stock images list all available stock images
+	PcloudImagesGetall lists all the images in the image catalog
+
+	This API is deprecated for /pcloud/v1/cloud-instances/{cloud_instance_id}/stock-images.
+
+>*Note*: Support for this API will be available till 31st March 2023.
 */
 func (a *Client) PcloudImagesGetall(params *PcloudImagesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudImagesGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -412,7 +450,7 @@ func (a *Client) PcloudImagesGetall(params *PcloudImagesGetallParams, authInfo r
 }
 
 /*
-  PcloudV1CloudinstancesCosimagesGet gets detail of last cos image import job
+PcloudV1CloudinstancesCosimagesGet gets detail of last cos image import job
 */
 func (a *Client) PcloudV1CloudinstancesCosimagesGet(params *PcloudV1CloudinstancesCosimagesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV1CloudinstancesCosimagesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -451,7 +489,7 @@ func (a *Client) PcloudV1CloudinstancesCosimagesGet(params *PcloudV1Cloudinstanc
 }
 
 /*
-  PcloudV1CloudinstancesCosimagesPost creates an cos image import job
+PcloudV1CloudinstancesCosimagesPost creates an cos image import job
 */
 func (a *Client) PcloudV1CloudinstancesCosimagesPost(params *PcloudV1CloudinstancesCosimagesPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV1CloudinstancesCosimagesPostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -490,7 +528,7 @@ func (a *Client) PcloudV1CloudinstancesCosimagesPost(params *PcloudV1Cloudinstan
 }
 
 /*
-  PcloudV2ImagesExportGet gets detail of last image export job
+PcloudV2ImagesExportGet gets detail of last image export job
 */
 func (a *Client) PcloudV2ImagesExportGet(params *PcloudV2ImagesExportGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2ImagesExportGetOK, error) {
 	// TODO: Validate the params before sending
@@ -529,7 +567,7 @@ func (a *Client) PcloudV2ImagesExportGet(params *PcloudV2ImagesExportGetParams, 
 }
 
 /*
-  PcloudV2ImagesExportPost adds image export job to the jobs queue
+PcloudV2ImagesExportPost adds image export job to the jobs queue
 */
 func (a *Client) PcloudV2ImagesExportPost(params *PcloudV2ImagesExportPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2ImagesExportPostAccepted, error) {
 	// TODO: Validate the params before sending

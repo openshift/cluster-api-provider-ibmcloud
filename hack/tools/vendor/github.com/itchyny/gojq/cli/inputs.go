@@ -68,7 +68,7 @@ type inputIter interface {
 }
 
 type jsonInputIter struct {
-	dec    *json.Decoder
+	next   func() (any, error)
 	ir     *inputReader
 	fname  string
 	offset int64
@@ -80,15 +80,16 @@ func newJSONInputIter(r io.Reader, fname string) inputIter {
 	ir := newInputReader(r)
 	dec := json.NewDecoder(ir)
 	dec.UseNumber()
-	return &jsonInputIter{dec: dec, ir: ir, fname: fname}
+	next := func() (v any, err error) { err = dec.Decode(&v); return }
+	return &jsonInputIter{next: next, ir: ir, fname: fname}
 }
 
-func (i *jsonInputIter) Next() (interface{}, bool) {
+func (i *jsonInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
-	var v interface{}
-	if err := i.dec.Decode(&v); err != nil {
+	v, err := i.next()
+	if err != nil {
 		if err == io.EOF {
 			i.err = err
 			return nil, false
@@ -119,6 +120,13 @@ func (i *jsonInputIter) Name() string {
 	return i.fname
 }
 
+func newStreamInputIter(r io.Reader, fname string) inputIter {
+	ir := newInputReader(r)
+	dec := json.NewDecoder(ir)
+	dec.UseNumber()
+	return &jsonInputIter{next: newJSONStream(dec).next, ir: ir, fname: fname}
+}
+
 type nullInputIter struct {
 	err error
 }
@@ -127,7 +135,7 @@ func newNullInputIter() inputIter {
 	return &nullInputIter{}
 }
 
-func (i *nullInputIter) Next() (interface{}, bool) {
+func (i *nullInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
@@ -140,7 +148,7 @@ func (i *nullInputIter) Close() error {
 	return nil
 }
 
-func (i *nullInputIter) Name() string {
+func (*nullInputIter) Name() string {
 	return ""
 }
 
@@ -159,7 +167,7 @@ func newFilesInputIter(
 	return &filesInputIter{newIter: newIter, fnames: fnames, stdin: stdin}
 }
 
-func (i *filesInputIter) Next() (interface{}, bool) {
+func (i *filesInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
@@ -227,7 +235,7 @@ func newRawInputIter(r io.Reader, fname string) inputIter {
 	return &rawInputIter{r: bufio.NewReader(r), fname: fname}
 }
 
-func (i *rawInputIter) Next() (interface{}, bool) {
+func (i *rawInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
@@ -253,58 +261,6 @@ func (i *rawInputIter) Name() string {
 	return i.fname
 }
 
-type streamInputIter struct {
-	stream *jsonStream
-	ir     *inputReader
-	fname  string
-	offset int64
-	line   int
-	err    error
-}
-
-func newStreamInputIter(r io.Reader, fname string) inputIter {
-	ir := newInputReader(r)
-	dec := json.NewDecoder(ir)
-	dec.UseNumber()
-	return &streamInputIter{stream: newJSONStream(dec), ir: ir, fname: fname}
-}
-
-func (i *streamInputIter) Next() (interface{}, bool) {
-	if i.err != nil {
-		return nil, false
-	}
-	v, err := i.stream.next()
-	if err != nil {
-		if err == io.EOF {
-			i.err = err
-			return nil, false
-		}
-		var offset *int64
-		var line *int
-		if err, ok := err.(*json.SyntaxError); ok {
-			err.Offset -= i.offset
-			offset, line = &err.Offset, &i.line
-		}
-		i.err = &jsonParseError{i.fname, i.ir.getContents(offset, line), i.line, err}
-		return i.err, true
-	}
-	if buf := i.ir.buf; buf != nil && buf.Len() >= 16*1024 {
-		i.offset += int64(buf.Len())
-		i.line += bytes.Count(buf.Bytes(), []byte{'\n'})
-		buf.Reset()
-	}
-	return v, true
-}
-
-func (i *streamInputIter) Close() error {
-	i.err = io.EOF
-	return nil
-}
-
-func (i *streamInputIter) Name() string {
-	return i.fname
-}
-
 type yamlInputIter struct {
 	dec   *yaml.Decoder
 	ir    *inputReader
@@ -318,11 +274,11 @@ func newYAMLInputIter(r io.Reader, fname string) inputIter {
 	return &yamlInputIter{dec: dec, ir: ir, fname: fname}
 }
 
-func (i *yamlInputIter) Next() (interface{}, bool) {
+func (i *yamlInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
-	var v interface{}
+	var v any
 	if err := i.dec.Decode(&v); err != nil {
 		if err == io.EOF {
 			i.err = err
@@ -352,12 +308,12 @@ func newSlurpInputIter(iter inputIter) inputIter {
 	return &slurpInputIter{iter: iter}
 }
 
-func (i *slurpInputIter) Next() (interface{}, bool) {
+func (i *slurpInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
-	var vs []interface{}
-	var v interface{}
+	var vs []any
+	var v any
 	var ok bool
 	for {
 		v, ok = i.iter.Next()
@@ -395,7 +351,7 @@ func newReadAllIter(r io.Reader, fname string) inputIter {
 	return &readAllIter{r: r, fname: fname}
 }
 
-func (i *readAllIter) Next() (interface{}, bool) {
+func (i *readAllIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
@@ -425,12 +381,12 @@ func newSlurpRawInputIter(iter inputIter) inputIter {
 	return &slurpRawInputIter{iter: iter}
 }
 
-func (i *slurpRawInputIter) Next() (interface{}, bool) {
+func (i *slurpRawInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
 	var vs []string
-	var v interface{}
+	var v any
 	var ok bool
 	for {
 		v, ok = i.iter.Next()

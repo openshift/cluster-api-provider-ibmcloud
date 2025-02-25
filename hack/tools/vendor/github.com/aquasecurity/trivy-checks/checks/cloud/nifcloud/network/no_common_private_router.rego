@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-NIF-0017
 #   avd_id: AVD-NIF-0017
+#   aliases:
+#     - nifcloud-network-no-common-private-router
 #   provider: nifcloud
 #   service: network
 #   severity: LOW
@@ -24,8 +26,8 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/nifcloud/nifcloud/latest/docs/resources/router#network_id
-#     good_examples: checks/cloud/nifcloud/network/no_common_private_router.tf.go
-#     bad_examples: checks/cloud/nifcloud/network/no_common_private_router.tf.go
+#     good_examples: checks/cloud/nifcloud/network/no_common_private_router.yaml
+#     bad_examples: checks/cloud/nifcloud/network/no_common_private_router.yaml
 package builtin.nifcloud.network.nifcloud0017
 
 import rego.v1

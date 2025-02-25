@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-AWS-0102
 #   avd_id: AVD-AWS-0102
+#   aliases:
+#     - aws-vpc-no-excessive-port-access
 #   provider: aws
 #   service: ec2
 #   severity: CRITICAL
@@ -24,11 +26,11 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/network_acl_rule#to_port
-#     good_examples: checks/cloud/aws/ec2/no_excessive_port_access.tf.go
-#     bad_examples: checks/cloud/aws/ec2/no_excessive_port_access.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/no_excessive_port_access.cf.go
-#     bad_examples: checks/cloud/aws/ec2/no_excessive_port_access.cf.go
+#     good_examples: checks/cloud/aws/ec2/no_excessive_port_access.yaml
+#     bad_examples: checks/cloud/aws/ec2/no_excessive_port_access.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/no_excessive_port_access.yaml
+#     bad_examples: checks/cloud/aws/ec2/no_excessive_port_access.yaml
 package builtin.aws.ec2.aws0102
 
 import rego.v1

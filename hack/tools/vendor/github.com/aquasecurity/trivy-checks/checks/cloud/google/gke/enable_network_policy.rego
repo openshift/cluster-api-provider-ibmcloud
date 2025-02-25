@@ -22,11 +22,13 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_cluster#enabled
-#     good_examples: checks/cloud/google/gke/enable_network_policy.tf.go
-#     bad_examples: checks/cloud/google/gke/enable_network_policy.tf.go
+#     good_examples: checks/cloud/google/gke/enable_network_policy.yaml
+#     bad_examples: checks/cloud/google/gke/enable_network_policy.yaml
 package builtin.google.gke.google0056
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some cluster in input.google.gke.clusters
@@ -36,7 +38,7 @@ deny contains res if {
 	not dataplane_v2_enabled(cluster)
 	res := result.new(
 		"Cluster does not have a network policy enabled.",
-		object.get(cluster.networkpolicy, "enabled", cluster.networkpolicy),
+		metadata.obj_by_path(cluster, ["networkpolicy", "enabled"]),
 	)
 }
 

@@ -24,17 +24,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/efs_file_system
-#     good_examples: checks/cloud/aws/efs/enable_at_rest_encryption.tf.go
-#     bad_examples: checks/cloud/aws/efs/enable_at_rest_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/efs/enable_at_rest_encryption.cf.go
-#     bad_examples: checks/cloud/aws/efs/enable_at_rest_encryption.cf.go
+#     good_examples: checks/cloud/aws/efs/enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/efs/enable_at_rest_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/efs/enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/efs/enable_at_rest_encryption.yaml
 package builtin.aws.efs.aws0037
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some fs in input.aws.efs.filesystems
-	fs.encrypted.value == false
-	res := result.new("File system is not encrypted.", fs.encrypted)
+	not fs.encrypted.value
+	res := result.new(
+		"File system is not encrypted.",
+		metadata.obj_by_path(fs, ["encrypted"]),
+	)
 }

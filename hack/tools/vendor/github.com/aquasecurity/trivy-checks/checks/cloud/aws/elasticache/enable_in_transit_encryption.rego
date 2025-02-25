@@ -24,17 +24,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/elasticache_replication_group#transit_encryption_enabled
-#     good_examples: checks/cloud/aws/elasticache/enable_in_transit_encryption.tf.go
-#     bad_examples: checks/cloud/aws/elasticache/enable_in_transit_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/elasticache/enable_in_transit_encryption.cf.go
-#     bad_examples: checks/cloud/aws/elasticache/enable_in_transit_encryption.cf.go
+#     good_examples: checks/cloud/aws/elasticache/enable_in_transit_encryption.yaml
+#     bad_examples: checks/cloud/aws/elasticache/enable_in_transit_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/elasticache/enable_in_transit_encryption.yaml
+#     bad_examples: checks/cloud/aws/elasticache/enable_in_transit_encryption.yaml
 package builtin.aws.elasticache.aws0051
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some group in input.aws.elasticache.replicationgroups
-	group.transitencryptionenabled.value == false
-	res := result.new("Replication group does not have transit encryption enabled.", group.transitencryptionenabled)
+	not group.transitencryptionenabled.value
+	res := result.new(
+		"Replication group does not have transit encryption enabled.",
+		metadata.obj_by_path(group, ["transitencryptionenabled"]),
+	)
 }

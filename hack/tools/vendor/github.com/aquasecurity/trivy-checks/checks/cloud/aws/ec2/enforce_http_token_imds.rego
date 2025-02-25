@@ -28,18 +28,29 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance#metadata-options
-#     good_examples: checks/cloud/aws/ec2/enforce_http_token_imds.tf.go
-#     bad_examples: checks/cloud/aws/ec2/enforce_http_token_imds.tf.go
+#     good_examples: checks/cloud/aws/ec2/enforce_http_token_imds.yaml
+#     bad_examples: checks/cloud/aws/ec2/enforce_http_token_imds.yaml
 package builtin.aws.ec2.aws0028
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some instance in input.aws.ec2.instances
-	instance.metadataoptions.httptokens.value != "required"
-	instance.metadataoptions.httpendpoint.value != "disabled"
+	tokens_is_not_required(instance)
+	endpoint_is_not_disabled(instance)
 	res := result.new(
 		"Instance does not require IMDS access to require a token.",
-		instance.metadataoptions.httptokens,
+		metadata.obj_by_path(instance, ["metadataoptions", "httptokens"]),
 	)
 }
+
+tokens_is_not_required(instance) if value.is_not_equal(instance.metadataoptions.httptokens, "required")
+
+tokens_is_not_required(instance) if not instance.metadataoptions.httptokens
+
+endpoint_is_not_disabled(instance) if value.is_not_equal(instance.metadataoptions.httpendpoint, "disabled")
+
+endpoint_is_not_disabled(instance) if not instance.metadataoptions.httpendpoint

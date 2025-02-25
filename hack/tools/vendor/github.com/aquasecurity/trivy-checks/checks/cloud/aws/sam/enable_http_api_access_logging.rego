@@ -21,19 +21,26 @@
 #         subtypes:
 #           - service: sam
 #             provider: aws
-#   cloudformation:
-#     good_examples: checks/cloud/aws/sam/enable_http_api_access_logging.cf.go
-#     bad_examples: checks/cloud/aws/sam/enable_http_api_access_logging.cf.go
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/sam/enable_http_api_access_logging.yaml
+#     bad_examples: checks/cloud/aws/sam/enable_http_api_access_logging.yaml
 package builtin.aws.sam.aws0116
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some api in input.aws.sam.httpapis
 	isManaged(api)
-	api.accesslogging.cloudwatchloggrouparn.value == ""
+	without_logging(api)
 	res := result.new(
 		"Access logging is not configured.",
-		api.accesslogging,
+		metadata.obj_by_path(api, ["accesslogging", "cloudwatchloggrouparn"]),
 	)
 }
+
+without_logging(api) if value.is_empty(api.accesslogging.cloudwatchloggrouparn)
+
+without_logging(api) if not api.accesslogging.cloudwatchloggrouparn

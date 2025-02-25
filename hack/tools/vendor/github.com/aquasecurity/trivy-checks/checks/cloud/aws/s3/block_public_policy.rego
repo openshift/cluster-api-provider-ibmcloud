@@ -24,14 +24,16 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block#block_public_policy
-#     good_examples: checks/cloud/aws/s3/block_public_policy.tf.go
-#     bad_examples: checks/cloud/aws/s3/block_public_policy.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/s3/block_public_policy.cf.go
-#     bad_examples: checks/cloud/aws/s3/block_public_policy.cf.go
+#     good_examples: checks/cloud/aws/s3/block_public_policy.yaml
+#     bad_examples: checks/cloud/aws/s3/block_public_policy.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/s3/block_public_policy.yaml
+#     bad_examples: checks/cloud/aws/s3/block_public_policy.yaml
 package builtin.aws.s3.aws0087
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some bucket in input.aws.s3.buckets
@@ -48,10 +50,6 @@ deny contains res if {
 	not bucket.publicaccessblock.blockpublicpolicy.value
 	res := result.new(
 		"Public access block does not block public policies",
-		object.get(
-			bucket.publicaccessblock,
-			"blockpublicpolicy",
-			bucket.publicaccessblock,
-		),
+		metadata.obj_by_path(bucket, ["publicaccessblock", "blockpublicpolicy"]),
 	)
 }

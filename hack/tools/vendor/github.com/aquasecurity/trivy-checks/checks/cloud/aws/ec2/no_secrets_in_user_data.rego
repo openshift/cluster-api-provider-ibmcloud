@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-AWS-0029
 #   avd_id: AVD-AWS-0029
+#   aliases:
+#     - aws-autoscaling-no-public-ip
 #   provider: aws
 #   service: ec2
 #   severity: CRITICAL
@@ -24,11 +26,11 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance#user_data
-#     good_examples: checks/cloud/aws/ec2/no_secrets_in_user_data.tf.go
-#     bad_examples: checks/cloud/aws/ec2/no_secrets_in_user_data.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/no_secrets_in_user_data.cf.go
-#     bad_examples: checks/cloud/aws/ec2/no_secrets_in_user_data.cf.go
+#     good_examples: checks/cloud/aws/ec2/no_secrets_in_user_data.yaml
+#     bad_examples: checks/cloud/aws/ec2/no_secrets_in_user_data.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/no_secrets_in_user_data.yaml
+#     bad_examples: checks/cloud/aws/ec2/no_secrets_in_user_data.yaml
 package builtin.aws.ec2.aws0029
 
 import rego.v1

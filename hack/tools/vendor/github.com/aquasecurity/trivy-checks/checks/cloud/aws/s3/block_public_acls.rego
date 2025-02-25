@@ -24,14 +24,16 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block#block_public_acls
-#     good_examples: checks/cloud/aws/s3/block_public_acls.tf.go
-#     bad_examples: checks/cloud/aws/s3/block_public_acls.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/s3/block_public_acls.cf.go
-#     bad_examples: checks/cloud/aws/s3/block_public_acls.cf.go
+#     good_examples: checks/cloud/aws/s3/block_public_acls.yaml
+#     bad_examples: checks/cloud/aws/s3/block_public_acls.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/s3/block_public_acls.yaml
+#     bad_examples: checks/cloud/aws/s3/block_public_acls.yaml
 package builtin.aws.s3.aws0086
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some bucket in input.aws.s3.buckets
@@ -48,10 +50,6 @@ deny contains res if {
 	not bucket.publicaccessblock.blockpublicacls.value
 	res := result.new(
 		"Public access block does not block public ACLs",
-		object.get(
-			bucket.publicaccessblock,
-			"blockpublicacls",
-			bucket.publicaccessblock,
-		),
+		metadata.obj_by_path(bucket, ["publicaccessblock", "blockpublicacls"]),
 	)
 }

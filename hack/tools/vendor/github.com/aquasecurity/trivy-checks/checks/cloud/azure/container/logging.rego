@@ -24,11 +24,13 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/kubernetes_cluster#oms_agent
-#     good_examples: checks/cloud/azure/container/logging.tf.go
-#     bad_examples: checks/cloud/azure/container/logging.tf.go
+#     good_examples: checks/cloud/azure/container/logging.yaml
+#     bad_examples: checks/cloud/azure/container/logging.yaml
 package builtin.azure.container.azure0040
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some cluster in input.azure.container.kubernetesclusters
@@ -36,6 +38,6 @@ deny contains res if {
 	not cluster.addonprofile.omsagent.enabled.value
 	res := result.new(
 		"Cluster does not have logging enabled via OMS Agent.",
-		object.get(cluster, ["addonprofile", "omsagent", "enabled"], cluster),
+		metadata.obj_by_path(cluster, ["addonprofile", "omsagent", "enabled"]),
 	)
 }

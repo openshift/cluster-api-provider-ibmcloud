@@ -26,15 +26,17 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_cluster#master_auth
-#     good_examples: checks/cloud/google/gke/no_legacy_authentication.tf.go
-#     bad_examples: checks/cloud/google/gke/no_legacy_authentication.tf.go
+#     good_examples: checks/cloud/google/gke/no_legacy_authentication.yaml
+#     bad_examples: checks/cloud/google/gke/no_legacy_authentication.yaml
 package builtin.google.gke.google0064
 
 import rego.v1
 
+import data.lib.cloud.value
+
 deny contains res if {
 	some cluster in input.google.gke.clusters
-	cluster.masterauth.clientcertificate.issuecertificate.value == true
+	cluster.masterauth.clientcertificate.issuecertificate.value
 	res := result.new(
 		"Cluster allows the use of certificates for master authentication.",
 		cluster.masterauth.clientcertificate.issuecertificate,
@@ -44,7 +46,7 @@ deny contains res if {
 deny contains res if {
 	some cluster in input.google.gke.clusters
 	not cluster.masterauth.clientcertificate.issuecertificate.value
-	cluster.masterauth.username.value != ""
+	value.is_not_empty(cluster.masterauth.username)
 	res := result.new(
 		"Cluster allows the use of basic auth for master authentication.",
 		cluster.masterauth.username,

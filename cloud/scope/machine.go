@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util/patch"
 
 	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
@@ -1055,7 +1054,7 @@ func (m *MachineScope) SetFailureMessage(message string) {
 }
 
 // SetFailureReason will set the Machine's Failure Reason.
-func (m *MachineScope) SetFailureReason(reason capierrors.MachineStatusError) {
+func (m *MachineScope) SetFailureReason(reason string) {
 	m.IBMVPCMachine.Status.FailureReason = ptr.To(reason)
 }
 
@@ -1078,14 +1077,14 @@ func (m *MachineScope) SetNotReady() {
 func (m *MachineScope) SetProviderID(id *string) error {
 	// Based on the ProviderIDFormat version the providerID format will be decided.
 	if options.ProviderIDFormatType(options.ProviderIDFormat) == options.ProviderIDFormatV2 {
-		accountID, err := utils.GetAccountID()
+		accountID, err := utils.GetAccountIDWrapper()
 		if err != nil {
 			m.Logger.Error(err, "failed to get cloud account id", err.Error())
 			return err
 		}
 		m.IBMVPCMachine.Spec.ProviderID = ptr.To(fmt.Sprintf("ibm://%s///%s/%s", accountID, m.Machine.Spec.ClusterName, *id))
 	} else {
-		m.IBMVPCMachine.Spec.ProviderID = ptr.To(fmt.Sprintf("ibmvpc://%s/%s", m.Machine.Spec.ClusterName, m.IBMVPCMachine.Name))
+		return fmt.Errorf("invalid value for ProviderIDFormat")
 	}
 	return nil
 }

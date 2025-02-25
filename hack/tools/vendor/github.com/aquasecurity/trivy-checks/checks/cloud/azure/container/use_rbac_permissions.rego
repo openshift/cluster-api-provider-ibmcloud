@@ -24,11 +24,13 @@
 #   terraform:
 #     links:
 #       - https://www.terraform.io/docs/providers/azurerm/r/kubernetes_cluster.html#role_based_access_control
-#     good_examples: checks/cloud/azure/container/use_rbac_permissions.tf.go
-#     bad_examples: checks/cloud/azure/container/use_rbac_permissions.tf.go
+#     good_examples: checks/cloud/azure/container/use_rbac_permissions.yaml
+#     bad_examples: checks/cloud/azure/container/use_rbac_permissions.yaml
 package builtin.azure.container.azure0042
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some cluster in input.azure.container.kubernetesclusters
@@ -36,6 +38,6 @@ deny contains res if {
 	not cluster.rolebasedaccesscontrol.enabled.value
 	res := result.new(
 		"RBAC is not enabled on cluster",
-		object.get(cluster, ["rolebasedaccesscontrol", "enabled"], cluster),
+		metadata.obj_by_path(cluster, ["rolebasedaccesscontrol", "enabled"]),
 	)
 }

@@ -24,12 +24,13 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance
-#     good_examples: checks/cloud/google/sql/enable_pg_temp_file_logging.tf.go
-#     bad_examples: checks/cloud/google/sql/enable_pg_temp_file_logging.tf.go
+#     good_examples: checks/cloud/google/sql/enable_pg_temp_file_logging.yaml
+#     bad_examples: checks/cloud/google/sql/enable_pg_temp_file_logging.yaml
 package builtin.google.sql.google0014
 
 import rego.v1
 
+import data.lib.cloud.value
 import data.lib.google.database
 
 deny contains res if {
@@ -41,11 +42,11 @@ deny contains res if {
 }
 
 check_log_temp_file_size(logtempfilesize) := msg if {
-	logtempfilesize.value < 0
+	value.less_than(logtempfilesize, 0)
 	msg := "Database instance has temporary file logging disabled."
 }
 
 check_log_temp_file_size(logtempfilesize) := msg if {
-	logtempfilesize.value > 0
+	value.greater_than(logtempfilesize, 0)
 	msg := "Database instance has temporary file logging disabled for files of certain sizes."
 }

@@ -24,38 +24,55 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster#enabled_cluster_log_types
-#     good_examples: checks/cloud/aws/eks/enable_control_plane_logging.tf.go
-#     bad_examples: checks/cloud/aws/eks/enable_control_plane_logging.tf.go
+#     good_examples: checks/cloud/aws/eks/enable_control_plane_logging.yaml
+#     bad_examples: checks/cloud/aws/eks/enable_control_plane_logging.yaml
 package builtin.aws.eks.aws0038
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some cluster in input.aws.eks.clusters
-	cluster.logging.api.value == false
-	res := result.new("Control plane API logging is not enabled.", cluster.logging.api)
+	not cluster.logging.api.value
+	res := result.new(
+		"Control plane API logging is not enabled.",
+		metadata.obj_by_path(cluster, ["logging", "api"]),
+	)
 }
 
 deny contains res if {
 	some cluster in input.aws.eks.clusters
-	cluster.logging.audit.value == false
-	res := result.new("Control plane audit logging is not enabled.", cluster.logging.audit)
+	not cluster.logging.audit.value
+	res := result.new(
+		"Control plane audit logging is not enabled.",
+		metadata.obj_by_path(cluster, ["logging", "audit"]),
+	)
 }
 
 deny contains res if {
 	some cluster in input.aws.eks.clusters
-	cluster.logging.authenticator.value == false
-	res := result.new("Control plane authenticator logging is not enabled.", cluster.logging.authenticator)
+	not cluster.logging.authenticator.value
+	res := result.new(
+		"Control plane authenticator logging is not enabled.",
+		metadata.obj_by_path(cluster, ["logging", "authenticator"]),
+	)
 }
 
 deny contains res if {
 	some cluster in input.aws.eks.clusters
-	cluster.logging.controllermanager.value == false
-	res := result.new("Control plane controller manager logging is not enabled.", cluster.logging.controllermanager)
+	not cluster.logging.controllermanager.value
+	res := result.new(
+		"Control plane controller manager logging is not enabled.",
+		metadata.obj_by_path(cluster, ["logging", "controllermanager"]),
+	)
 }
 
 deny contains res if {
 	some cluster in input.aws.eks.clusters
-	cluster.logging.scheduler.value == false
-	res := result.new("Control plane scheduler logging is not enabled.", cluster.logging.scheduler)
+	not cluster.logging.scheduler.value
+	res := result.new(
+		"Control plane scheduler logging is not enabled.",
+		metadata.obj_by_path(cluster, ["logging", "scheduler"]),
+	)
 }

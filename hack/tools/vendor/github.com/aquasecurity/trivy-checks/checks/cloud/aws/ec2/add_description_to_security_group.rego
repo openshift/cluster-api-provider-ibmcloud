@@ -12,6 +12,8 @@
 # custom:
 #   id: AVD-AWS-0099
 #   avd_id: AVD-AWS-0099
+#   aliases:
+#     - aws-vpc-add-description-to-security-group
 #   provider: aws
 #   service: ec2
 #   severity: LOW
@@ -27,25 +29,35 @@
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group_rule
-#     good_examples: checks/cloud/aws/ec2/add_description_to_security_group.tf.go
-#     bad_examples: checks/cloud/aws/ec2/add_description_to_security_group.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/add_description_to_security_group.cf.go
-#     bad_examples: checks/cloud/aws/ec2/add_description_to_security_group.cf.go
+#     good_examples: checks/cloud/aws/ec2/add_description_to_security_group.yaml
+#     bad_examples: checks/cloud/aws/ec2/add_description_to_security_group.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/add_description_to_security_group.yaml
+#     bad_examples: checks/cloud/aws/ec2/add_description_to_security_group.yaml
 package builtin.aws.ec2.aws0099
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some sg in input.aws.ec2.securitygroups
-	sg.__defsec_metadata.managed
-	sg.description.value == ""
-	res := result.new("Security group does not have a description.", sg)
+	isManaged(sg)
+	without_description(sg)
+	res := result.new(
+		"Security group does not have a description.",
+		metadata.obj_by_path(sg, ["description"]),
+	)
 }
 
 deny contains res if {
 	some sg in input.aws.ec2.securitygroups
-	sg.__defsec_metadata.managed
+	isManaged(sg)
 	sg.description.value == "Managed by Terraform"
-	res := result.new("Security group explicitly uses the default description.", sg)
+	res := result.new("Security group explicitly uses the default description.", sg.description)
 }
+
+without_description(sg) if value.is_empty(sg.description)
+
+without_description(sg) if not sg.description

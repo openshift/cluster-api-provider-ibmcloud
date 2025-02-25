@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-NIF-0004
 #   avd_id: AVD-NIF-0004
+#   aliases:
+#     - nifcloud-computing-add-security-group-to-instance
 #   provider: nifcloud
 #   service: computing
 #   severity: CRITICAL
@@ -24,14 +26,20 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/nifcloud/nifcloud/latest/docs/resources/instance#security_group
-#     good_examples: checks/cloud/nifcloud/computing/add_security_group_to_instance.tf.go
-#     bad_examples: checks/cloud/nifcloud/computing/add_security_group_to_instance.tf.go
+#     good_examples: checks/cloud/nifcloud/computing/add_security_group_to_instance.yaml
+#     bad_examples: checks/cloud/nifcloud/computing/add_security_group_to_instance.yaml
 package builtin.nifcloud.computing.nifcloud0004
 
 import rego.v1
 
+import data.lib.cloud.value
+
 deny contains res if {
 	some instance in input.nifcloud.computing.instances
-	instance.securitygroup.value == ""
+	without_sg(instance)
 	res := result.new("Instance does not have a securiy group.", instance.securitygroup)
 }
+
+without_sg(instance) if value.is_empty(instance.securitygroup)
+
+without_sg(instance) if not instance.securitygroup

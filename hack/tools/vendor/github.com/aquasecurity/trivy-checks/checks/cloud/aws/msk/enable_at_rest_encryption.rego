@@ -24,20 +24,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/msk_cluster#encryption_info-argument-reference
-#     good_examples: checks/cloud/aws/msk/enable_at_rest_encryption.tf.go
-#     bad_examples: checks/cloud/aws/msk/enable_at_rest_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/msk/enable_at_rest_encryption.cf.go
-#     bad_examples: checks/cloud/aws/msk/enable_at_rest_encryption.cf.go
+#     good_examples: checks/cloud/aws/msk/enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/msk/enable_at_rest_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/msk/enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/msk/enable_at_rest_encryption.yaml
 package builtin.aws.msk.aws0179
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some cluster in input.aws.msk.clusters
 	not cluster.encryptionatrest.enabled.value
 	res := result.new(
 		"The cluster is not encrypted at rest.",
-		object.get(cluster, ["encryptionatrest", "enabled"], cluster),
+		metadata.obj_by_path(cluster, ["encryptionatrest", "enabled"]),
 	)
 }

@@ -22,11 +22,13 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/app_service#min_tls_version
-#     good_examples: checks/cloud/azure/appservice/use_secure_tls_policy.tf.go
-#     bad_examples: checks/cloud/azure/appservice/use_secure_tls_policy.tf.go
+#     good_examples: checks/cloud/azure/appservice/use_secure_tls_policy.yaml
+#     bad_examples: checks/cloud/azure/appservice/use_secure_tls_policy.yaml
 package builtin.azure.appservice.azure0006
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 recommended_tls_version := "1.2"
 
@@ -36,7 +38,7 @@ deny contains res if {
 	not is_recommended_tls_version(service)
 	res := result.new(
 		"App service does not require a secure TLS version.",
-		object.get(service, ["site", "minimumtlsversion"], service),
+		metadata.obj_by_path(service, ["site", "minimumtlsversion"]),
 	)
 }
 

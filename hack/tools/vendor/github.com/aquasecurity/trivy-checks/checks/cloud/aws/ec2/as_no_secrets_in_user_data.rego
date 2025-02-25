@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-AWS-0129
 #   avd_id: AVD-AWS-0129
+#   aliases:
+#     - aws-autoscaling-no-secrets-in-user-data
 #   provider: aws
 #   service: ec2
 #   severity: CRITICAL
@@ -24,11 +26,11 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance#user_data
-#     good_examples: checks/cloud/aws/ec2/as_no_secrets_in_user_data.tf.go
-#     bad_examples: checks/cloud/aws/ec2/as_no_secrets_in_user_data.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/as_no_secrets_in_user_data.cf.go
-#     bad_examples: checks/cloud/aws/ec2/as_no_secrets_in_user_data.cf.go
+#     good_examples: checks/cloud/aws/ec2/as_no_secrets_in_user_data.yaml
+#     bad_examples: checks/cloud/aws/ec2/as_no_secrets_in_user_data.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/as_no_secrets_in_user_data.yaml
+#     bad_examples: checks/cloud/aws/ec2/as_no_secrets_in_user_data.yaml
 package builtin.aws.ec2.aws0129
 
 import rego.v1

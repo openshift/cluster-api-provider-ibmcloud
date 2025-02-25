@@ -24,21 +24,20 @@
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/postgresql_server#public_network_access_enabled
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/mysql_server#public_network_access_enabled
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/mariadb_server#public_network_access_enabled
-#     good_examples: checks/cloud/azure/database/no_public_access.tf.go
-#     bad_examples: checks/cloud/azure/database/no_public_access.tf.go
+#     good_examples: checks/cloud/azure/database/no_public_access.yaml
+#     bad_examples: checks/cloud/azure/database/no_public_access.yaml
 package builtin.azure.database.azure0022
 
 import rego.v1
 
 import data.lib.azure.database
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some server in database.all_servers
-	is_public_access_enabled(server)
+	server.enablepublicnetworkaccess.value
 	res := result.new(
-		"Database server does not have public access enabled.",
-		object.get(server, "enablepublicnetworkaccess", server),
+		"Database server has public network access enabled.",
+		server.enablepublicnetworkaccess,
 	)
 }
-
-is_public_access_enabled(server) := server.enablepublicnetworkaccess.value == true

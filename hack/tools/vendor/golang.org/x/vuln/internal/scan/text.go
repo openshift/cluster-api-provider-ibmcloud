@@ -35,6 +35,7 @@ func NewTextHandler(w io.Writer) *TextHandler {
 
 type TextHandler struct {
 	w         io.Writer
+	sbom      *govulncheck.SBOM
 	osvs      []*osv.Entry
 	findings  []*findingSummary
 	scanLevel govulncheck.ScanLevel
@@ -63,6 +64,9 @@ const (
 )
 
 func (h *TextHandler) Flush() error {
+	if h.showVerbose {
+		h.printSBOM()
+	}
 	if len(h.findings) == 0 {
 		h.print(noVulnsMessage + "\n")
 	} else {
@@ -113,6 +117,53 @@ func (h *TextHandler) Config(config *govulncheck.Config) error {
 	}
 	h.print("\n")
 	return h.err
+}
+
+func (h *TextHandler) SBOM(sbom *govulncheck.SBOM) error {
+	h.sbom = sbom
+	return nil
+}
+
+func (h *TextHandler) printSBOM() error {
+	if h.sbom == nil {
+		h.print("No packages matched the provided pattern.\n")
+		return nil
+	}
+
+	printed := false
+
+	for i, root := range h.sbom.Roots {
+		if i == 0 {
+			if len(h.sbom.Roots) > 1 {
+				h.print("The package pattern matched the following ", len(h.sbom.Roots), " root packages:\n")
+			} else {
+				h.print("The package pattern matched the following root package:\n")
+			}
+		}
+
+		h.print("  ", root, "\n")
+		printed = true
+	}
+	for i, mod := range h.sbom.Modules {
+		if i == 0 && mod.Path != "stdlib" {
+			h.print("Govulncheck scanned the following ", len(h.sbom.Modules)-1, " modules and the ", h.sbom.GoVersion, " standard library:\n")
+		}
+
+		if mod.Path == "stdlib" {
+			continue
+		}
+
+		h.print("  ", mod.Path)
+		if mod.Version != "" {
+			h.print("@", mod.Version)
+		}
+		h.print("\n")
+		printed = true
+	}
+	if printed {
+		h.print("\n")
+	}
+	return nil
 }
 
 // Progress writes progress updates during govulncheck execution.
@@ -312,9 +363,10 @@ func (h *TextHandler) traces(traces []*findingSummary) {
 	// as users cannot act on them and they can hence
 	// spam users.
 	const binLimit = 5
+	binary := h.scanMode == govulncheck.ScanModeBinary
 	for i, entry := range compacts {
 		if i == 0 {
-			if h.scanMode == govulncheck.ScanModeBinary {
+			if binary {
 				h.style(keyStyle, "    Vulnerable symbols found:\n")
 			} else {
 				h.style(keyStyle, "    Example traces found:\n")
@@ -322,26 +374,42 @@ func (h *TextHandler) traces(traces []*findingSummary) {
 		}
 
 		// skip showing all symbols in binary mode unless '-show traces' is on.
-		if h.scanMode == govulncheck.ScanModeBinary && (i+1) > binLimit && !h.showTraces {
+		if binary && (i+1) > binLimit && !h.showTraces {
 			h.print("      Use '-show traces' to see the other ", len(compacts)-binLimit, " found symbols\n")
 			break
 		}
 
 		h.print("      #", i+1, ": ")
-		if !h.showTraces {
+
+		if !h.showTraces { // show summarized traces
 			h.print(entry.Compact, "\n")
+			continue
+		}
+
+		if binary {
+			// There are no call stacks in binary mode
+			// so just show the full symbol name.
+			h.print(symbol(entry.Trace[0], false), "\n")
 		} else {
 			h.print("for function ", symbol(entry.Trace[0], false), "\n")
 			for i := len(entry.Trace) - 1; i >= 0; i-- {
 				t := entry.Trace[i]
 				h.print("        ")
+				h.print(symbolName(t))
 				if t.Position != nil {
-					h.print(posToString(t.Position), ": ")
+					h.print(" @ ", symbolPath(t))
 				}
-				h.print(symbol(t, false), "\n")
+				h.print("\n")
 			}
 		}
 	}
+}
+
+// symbolPath returns a user-friendly path to a symbol.
+func symbolPath(t *govulncheck.Frame) string {
+	// Add module path prefix to symbol paths to be more
+	// explicit to which module the symbols belong to.
+	return t.Module + "/" + posToString(t.Position)
 }
 
 func (h *TextHandler) summary(c summaryCounters) {

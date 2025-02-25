@@ -45,7 +45,6 @@ import (
 	vpcmock "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc/mock"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/options"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -913,14 +912,12 @@ func TestGetMachineInternalIP(t *testing.T) {
 func TestSetProviderID(t *testing.T) {
 	providerID := "foo-provider-id"
 
-	t.Run("Set Provider ID in v1 format", func(t *testing.T) {
+	t.Run("Set Provider ID in invalid format", func(t *testing.T) {
 		g := NewWithT(t)
 		scope := setupPowerVSMachineScope(clusterName, machineName, ptr.To(pvsImage), ptr.To(pvsNetwork), true, nil)
-		options.ProviderIDFormat = string(options.ProviderIDFormatV1)
-		err := scope.SetProviderID("foo-providerID")
-		expectedProviderID := ptr.To(fmt.Sprintf("ibmpowervs://%s/%s", scope.Machine.Spec.ClusterName, scope.IBMPowerVSMachine.Name))
-		g.Expect(*scope.IBMPowerVSMachine.Spec.ProviderID).To(Equal(*expectedProviderID))
-		g.Expect(err).To(BeNil())
+		options.ProviderIDFormat = string("v1")
+		err := scope.SetProviderID(providerID)
+		g.Expect(err).ToNot(BeNil())
 	})
 
 	t.Run("failed to get service instance ID", func(t *testing.T) {
@@ -1119,8 +1116,8 @@ func TestSetFailureReason(t *testing.T) {
 				Status: infrav1beta2.IBMPowerVSMachineStatus{},
 			},
 		}
-		scope.SetFailureReason(capierrors.InvalidConfigurationMachineError)
-		g.Expect(*scope.IBMPowerVSMachine.Status.FailureReason).To(Equal(capierrors.InvalidConfigurationMachineError))
+		scope.SetFailureReason(infrav1beta2.UpdateMachineError)
+		g.Expect(*scope.IBMPowerVSMachine.Status.FailureReason).To(Equal(infrav1beta2.UpdateMachineError))
 	})
 }
 

@@ -22,19 +22,24 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_disk#kms_key_self_link
-#     good_examples: checks/cloud/google/compute/disk_encryption_customer_key.tf.go
-#     bad_examples: checks/cloud/google/compute/disk_encryption_customer_key.tf.go
+#     good_examples: checks/cloud/google/compute/disk_encryption_customer_key.yaml
+#     bad_examples: checks/cloud/google/compute/disk_encryption_customer_key.yaml
 package builtin.google.compute.google0034
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some disk in input.google.compute.disks
-	not is_disk_encrypted(disk)
+	disk_not_encrypted(disk)
 	res := result.new(
 		"Disk is not encrypted with a customer managed key.",
-		object.get(disk, ["encryption", "kmskeylink"], disk),
+		metadata.obj_by_path(disk, ["encryption", "kmskeylink"]),
 	)
 }
 
-is_disk_encrypted(disk) := disk.encryption.kmskeylink.value != ""
+disk_not_encrypted(disk) if value.is_empty(disk.encryption.kmskeylink)
+
+disk_not_encrypted(disk) if not disk.encryption.kmskeylink

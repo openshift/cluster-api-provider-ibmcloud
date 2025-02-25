@@ -24,26 +24,38 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecr_repository#encryption_configuration
-#     good_examples: checks/cloud/aws/ecr/repository_customer_key.tf.go
-#     bad_examples: checks/cloud/aws/ecr/repository_customer_key.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ecr/repository_customer_key.cf.go
-#     bad_examples: checks/cloud/aws/ecr/repository_customer_key.cf.go
+#     good_examples: checks/cloud/aws/ecr/repository_customer_key.yaml
+#     bad_examples: checks/cloud/aws/ecr/repository_customer_key.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ecr/repository_customer_key.yaml
+#     bad_examples: checks/cloud/aws/ecr/repository_customer_key.yaml
 package builtin.aws.ecr.aws0033
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some repo in input.aws.ecr.repositories
-	not is_encyption_type_kms(repo.encryption.type)
+	encyption_type_no_kms(repo)
 	res := result.new("Repository is not encrypted using KMS.", repo.encryption.type)
 }
 
 deny contains res if {
 	some repo in input.aws.ecr.repositories
-	is_encyption_type_kms(repo.encryption.type)
-	repo.encryption.kmskeyid.value == ""
-	res := result.new("Repository encryption does not use a customer managed KMS key.", repo.encryption.kmskeyid)
+	repo.encryption.type.value == "KMS"
+	without_cmk(repo)
+	res := result.new(
+		"Repository encryption does not use a customer managed KMS key.",
+		metadata.obj_by_path(repo, ["encryption", "kmskeyid"]),
+	)
 }
 
-is_encyption_type_kms(typ) if typ.value == "KMS"
+encyption_type_no_kms(repo) if value.is_not_equal(repo.encryption.type, "KMS")
+
+encyption_type_no_kms(repo) if not repo.encryption.type
+
+without_cmk(repo) if value.is_empty(repo.encryption.kmskeyid)
+
+without_cmk(repo) if not repo.encryption.kmskeyid

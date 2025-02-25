@@ -24,17 +24,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudtrail#enable_log_file_validation
-#     good_examples: checks/cloud/aws/cloudtrail/enable_log_validation.tf.go
-#     bad_examples: checks/cloud/aws/cloudtrail/enable_log_validation.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/cloudtrail/enable_log_validation.cf.go
-#     bad_examples: checks/cloud/aws/cloudtrail/enable_log_validation.cf.go
+#     good_examples: checks/cloud/aws/cloudtrail/enable_log_validation.yaml
+#     bad_examples: checks/cloud/aws/cloudtrail/enable_log_validation.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/cloudtrail/enable_log_validation.yaml
+#     bad_examples: checks/cloud/aws/cloudtrail/enable_log_validation.yaml
 package builtin.aws.cloudtrail.aws0016
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some trail in input.aws.cloudtrail.trails
 	not trail.enablelogfilevalidation.value
-	res := result.new("Trail does not have log validation enabled.", trail.enablelogfilevalidation)
+	res := result.new(
+		"Trail does not have log validation enabled.",
+		metadata.obj_by_path(trail, ["enablelogfilevalidation"]),
+	)
 }

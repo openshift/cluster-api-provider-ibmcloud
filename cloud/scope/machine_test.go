@@ -30,12 +30,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/utils"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc/mock"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/options"
 
 	. "github.com/onsi/gomega"
 )
@@ -122,6 +125,40 @@ func TestNewMachineScope(t *testing.T) {
 			g.Expect(err).To(Not(BeNil()))
 		})
 	}
+}
+
+func TestSetVPCProviderID(t *testing.T) {
+	providerID := "foo-provider-id"
+
+	t.Run("Set Provider ID in invalid format", func(t *testing.T) {
+		g := NewWithT(t)
+		scope := setupMachineScope(clusterName, machineName, mock.NewMockVpc(gomock.NewController(t)))
+		options.ProviderIDFormat = string("v1")
+		err := scope.SetProviderID(ptr.To(providerID))
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("Set Provider ID in valid format", func(t *testing.T) {
+		g := NewWithT(t)
+		scope := setupMachineScope(clusterName, machineName, mock.NewMockVpc(gomock.NewController(t)))
+		options.ProviderIDFormat = string("v2")
+		utils.GetAccountIDFunc = func() (string, error) {
+			return "dummy-account-id", nil // Return dummy value
+		}
+		err := scope.SetProviderID(ptr.To(providerID))
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("Set Provider ID returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		scope := setupMachineScope(clusterName, machineName, mock.NewMockVpc(gomock.NewController(t)))
+		options.ProviderIDFormat = string("v2")
+		utils.GetAccountIDFunc = func() (string, error) {
+			return "", errors.New("error getting accountID") // Return dummy error
+		}
+		err := scope.SetProviderID(ptr.To(providerID))
+		g.Expect(err).NotTo(BeNil())
+	})
 }
 
 func TestCreateMachine(t *testing.T) {

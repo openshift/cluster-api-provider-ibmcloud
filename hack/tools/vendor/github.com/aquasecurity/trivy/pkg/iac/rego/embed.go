@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/open-policy-agent/opa/ast"
 
@@ -14,8 +15,7 @@ import (
 	"github.com/aquasecurity/trivy/pkg/log"
 )
 
-func init() {
-
+var LoadAndRegister = sync.OnceFunc(func() {
 	modules, err := LoadEmbeddedPolicies()
 	if err != nil {
 		// we should panic as the policies were not embedded properly
@@ -30,7 +30,7 @@ func init() {
 	}
 
 	RegisterRegoRules(modules)
-}
+})
 
 func RegisterRegoRules(modules map[string]*ast.Module) {
 	ctx := context.TODO()
@@ -70,15 +70,6 @@ func RegisterRegoRules(modules map[string]*ast.Module) {
 		}
 
 		rules.Register(metadata.ToRule())
-	}
-
-	for _, check := range rules.GetRegistered() {
-		if !check.Deprecated && check.CanCheck() {
-			if _, exists := regoCheckIDs[check.AVDID]; exists {
-				log.Warn("Ignore duplicate Go check", log.String("avdid", check.AVDID))
-				rules.Deregister(check)
-			}
-		}
 	}
 }
 

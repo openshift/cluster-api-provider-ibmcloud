@@ -24,17 +24,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/athena_workgroup#configuration
-#     good_examples: checks/cloud/aws/athena/no_encryption_override.tf.go
-#     bad_examples: checks/cloud/aws/athena/no_encryption_override.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/athena/no_encryption_override.cf.go
-#     bad_examples: checks/cloud/aws/athena/no_encryption_override.cf.go
+#     good_examples: checks/cloud/aws/athena/no_encryption_override.yaml
+#     bad_examples: checks/cloud/aws/athena/no_encryption_override.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/athena/no_encryption_override.yaml
+#     bad_examples: checks/cloud/aws/athena/no_encryption_override.yaml
 package builtin.aws.athena.aws0007
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some workgroup in input.aws.athena.workgroups
 	not workgroup.enforceconfiguration.value
-	res := result.new("The workgroup configuration is not enforced.", workgroup.enforceconfiguration)
+	res := result.new(
+		"The workgroup configuration is not enforced.",
+		metadata.obj_by_path(workgroup, ["enforceconfiguration"]),
+	)
 }

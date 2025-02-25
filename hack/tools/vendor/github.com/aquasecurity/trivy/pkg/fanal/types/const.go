@@ -31,16 +31,26 @@ const (
 	Debian             OSType = "debian"
 	Fedora             OSType = "fedora"
 	OpenSUSE           OSType = "opensuse"
-	OpenSUSELeap       OSType = "opensuse.leap"
-	OpenSUSETumbleweed OSType = "opensuse.tumbleweed"
+	OpenSUSELeap       OSType = "opensuse-leap"
+	OpenSUSETumbleweed OSType = "opensuse-tumbleweed"
 	Oracle             OSType = "oracle"
 	Photon             OSType = "photon"
 	RedHat             OSType = "redhat"
 	Rocky              OSType = "rocky"
-	SLES               OSType = "suse linux enterprise server"
+	SLEMicro           OSType = "slem"
+	SLES               OSType = "sles"
 	Ubuntu             OSType = "ubuntu"
 	Wolfi              OSType = "wolfi"
 )
+
+// OSTypeAliases is a map of aliases for operating systems.
+// This is used to map the old family names to the new ones for backward compatibility.
+var OSTypeAliases = map[OSType]OSType{
+	"opensuse.leap":                OpenSUSELeap,
+	"opensuse.tumbleweed":          OpenSUSETumbleweed,
+	"suse linux enterprise micro":  SLEMicro,
+	"suse linux enterprise server": SLES,
+}
 
 // Programming language dependencies
 const (

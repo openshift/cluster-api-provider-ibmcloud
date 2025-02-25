@@ -37,17 +37,27 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudtrail
-#     good_examples: checks/cloud/aws/cloudtrail/ensure_cloudwatch_integration.tf.go
-#     bad_examples: checks/cloud/aws/cloudtrail/ensure_cloudwatch_integration.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/cloudtrail/ensure_cloudwatch_integration.cf.go
-#     bad_examples: checks/cloud/aws/cloudtrail/ensure_cloudwatch_integration.cf.go
+#     good_examples: checks/cloud/aws/cloudtrail/ensure_cloudwatch_integration.yaml
+#     bad_examples: checks/cloud/aws/cloudtrail/ensure_cloudwatch_integration.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/cloudtrail/ensure_cloudwatch_integration.yaml
+#     bad_examples: checks/cloud/aws/cloudtrail/ensure_cloudwatch_integration.yaml
 package builtin.aws.cloudtrail.aws0162
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some trail in input.aws.cloudtrail.trails
-	trail.cloudwatchlogsloggrouparn.value == ""
-	res := result.new("Trail does not have CloudWatch logging configured", trail)
+	logging_is_not_configured(trail)
+	res := result.new(
+		"Trail does not have CloudWatch logging configured",
+		metadata.obj_by_path(trail, ["cloudwatchlogsloggrouparn"]),
+	)
 }
+
+logging_is_not_configured(trail) if value.is_empty(trail.cloudwatchlogsloggrouparn)
+
+logging_is_not_configured(trail) if not trail.cloudwatchlogsloggrouparn

@@ -24,22 +24,26 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/neptune_cluster#storage_encrypted
-#     good_examples: checks/cloud/aws/neptune/encryption_customer_key.tf.go
-#     bad_examples: checks/cloud/aws/neptune/encryption_customer_key.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/neptune/encryption_customer_key.cf.go
-#     bad_examples: checks/cloud/aws/neptune/encryption_customer_key.cf.go
+#     good_examples: checks/cloud/aws/neptune/encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/neptune/encryption_customer_key.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/neptune/encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/neptune/encryption_customer_key.yaml
 package builtin.aws.neptune.aws0128
 
 import rego.v1
 
+import data.lib.cloud.value
+
 deny contains res if {
 	some cluster in input.aws.neptune.clusters
-	not has_kms_key(cluster)
+	without_cmk(cluster)
 	res := result.new(
 		"Cluster does not encrypt data with a customer managed key.",
 		object.get(cluster, "kmskeyid", cluster),
 	)
 }
 
-has_kms_key(cluster) if cluster.kmskeyid.value != ""
+without_cmk(cluster) if value.is_empty(cluster.kmskeyid)
+
+without_cmk(cluster) if not cluster.kmskeyid

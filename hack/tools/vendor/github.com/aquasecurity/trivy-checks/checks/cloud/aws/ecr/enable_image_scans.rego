@@ -24,18 +24,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecr_repository#image_scanning_configuration
-#     good_examples: checks/cloud/aws/ecr/enable_image_scans.tf.go
-#     bad_examples: checks/cloud/aws/ecr/enable_image_scans.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ecr/enable_image_scans.cf.go
-#     bad_examples: checks/cloud/aws/ecr/enable_image_scans.cf.go
+#     good_examples: checks/cloud/aws/ecr/enable_image_scans.yaml
+#     bad_examples: checks/cloud/aws/ecr/enable_image_scans.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ecr/enable_image_scans.yaml
+#     bad_examples: checks/cloud/aws/ecr/enable_image_scans.yaml
 package builtin.aws.ecr.aws0030
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some repo in input.aws.ecr.repositories
-	repo.imagescanning.scanonpush.value == false
-
-	res := result.new("Image scanning is not enabled", repo.imagescanning.scanonpush)
+	not repo.imagescanning.scanonpush.value
+	res := result.new(
+		"Image scanning is not enabled",
+		metadata.obj_by_path(repo, ["imagescanning", "scanonpush"]),
+	)
 }

@@ -28,20 +28,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket#versioning
-#     good_examples: checks/cloud/aws/s3/enable_versioning.tf.go
-#     bad_examples: checks/cloud/aws/s3/enable_versioning.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/s3/enable_versioning.cf.go
-#     bad_examples: checks/cloud/aws/s3/enable_versioning.cf.go
+#     good_examples: checks/cloud/aws/s3/enable_versioning.yaml
+#     bad_examples: checks/cloud/aws/s3/enable_versioning.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/s3/enable_versioning.yaml
+#     bad_examples: checks/cloud/aws/s3/enable_versioning.yaml
 package builtin.aws.s3.aws0090
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some bucket in input.aws.s3.buckets
 	not bucket.versioning.enabled.value
 	res := result.new(
 		"Bucket does not have versioning enabled",
-		object.get(bucket, ["versioning", "enabled"], bucket),
+		metadata.obj_by_path(bucket, ["versioning", "enabled"]),
 	)
 }

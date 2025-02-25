@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-AWS-0008
 #   avd_id: AVD-AWS-0008
+#   aliases:
+#     - aws-autoscaling-enable-at-rest-encryption
 #   provider: aws
 #   service: ec2
 #   severity: HIGH
@@ -24,24 +26,33 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance#ebs-ephemeral-and-root-block-devices
-#     good_examples: checks/cloud/aws/ec2/as_enable_at_rest_encryption.tf.go
-#     bad_examples: checks/cloud/aws/ec2/as_enable_at_rest_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/as_enable_at_rest_encryption.cf.go
-#     bad_examples: checks/cloud/aws/ec2/as_enable_at_rest_encryption.cf.go
+#     good_examples: checks/cloud/aws/ec2/as_enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/ec2/as_enable_at_rest_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/as_enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/ec2/as_enable_at_rest_encryption.yaml
 package builtin.aws.ec2.aws0008
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some cfg in input.aws.ec2.launchconfigurations
-	cfg.rootblockdevice.encrypted.value == false
-	res := result.new("Root block device is not encrypted.", cfg.rootblockdevice.encrypted)
+	cfg.rootblockdevice
+	not cfg.rootblockdevice.encrypted.value
+	res := result.new(
+		"Root block device is not encrypted.",
+		metadata.obj_by_path(cfg, ["rootblockdevice", "encrypted"]),
+	)
 }
 
 deny contains res if {
 	some cfg in input.aws.ec2.launchconfigurations
 	some device in cfg.ebsblockdevices
-	device.encrypted.value == false
-	res := result.new("EBS block device is not encrypted.", device.encrypted.value)
+	not device.encrypted.value
+	res := result.new(
+		"EBS block device is not encrypted.",
+		metadata.obj_by_path(device, ["encrypted"]),
+	)
 }

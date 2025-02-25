@@ -24,15 +24,25 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket#encryption
-#     good_examples: checks/cloud/google/storage/bucket_encryption_customer_key.tf.go
-#     bad_examples: checks/cloud/google/storage/bucket_encryption_customer_key.tf.go
+#     good_examples: checks/cloud/google/storage/bucket_encryption_customer_key.yaml
+#     bad_examples: checks/cloud/google/storage/bucket_encryption_customer_key.yaml
 package builtin.google.storage.google0066
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some bucket in input.google.storage.buckets
-	bucket.__defsec_metadata.managed
-	bucket.encryption.defaultkmskeyname.value == ""
-	res := result.new("Storage bucket encryption does not use a customer-managed key.", bucket.encryption.defaultkmskeyname)
+	isManaged(bucket)
+	without_cmk(bucket)
+	res := result.new(
+		"Storage bucket encryption does not use a customer-managed key.",
+		metadata.obj_by_path(bucket, ["encryption", "defaultkmskeyname"]),
+	)
 }
+
+without_cmk(bucket) if value.is_empty(bucket.encryption.defaultkmskeyname)
+
+without_cmk(bucket) if not bucket.encryption.defaultkmskeyname

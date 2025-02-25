@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-AWS-0164
 #   avd_id: AVD-AWS-0164
+#   aliases:
+#     - aws-vpc-no-public-ingress-sgr
 #   provider: aws
 #   service: ec2
 #   severity: HIGH
@@ -24,11 +26,11 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet#map_public_ip_on_launch
-#     good_examples: checks/cloud/aws/ec2/no_public_ip_subnet.tf.go
-#     bad_examples: checks/cloud/aws/ec2/no_public_ip_subnet.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/no_public_ip_subnet.cf.go
-#     bad_examples: checks/cloud/aws/ec2/no_public_ip_subnet.cf.go
+#     good_examples: checks/cloud/aws/ec2/no_public_ip_subnet.yaml
+#     bad_examples: checks/cloud/aws/ec2/no_public_ip_subnet.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/no_public_ip_subnet.yaml
+#     bad_examples: checks/cloud/aws/ec2/no_public_ip_subnet.yaml
 package builtin.aws.ec2.aws0164
 
 import rego.v1

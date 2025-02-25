@@ -22,11 +22,13 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/app_service#http2_enabled
-#     good_examples: checks/cloud/azure/appservice/enable_http2.tf.go
-#     bad_examples: checks/cloud/azure/appservice/enable_http2.tf.go
+#     good_examples: checks/cloud/azure/appservice/enable_http2.yaml
+#     bad_examples: checks/cloud/azure/appservice/enable_http2.yaml
 package builtin.azure.appservice.azure0005
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some service in input.azure.appservice.services
@@ -34,6 +36,6 @@ deny contains res if {
 	not service.site.enablehttp2.value
 	res := result.new(
 		"App service does not have HTTP/2 enabled.",
-		object.get(service, ["site", "enablehttp2"], service),
+		metadata.obj_by_path(service, ["site", "enablehttp2"]),
 	)
 }

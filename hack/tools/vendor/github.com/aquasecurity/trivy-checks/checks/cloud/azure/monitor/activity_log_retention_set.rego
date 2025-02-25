@@ -24,11 +24,13 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_log_profile#retention_policy
-#     good_examples: checks/cloud/azure/monitor/activity_log_retention_set.tf.go
-#     bad_examples: checks/cloud/azure/monitor/activity_log_retention_set.tf.go
+#     good_examples: checks/cloud/azure/monitor/activity_log_retention_set.yaml
+#     bad_examples: checks/cloud/azure/monitor/activity_log_retention_set.yaml
 package builtin.azure.monitor.azure0031
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some profile in input.azure.monitor.logprofiles
@@ -36,7 +38,7 @@ deny contains res if {
 	not profile.retentionpolicy.enabled.value
 	res := result.new(
 		"Profile does not enable the log retention policy.",
-		object.get(profile, ["retentionpolicy", "enabled"], profile),
+		metadata.obj_by_path(profile, ["retentionpolicy", "enabled"]),
 	)
 }
 
@@ -47,7 +49,7 @@ deny contains res if {
 	not is_recommended_retention_policy(profile)
 	res := result.new(
 		"Profile has a log retention policy of less than 1 year.",
-		object.get(profile, ["retentionpolicy", "days"], profile),
+		metadata.obj_by_path(profile, ["retentionpolicy", "days"]),
 	)
 }
 

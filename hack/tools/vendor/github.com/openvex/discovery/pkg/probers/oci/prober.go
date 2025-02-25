@@ -94,7 +94,7 @@ func (prober *Prober) FindDocumentsFromPurl(opts options.Options, p purl.Package
 
 	docs, err := prober.impl.DownloadDocuments(prober.Options, image)
 	if err != nil {
-		return nil, fmt.Errorf("downloading documents from registry: %w", err)
+		return nil, fmt.Errorf("downloading documents from registry for %s: %w", p.String(), err)
 	}
 
 	return docs, nil
@@ -267,7 +267,7 @@ func (di *defaultImplementation) DownloadDocuments(opts options.Options, se oci.
 	if err != nil {
 		// If the image has no attestations attached, cosign returns  an
 		// error. Trap it here and handle properly
-		if err.Error() == "found no attestations" {
+		if err.Error() == "found no attestations" || strings.Contains(err.Error(), "no attestations with predicate type") {
 			opts.Logger.DebugContext(opts.Context, "image has no attestations attached")
 			return docs, nil
 		}

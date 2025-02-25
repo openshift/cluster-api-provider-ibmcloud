@@ -24,17 +24,24 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/elasticsearch_domain#tls_security_policy
-#     good_examples: checks/cloud/aws/elasticsearch/use_secure_tls_policy.tf.go
-#     bad_examples: checks/cloud/aws/elasticsearch/use_secure_tls_policy.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/elasticsearch/use_secure_tls_policy.cf.go
-#     bad_examples: checks/cloud/aws/elasticsearch/use_secure_tls_policy.cf.go
+#     good_examples: checks/cloud/aws/elasticsearch/use_secure_tls_policy.yaml
+#     bad_examples: checks/cloud/aws/elasticsearch/use_secure_tls_policy.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/elasticsearch/use_secure_tls_policy.yaml
+#     bad_examples: checks/cloud/aws/elasticsearch/use_secure_tls_policy.yaml
 package builtin.aws.elasticsearch.aws0126
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some domain in input.aws.elasticsearch.domains
-	domain.endpoint.tlspolicy.value != "Policy-Min-TLS-1-2-2019-07"
-	res := result.new("Domain does not have a secure TLS policy.", domain.endpoint.tlspolicy)
+	not is_tls_policy_secure(domain)
+	res := result.new(
+		"Domain does not have a secure TLS policy.",
+		metadata.obj_by_path(domain, ["endpoint", "tlspolicy"]),
+	)
 }
+
+is_tls_policy_secure(domain) if domain.endpoint.tlspolicy.value == "Policy-Min-TLS-1-2-2019-07"

@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-NIF-0011
 #   avd_id: AVD-NIF-0011
+#   aliases:
+#     - nifcloud-rdb-no-public-ingress-db-sgr
 #   provider: nifcloud
 #   service: rdb
 #   severity: CRITICAL
@@ -24,8 +26,8 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/nifcloud/nifcloud/latest/docs/resources/db_security_group#cidr_ip
-#     good_examples: checks/cloud/nifcloud/rdb/no_public_ingress_db_sgr.tf.go
-#     bad_examples: checks/cloud/nifcloud/rdb/no_public_ingress_db_sgr.tf.go
+#     good_examples: checks/cloud/nifcloud/rdb/no_public_ingress_db_sgr.yaml
+#     bad_examples: checks/cloud/nifcloud/rdb/no_public_ingress_db_sgr.yaml
 package builtin.nifcloud.rdb.nifcloud0011
 
 import rego.v1

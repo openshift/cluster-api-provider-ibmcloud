@@ -12,6 +12,8 @@
 # custom:
 #   id: AVD-NIF-0001
 #   avd_id: AVD-NIF-0001
+#   aliases:
+#     - nifcloud-computing-no-public-ingress-sgr
 #   provider: nifcloud
 #   service: computing
 #   severity: CRITICAL
@@ -26,8 +28,8 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/nifcloud/nifcloud/latest/docs/resources/security_group_rule#cidr_ip
-#     good_examples: checks/cloud/nifcloud/computing/no_public_ingress_sgr.tf.go
-#     bad_examples: checks/cloud/nifcloud/computing/no_public_ingress_sgr.tf.go
+#     good_examples: checks/cloud/nifcloud/computing/no_public_ingress_sgr.yaml
+#     bad_examples: checks/cloud/nifcloud/computing/no_public_ingress_sgr.yaml
 package builtin.nifcloud.computing.nifcloud0001
 
 import rego.v1
@@ -36,6 +38,6 @@ deny contains res if {
 	some sg in input.nifcloud.computing.securitygroups
 	some rule in sg.ingressrules
 	cidr.is_public(rule.cidr.value)
-	cidr.count_addresses(rule.cidr.value) > 0
+	cidr.count_addresses(rule.cidr.value) > 1
 	res := result.new("Security group rule allows ingress from public internet.", rule.cidr)
 }

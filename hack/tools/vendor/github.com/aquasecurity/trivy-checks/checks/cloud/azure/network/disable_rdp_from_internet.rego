@@ -26,8 +26,8 @@
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/network_security_group#security_rule
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_rule#source_port_ranges
-#     good_examples: checks/cloud/azure/network/disable_rdp_from_internet.tf.go
-#     bad_examples: checks/cloud/azure/network/disable_rdp_from_internet.tf.go
+#     good_examples: checks/cloud/azure/network/disable_rdp_from_internet.yaml
+#     bad_examples: checks/cloud/azure/network/disable_rdp_from_internet.yaml
 package builtin.azure.network.azure0048
 
 import rego.v1
@@ -49,4 +49,7 @@ deny contains res if {
 	)
 }
 
-port_range_includes(from, to, port) if from <= port <= to
+port_range_includes(from, to, port) if {
+	from.value <= port
+	port <= to.value
+}

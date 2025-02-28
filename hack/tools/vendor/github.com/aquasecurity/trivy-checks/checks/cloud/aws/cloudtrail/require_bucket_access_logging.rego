@@ -33,14 +33,16 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudtrail#is_multi_region_trail
-#     good_examples: checks/cloud/aws/cloudtrail/require_bucket_access_logging.tf.go
-#     bad_examples: checks/cloud/aws/cloudtrail/require_bucket_access_logging.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/cloudtrail/require_bucket_access_logging.cf.go
-#     bad_examples: checks/cloud/aws/cloudtrail/require_bucket_access_logging.cf.go
+#     good_examples: checks/cloud/aws/cloudtrail/require_bucket_access_logging.yaml
+#     bad_examples: checks/cloud/aws/cloudtrail/require_bucket_access_logging.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/cloudtrail/require_bucket_access_logging.yaml
+#     bad_examples: checks/cloud/aws/cloudtrail/require_bucket_access_logging.yaml
 package builtin.aws.cloudtrail.aws0163
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some trail in input.aws.cloudtrail.trails
@@ -50,5 +52,8 @@ deny contains res if {
 	bucket.name.value == trail.bucketname.value
 	not bucket.logging.enabled.value
 
-	res := result.new("Trail S3 bucket does not have logging enabled", bucket)
+	res := result.new(
+		"Trail S3 bucket does not have logging enabled",
+		metadata.obj_by_path(bucket, ["name"]),
+	)
 }

@@ -24,22 +24,27 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudfront_distribution#logging_config
-#     good_examples: checks/cloud/aws/cloudfront/enable_logging.tf.go
-#     bad_examples: checks/cloud/aws/cloudfront/enable_logging.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/cloudfront/enable_logging.cf.go
-#     bad_examples: checks/cloud/aws/cloudfront/enable_logging.cf.go
+#     good_examples: checks/cloud/aws/cloudfront/enable_logging.yaml
+#     bad_examples: checks/cloud/aws/cloudfront/enable_logging.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/cloudfront/enable_logging.yaml
+#     bad_examples: checks/cloud/aws/cloudfront/enable_logging.yaml
 package builtin.aws.cloudfront.aws0010
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some dist in input.aws.cloudfront.distributions
-	not has_logging_bucket(dist)
+	without_logging_bucket(dist)
 	res := result.new(
 		"Distribution does not have logging enabled",
-		object.get(dist, ["logging", "bucket"], dist),
+		metadata.obj_by_path(dist, ["logging", "bucket"]),
 	)
 }
 
-has_logging_bucket(dist) := dist.logging.bucket.value != ""
+without_logging_bucket(dist) if value.is_empty(dist.logging.bucket)
+
+without_logging_bucket(dist) if not dist.logging.bucket

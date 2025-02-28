@@ -27,17 +27,19 @@
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/mssql_database_extended_auditing_policy
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/mssql_server#retention_in_days
-#     good_examples: checks/cloud/azure/database/retention_period_set.tf.go
-#     bad_examples: checks/cloud/azure/database/retention_period_set.tf.go
+#     good_examples: checks/cloud/azure/database/retention_period_set.yaml
+#     bad_examples: checks/cloud/azure/database/retention_period_set.yaml
 package builtin.azure.database.azure0025
 
 import rego.v1
 
+import data.lib.cloud.value
+
 deny contains res if {
 	some server in input.azure.database.mssqlservers
 	some policy in server.extendedauditingpolicies
-	policy.retentionindays.value < 90
-	policy.retentionindays.value != 0
+	value.less_than(policy.retentionindays, 90)
+	value.is_not_equal(policy.retentionindays, 0)
 
 	res := result.new(
 		"Server has a retention period of less than 90 days.",

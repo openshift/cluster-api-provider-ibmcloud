@@ -24,17 +24,27 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group#kms_key_id
-#     good_examples: checks/cloud/aws/cloudwatch/log_group_customer_key.tf.go
-#     bad_examples: checks/cloud/aws/cloudwatch/log_group_customer_key.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/cloudwatch/log_group_customer_key.cf.go
-#     bad_examples: checks/cloud/aws/cloudwatch/log_group_customer_key.cf.go
+#     good_examples: checks/cloud/aws/cloudwatch/log_group_customer_key.yaml
+#     bad_examples: checks/cloud/aws/cloudwatch/log_group_customer_key.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/cloudwatch/log_group_customer_key.yaml
+#     bad_examples: checks/cloud/aws/cloudwatch/log_group_customer_key.yaml
 package builtin.aws.cloudwatch.aws0017
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some group in input.aws.cloudwatch.loggroups
-	group.kmskeyid.value == ""
-	res := result.new("Log group is not encrypted.", group)
+	without_cmk(group)
+	res := result.new(
+		"Log group is not encrypted.",
+		metadata.obj_by_path(group, ["kmskeyid"]),
+	)
 }
+
+without_cmk(group) if value.is_empty(group.kmskeyid)
+
+without_cmk(group) if not group.kmskeyid

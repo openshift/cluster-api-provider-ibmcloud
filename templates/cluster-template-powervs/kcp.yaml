@@ -4,13 +4,10 @@ metadata:
   name: "${CLUSTER_NAME}-control-plane"
 spec:
   kubeadmConfigSpec:
-    initConfiguration:
-      nodeRegistration:
-        kubeletExtraArgs:
-          provider-id: ibmpowervs://${CLUSTER_NAME}/'{{ v1.local_hostname }}'
-        name: '{{ v1.local_hostname }}'
-    joinConfiguration:
-      nodeRegistration:
-        kubeletExtraArgs:
-          provider-id: ibmpowervs://${CLUSTER_NAME}/'{{ v1.local_hostname }}'
-
+    clusterConfiguration:
+      apiServer:
+        extraArgs:
+          cloud-provider: external
+      controllerManager:
+        extraArgs:
+          cloud-provider: external

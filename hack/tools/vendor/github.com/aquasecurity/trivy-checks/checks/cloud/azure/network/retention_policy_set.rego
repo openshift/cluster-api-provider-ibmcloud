@@ -28,11 +28,15 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_watcher_flow_log#retention_policy
-#     good_examples: checks/cloud/azure/network/retention_policy_set.tf.go
-#     bad_examples: checks/cloud/azure/network/retention_policy_set.tf.go
+#     good_examples: checks/cloud/azure/network/retention_policy_set.yaml
+#     bad_examples: checks/cloud/azure/network/retention_policy_set.yaml
 package builtin.azure.network.azure0049
 
 import rego.v1
+
+import data.lib.cloud.metadata
+
+import data.lib.cloud.value
 
 flowlogs := input.azure.network.networkwatcherflowlogs
 
@@ -43,7 +47,7 @@ deny contains res if {
 	not flowlog.retentionpolicy.enabled.value
 	res := result.new(
 		"Flow log does not enable the log retention policy.",
-		object.get(flowlog, ["retentionpolicy", "enabled"], flowlog),
+		metadata.obj_by_path(flowlog, ["retentionpolicy", "enabled"]),
 	)
 }
 
@@ -52,9 +56,9 @@ deny contains res if {
 	isManaged(flowlog)
 
 	flowlog.retentionpolicy.enabled.value
-	flowlog.retentionpolicy.days.value < 90
+	value.less_than(flowlog.retentionpolicy.days, 90)
 	res := result.new(
 		"Flow log has a log retention policy of less than 90 days.",
-		object.get(flowlog, ["retentionpolicy", "days"], flowlog),
+		metadata.obj_by_path(flowlog, ["retentionpolicy", "days"]),
 	)
 }

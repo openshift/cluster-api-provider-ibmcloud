@@ -2,7 +2,7 @@
 # title: Load balancers should drop invalid headers
 # description: |
 #   Passing unknown or invalid headers through to the target poses a potential risk of compromise.
-#   By setting drop_invalid_header_fields to true, anything that doe not conform to well known, defined headers will be removed by the load balancer.
+#   By setting drop_invalid_header_fields to true, anything that does not conform to well known, defined headers will be removed by the load balancer.
 # scope: package
 # schemas:
 #   - input: schema["cloud"]
@@ -25,15 +25,20 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb#drop_invalid_header_fields
-#     good_examples: checks/cloud/aws/elb/drop_invalid_headers.tf.go
-#     bad_examples: checks/cloud/aws/elb/drop_invalid_headers.tf.go
+#     good_examples: checks/cloud/aws/elb/drop_invalid_headers.yaml
+#     bad_examples: checks/cloud/aws/elb/drop_invalid_headers.yaml
 package builtin.aws.elb.aws0052
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some lb in input.aws.elb.loadbalancers
 	lb.type.value == "application"
-	lb.dropinvalidheaderfields.value == false
-	res := result.new("Application load balancer is not set to drop invalid headers.", lb.dropinvalidheaderfields)
+	not lb.dropinvalidheaderfields.value
+	res := result.new(
+		"Application load balancer is not set to drop invalid headers.",
+		metadata.obj_by_path(lb, ["dropinvalidheaderfields"]),
+	)
 }

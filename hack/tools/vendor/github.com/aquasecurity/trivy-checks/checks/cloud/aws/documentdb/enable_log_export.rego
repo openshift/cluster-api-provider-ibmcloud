@@ -24,14 +24,16 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/docdb_cluster#enabled_cloudwatch_logs_exports
-#     good_examples: checks/cloud/aws/documentdb/enable_log_export.tf.go
-#     bad_examples: checks/cloud/aws/documentdb/enable_log_export.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/documentdb/enable_log_export.cf.go
-#     bad_examples: checks/cloud/aws/documentdb/enable_log_export.cf.go
+#     good_examples: checks/cloud/aws/documentdb/enable_log_export.yaml
+#     bad_examples: checks/cloud/aws/documentdb/enable_log_export.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/documentdb/enable_log_export.yaml
+#     bad_examples: checks/cloud/aws/documentdb/enable_log_export.yaml
 package builtin.aws.documentdb.aws0020
 
 import rego.v1
+
+import data.lib.cloud.value
 
 log_export_audit := "audit"
 
@@ -46,4 +48,9 @@ deny contains res if {
 export_audit_or_profiler(cluster) if {
 	some log in cluster.enabledlogexports
 	log.value in [log_export_audit, log_export_profiler]
+}
+
+export_audit_or_profiler(cluster) if {
+	some log in cluster.enabledlogexports
+	value.is_unresolvable(log)
 }

@@ -12,6 +12,8 @@
 # custom:
 #   id: AVD-NIF-0003
 #   avd_id: AVD-NIF-0003
+#   aliases:
+#     - nifcloud-computing-add-description-to-security-group-rule
 #   provider: nifcloud
 #   service: computing
 #   severity: LOW
@@ -26,11 +28,14 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/nifcloud/nifcloud/latest/docs/resources/security_group_rule#description
-#     good_examples: checks/cloud/nifcloud/computing/add_description_to_security_group_rule.tf.go
-#     bad_examples: checks/cloud/nifcloud/computing/add_description_to_security_group_rule.tf.go
+#     good_examples: checks/cloud/nifcloud/computing/add_description_to_security_group_rule.yaml
+#     bad_examples: checks/cloud/nifcloud/computing/add_description_to_security_group_rule.yaml
 package builtin.nifcloud.computing.nifcloud0003
 
 import rego.v1
+
+import data.lib.cloud.metadata
+import data.lib.cloud.value
 
 deny contains res if {
 	some sg in input.nifcloud.computing.securitygroups
@@ -39,6 +44,13 @@ deny contains res if {
 		object.get(sg, "egressrules", []),
 	)
 
-	rule.description.value == ""
-	res := result.new("Security group rule does not have a description.", rule.description)
+	without_description(rule)
+	res := result.new(
+		"Security group rule does not have a description.",
+		metadata.obj_by_path(rule, ["description"]),
+	)
 }
+
+without_description(rule) if value.is_empty(rule.description)
+
+without_description(rule) if not rule.description

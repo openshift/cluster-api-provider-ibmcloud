@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/package-url/packageurl-go"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
@@ -19,8 +20,9 @@ import (
 )
 
 type Encoder struct {
-	bom  *core.BOM
-	opts core.Options
+	bom        *core.BOM
+	opts       core.Options
+	components map[uuid.UUID]*core.Component
 }
 
 func NewEncoder(opts core.Options) *Encoder {
@@ -28,6 +30,9 @@ func NewEncoder(opts core.Options) *Encoder {
 }
 
 func (e *Encoder) Encode(report types.Report) (*core.BOM, error) {
+	if report.BOM != nil {
+		e.components = report.BOM.Components()
+	}
 	// Metadata component
 	root, err := e.rootComponent(report)
 	if err != nil {
@@ -191,9 +196,6 @@ func (e *Encoder) encodePackages(parent *core.Component, result types.Result) {
 		vulns[vuln.PkgIdentifier.UID] = append(vulns[vuln.PkgIdentifier.UID], v)
 	}
 
-	// Convert packages into components and add them to the BOM
-	parentRelationship := core.RelationshipContains
-
 	// UID => Package Component
 	components := make(map[string]*core.Component, len(result.Packages))
 	// PkgID => Package Component
@@ -217,27 +219,15 @@ func (e *Encoder) encodePackages(parent *core.Component, result types.Result) {
 		if vv := vulns[pkg.Identifier.UID]; vv != nil {
 			e.bom.AddVulnerabilities(c, vv)
 		}
-
-		// Handle a root package
-		if pkg.Relationship == ftypes.RelationshipRoot {
-			// If the package is a root package, add a relationship between the parent and the root package
-			e.bom.AddRelationship(parent, c, core.RelationshipContains)
-			// Replace the parent with the root package
-			parent = c
-			parentRelationship = core.RelationshipDependsOn
-		}
 	}
 
 	// Build a dependency graph between packages
 	for _, pkg := range result.Packages {
-		if pkg.Relationship == ftypes.RelationshipRoot {
-			continue
-		}
 		c := components[pkg.Identifier.UID]
 
 		// Add a relationship between the parent and the package if needed
 		if e.belongToParent(pkg, parents) {
-			e.bom.AddRelationship(parent, c, parentRelationship)
+			e.bom.AddRelationship(parent, c, core.RelationshipContains)
 		}
 
 		// Add relationships between the package and its dependencies
@@ -255,6 +245,16 @@ func (e *Encoder) encodePackages(parent *core.Component, result types.Result) {
 			e.bom.AddRelationship(c, nil, "")
 		}
 	}
+}
+
+// existedPkgIdentifier tries to look for package identifier (BOM-ref, PURL) by component name and component type
+func (e *Encoder) existedPkgIdentifier(name string, componentType core.ComponentType) ftypes.PkgIdentifier {
+	for _, c := range e.components {
+		if c.Name == name && c.Type == componentType {
+			return c.PkgIdentifier
+		}
+	}
+	return ftypes.PkgIdentifier{}
 }
 
 func (e *Encoder) resultComponent(root *core.Component, r types.Result, osFound *ftypes.OS) *core.Component {
@@ -279,8 +279,10 @@ func (e *Encoder) resultComponent(root *core.Component, r types.Result, osFound 
 			component.Version = osFound.Name
 		}
 		component.Type = core.TypeOS
+		component.PkgIdentifier = e.existedPkgIdentifier(component.Name, component.Type)
 	case types.ClassLangPkg:
 		component.Type = core.TypeApplication
+		component.PkgIdentifier = e.existedPkgIdentifier(component.Name, component.Type)
 	}
 
 	e.bom.AddRelationship(root, component, core.RelationshipContains)
@@ -377,8 +379,9 @@ func (*Encoder) component(result types.Result, pkg ftypes.Package) *core.Compone
 		SrcVersion: utils.FormatSrcVersion(pkg),
 		SrcFile:    srcFile,
 		PkgIdentifier: ftypes.PkgIdentifier{
-			UID:  pkg.Identifier.UID,
-			PURL: pkg.Identifier.PURL,
+			UID:    pkg.Identifier.UID,
+			PURL:   pkg.Identifier.PURL,
+			BOMRef: pkg.Identifier.BOMRef,
 		},
 		Supplier:   pkg.Maintainer,
 		Licenses:   pkg.Licenses,
@@ -401,31 +404,23 @@ func (*Encoder) vulnerability(vuln types.DetectedVulnerability) core.Vulnerabili
 
 // belongToParent determines if a package should be directly included in the parent based on its relationship and dependencies.
 func (*Encoder) belongToParent(pkg ftypes.Package, parents map[string]ftypes.Packages) bool {
-	// Case 1: Direct/Indirect: known , DependsOn: known
-	//         1-1: Only direct packages are included in the parent (RelationshipContains or RelationshipDependsOn)
-	//         1-2: Each direct package includes its dependent packages (RelationshipDependsOn).
-	// Case 2: Direct/Indirect: unknown, DependsOn: unknown (e.g., conan lockfile v2)
-	//         All packages are included in the parent (RelationshipContains or RelationshipDependsOn).
-	// Case 3: Direct/Indirect: unknown, DependsOn: known (e.g., OS packages)
-	//         All packages are included in the parent (RelationshipContains or RelationshipDependsOn).
-	// Case 4: Direct/Indirect: known , DependsOn: unknown (e.g., go.mod without $GOPATH)
-	//         All packages are included in the parent (RelationshipContains or RelationshipDependsOn).
-	switch {
-	// Case 1-1: direct packages
-	case pkg.Relationship == ftypes.RelationshipDirect:
-		return true
-	// Case 1-2: indirect packages
-	case pkg.Relationship == ftypes.RelationshipIndirect && len(parents[pkg.ID]) != 0:
-		return false
-	// Case 2 & 3:
-	case pkg.Relationship == ftypes.RelationshipUnknown:
-		return true
-	// Case 4:
-	case pkg.Relationship == ftypes.RelationshipIndirect && len(parents[pkg.ID]) == 0:
-		return true
-	default:
-		return true
-	}
+	// Case 1: Relationship: known , DependsOn: known
+	//         Packages with no parent are included in the parent
+	//         - Relationship:
+	//           - Root: true (it doesn't have a parent)
+	//           - Workspace: false (it always has a parent)
+	//           - Direct:
+	//             - Under Root or Workspace: false (it always has a parent)
+	//             - No parents: true (e.g., package-lock.json)
+	//           - Indirect: false (it always has a parent)
+	// Case 2: Relationship: unknown, DependsOn: unknown (e.g., conan lockfile v2)
+	//         All packages are included in the parent
+	// Case 3: Relationship: known , DependsOn: unknown (e.g., go.mod without $GOPATH)
+	//         All packages are included in the parent
+	// Case 4: Relationship: unknown, DependsOn: known (e.g., GoBinaries, OS packages)
+	//         - Packages with parents: false. These packages are included in the packages from `parents` (e.g. GoBinaries deps and root package).
+	//         - Packages without parents: true. These packages are included in the parent (e.g. OS packages without parents).
+	return len(parents[pkg.ID]) == 0
 }
 
 func filterProperties(props []core.Property) []core.Property {

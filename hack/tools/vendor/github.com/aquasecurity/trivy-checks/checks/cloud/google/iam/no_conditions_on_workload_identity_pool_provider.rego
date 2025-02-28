@@ -24,19 +24,23 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/iam_workload_identity_pool_provider#attribute_condition
-#     good_examples: checks/cloud/google/iam/no_conditions_on_workload_identity_pool_provider.tf.go
-#     bad_examples: checks/cloud/google/iam/no_conditions_on_workload_identity_pool_provider.tf.go
+#     good_examples: checks/cloud/google/iam/no_conditions_on_workload_identity_pool_provider.yaml
+#     bad_examples: checks/cloud/google/iam/no_conditions_on_workload_identity_pool_provider.yaml
 package builtin.google.iam.google0068
 
 import rego.v1
 
+import data.lib.cloud.value
+
 deny contains res if {
 	some provider in input.google.iam.workloadidentitypoolproviders
-	not has_conditions(provider)
+	without_conditions(provider)
 	res := result.new(
 		"This workload identity pool provider configuration has no conditions set.",
 		object.get(provider, "attributecondition", provider),
 	)
 }
 
-has_conditions(provider) := provider.attributecondition.value != ""
+without_conditions(provider) if value.is_empty(provider.attributecondition)
+
+without_conditions(provider) if not provider.attributecondition

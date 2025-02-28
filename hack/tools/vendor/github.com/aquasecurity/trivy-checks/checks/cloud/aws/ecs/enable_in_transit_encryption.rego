@@ -25,21 +25,23 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_task_definition#transit_encryption
-#     good_examples: checks/cloud/aws/ecs/enable_in_transit_encryption.tf.go
-#     bad_examples: checks/cloud/aws/ecs/enable_in_transit_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ecs/enable_in_transit_encryption.cf.go
-#     bad_examples: checks/cloud/aws/ecs/enable_in_transit_encryption.cf.go
+#     good_examples: checks/cloud/aws/ecs/enable_in_transit_encryption.yaml
+#     bad_examples: checks/cloud/aws/ecs/enable_in_transit_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ecs/enable_in_transit_encryption.yaml
+#     bad_examples: checks/cloud/aws/ecs/enable_in_transit_encryption.yaml
 package builtin.aws.ecs.aws0035
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some task_definition in input.aws.ecs.taskdefinitions
 	some volume in task_definition.volumes
-	volume.efsvolumeconfiguration.transitencryptionenabled.value == false
+	not volume.efsvolumeconfiguration.transitencryptionenabled.value
 	res := result.new(
 		"Task definition includes a volume which does not have in-transit-encryption enabled.",
-		volume.efsvolumeconfiguration.transitencryptionenabled,
+		metadata.obj_by_path(volume, ["efsvolumeconfiguration", "transitencryptionenabled"]),
 	)
 }

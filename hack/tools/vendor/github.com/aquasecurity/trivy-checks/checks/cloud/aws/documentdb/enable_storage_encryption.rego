@@ -24,17 +24,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/docdb_cluster#storage_encrypted
-#     good_examples: checks/cloud/aws/documentdb/enable_storage_encryption.tf.go
-#     bad_examples: checks/cloud/aws/documentdb/enable_storage_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/documentdb/enable_storage_encryption.cf.go
-#     bad_examples: checks/cloud/aws/documentdb/enable_storage_encryption.cf.go
+#     good_examples: checks/cloud/aws/documentdb/enable_storage_encryption.yaml
+#     bad_examples: checks/cloud/aws/documentdb/enable_storage_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/documentdb/enable_storage_encryption.yaml
+#     bad_examples: checks/cloud/aws/documentdb/enable_storage_encryption.yaml
 package builtin.aws.documentdb.aws0021
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some cluster in input.aws.documentdb.clusters
 	not cluster.storageencrypted.value
-	res := result.new("Cluster storage does not have encryption enabled.", cluster.storageencrypted)
+	res := result.new(
+		"Cluster storage does not have encryption enabled.",
+		metadata.obj_by_path(cluster, ["storageencrypted"]),
+	)
 }

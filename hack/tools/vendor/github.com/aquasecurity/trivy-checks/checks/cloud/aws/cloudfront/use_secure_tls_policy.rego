@@ -28,16 +28,18 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudfront_distribution#minimum_protocol_version
-#     good_examples: checks/cloud/aws/cloudfront/use_secure_tls_policy.tf.go
-#     bad_examples: checks/cloud/aws/cloudfront/use_secure_tls_policy.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/cloudfront/use_secure_tls_policy.cf.go
-#     bad_examples: checks/cloud/aws/cloudfront/use_secure_tls_policy.cf.go
+#     good_examples: checks/cloud/aws/cloudfront/use_secure_tls_policy.yaml
+#     bad_examples: checks/cloud/aws/cloudfront/use_secure_tls_policy.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/cloudfront/use_secure_tls_policy.yaml
+#     bad_examples: checks/cloud/aws/cloudfront/use_secure_tls_policy.yaml
 package builtin.aws.cloudfront.aws0013
 
 import rego.v1
 
 protocol_version_tls1_2_2021 = "TLSv1.2_2021"
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some dist in input.aws.cloudfront.distributions
@@ -45,7 +47,7 @@ deny contains res if {
 	not is_tls_1_2(dist)
 	res := result.new(
 		"Distribution allows unencrypted communications.",
-		object.get(dist, ["viewercertificate", "minimumprotocolversion"], dist),
+		metadata.obj_by_path(dist, ["viewercertificate", "minimumprotocolversion"]),
 	)
 }
 

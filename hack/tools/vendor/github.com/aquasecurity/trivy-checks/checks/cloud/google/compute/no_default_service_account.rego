@@ -22,20 +22,17 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_instance#
-#     good_examples: checks/cloud/google/compute/no_default_service_account.tf.go
-#     bad_examples: checks/cloud/google/compute/no_default_service_account.tf.go
+#     good_examples: checks/cloud/google/compute/no_default_service_account.yaml
+#     bad_examples: checks/cloud/google/compute/no_default_service_account.yaml
 package builtin.google.compute.google0044
 
 import rego.v1
 
 deny contains res if {
 	some instance in input.google.compute.instances
-	service_account := instance.serviceaccount
-	is_default_service_account(service_account)
+	instance.serviceaccount.isdefault.value
 	res := result.new(
 		"Instance uses the default service account.",
-		object.get(service_account, "email", service_account),
+		instance.serviceaccount.isdefault,
 	)
 }
-
-is_default_service_account(service_account) := service_account.isdefault.value == true

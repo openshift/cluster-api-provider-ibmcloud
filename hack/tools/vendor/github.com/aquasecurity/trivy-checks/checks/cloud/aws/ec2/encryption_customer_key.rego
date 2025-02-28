@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-AWS-0027
 #   avd_id: AVD-AWS-0027
+#   aliases:
+#     - aws-ebs-encryption-customer-key
 #   provider: aws
 #   service: ec2
 #   severity: LOW
@@ -24,18 +26,28 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ebs_volume#kms_key_id
-#     good_examples: checks/cloud/aws/ec2/encryption_customer_key.tf.go
-#     bad_examples: checks/cloud/aws/ec2/encryption_customer_key.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/encryption_customer_key.cf.go
-#     bad_examples: checks/cloud/aws/ec2/encryption_customer_key.cf.go
+#     good_examples: checks/cloud/aws/ec2/encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/ec2/encryption_customer_key.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/ec2/encryption_customer_key.yaml
 package builtin.aws.ec2.aws0027
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some volume in input.aws.ec2.volumes
-	volume.__defsec_metadata.managed
-	volume.encryption.kmskeyid.value == ""
-	res := result.new("EBS volume does not use a customer-managed KMS key.", volume.encryption.kmskeyid)
+	isManaged(volume)
+	without_cmk(volume)
+	res := result.new(
+		"EBS volume does not use a customer-managed KMS key.",
+		metadata.obj_by_path(volume, ["encryption", "kmskeyid"]),
+	)
 }
+
+without_cmk(volume) if value.is_empty(volume.encryption.kmskeyid)
+
+without_cmk(volume) if not volume.encryption.kmskeyid

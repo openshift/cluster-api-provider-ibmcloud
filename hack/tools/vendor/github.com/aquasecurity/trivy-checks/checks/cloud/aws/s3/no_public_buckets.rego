@@ -24,14 +24,16 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block#restrict_public_buckets¡
-#     good_examples: checks/cloud/aws/s3/no_public_buckets.tf.go
-#     bad_examples: checks/cloud/aws/s3/no_public_buckets.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/s3/no_public_buckets.cf.go
-#     bad_examples: checks/cloud/aws/s3/no_public_buckets.cf.go
+#     good_examples: checks/cloud/aws/s3/no_public_buckets.yaml
+#     bad_examples: checks/cloud/aws/s3/no_public_buckets.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/s3/no_public_buckets.yaml
+#     bad_examples: checks/cloud/aws/s3/no_public_buckets.yaml
 package builtin.aws.s3.aws0093
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some bucket in input.aws.s3.buckets
@@ -48,10 +50,6 @@ deny contains res if {
 	not bucket.publicaccessblock.restrictpublicbuckets.value
 	res := result.new(
 		"Public access block does not restrict public buckets",
-		object.get(
-			bucket.publicaccessblock,
-			"restrictpublicbuckets",
-			bucket.publicaccessblock,
-		),
+		metadata.obj_by_path(bucket, ["publicaccessblock", "restrictpublicbuckets"]),
 	)
 }

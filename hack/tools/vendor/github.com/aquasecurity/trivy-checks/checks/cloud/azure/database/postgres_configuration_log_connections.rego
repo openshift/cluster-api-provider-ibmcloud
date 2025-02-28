@@ -25,11 +25,13 @@
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/postgresql_configuration
 #       - https://docs.microsoft.com/en-us/azure/postgresql/concepts-server-logs#configure-logging
-#     good_examples: checks/cloud/azure/database/postgres_configuration_log_connections.tf.go
-#     bad_examples: checks/cloud/azure/database/postgres_configuration_log_connections.tf.go
+#     good_examples: checks/cloud/azure/database/postgres_configuration_log_connections.yaml
+#     bad_examples: checks/cloud/azure/database/postgres_configuration_log_connections.yaml
 package builtin.azure.database.azure0019
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some server in input.azure.database.postgresqlservers
@@ -37,6 +39,6 @@ deny contains res if {
 	not server.config.logconnections.value
 	res := result.new(
 		"Database server is not configured to log connections.",
-		object.get(server, ["config", "logconnections"], server),
+		metadata.obj_by_path(server, ["config", "logconnections"]),
 	)
 }

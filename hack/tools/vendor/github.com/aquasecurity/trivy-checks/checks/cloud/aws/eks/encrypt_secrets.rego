@@ -24,24 +24,41 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster#encryption_config
-#     good_examples: checks/cloud/aws/eks/encrypt_secrets.tf.go
-#     bad_examples: checks/cloud/aws/eks/encrypt_secrets.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/eks/encrypt_secrets.cf.go
-#     bad_examples: checks/cloud/aws/eks/encrypt_secrets.cf.go
+#     good_examples: checks/cloud/aws/eks/encrypt_secrets.yaml
+#     bad_examples: checks/cloud/aws/eks/encrypt_secrets.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/eks/encrypt_secrets.yaml
+#     bad_examples: checks/cloud/aws/eks/encrypt_secrets.yaml
 package builtin.aws.eks.aws0039
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some cluster in input.aws.eks.clusters
-	cluster.encryption.secrets.value == false
-	res := result.new("Cluster does not have secret encryption enabled.", cluster.encryption.secrets)
+	secret_encryption_not_enabled(cluster)
+	res := result.new(
+		"Cluster does not have secret encryption enabled.",
+		metadata.obj_by_path(cluster, ["encryption", "secrets"]),
+	)
 }
 
 deny contains res if {
 	some cluster in input.aws.eks.clusters
-	cluster.encryption.secrets.value == true
-	cluster.encryption.kmskeyid.value == ""
-	res := result.new("Cluster encryption requires a KMS key ID, which is missing", cluster.encryption.kmskeyid)
+	cluster.encryption.secrets.value
+	without_cmk(cluster)
+	res := result.new(
+		"Cluster encryption requires a KMS key ID, which is missing",
+		metadata.obj_by_path(cluster, ["encryption", "kmskeyid"]),
+	)
 }
+
+secret_encryption_not_enabled(cluster) if value.is_false(cluster.encryption.secrets)
+
+secret_encryption_not_enabled(cluster) if not cluster.encryption.secrets
+
+without_cmk(cluster) if value.is_empty(cluster.encryption.kmskeyid)
+
+without_cmk(cluster) if not cluster.encryption.kmskeyid

@@ -14,6 +14,8 @@
 # custom:
 #   id: AVD-AWS-0130
 #   avd_id: AVD-AWS-0130
+#   aliases:
+#     - aws-autoscaling-enforce-http-token-imds
 #   provider: aws
 #   service: ec2
 #   severity: HIGH
@@ -28,34 +30,42 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance#metadata-options
-#     good_examples: checks/cloud/aws/ec2/as_enforce_http_token_imds.tf.go
-#     bad_examples: checks/cloud/aws/ec2/as_enforce_http_token_imds.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/as_enforce_http_token_imds.cf.go
-#     bad_examples: checks/cloud/aws/ec2/as_enforce_http_token_imds.cf.go
+#     good_examples: checks/cloud/aws/ec2/as_enforce_http_token_imds.yaml
+#     bad_examples: checks/cloud/aws/ec2/as_enforce_http_token_imds.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/as_enforce_http_token_imds.yaml
+#     bad_examples: checks/cloud/aws/ec2/as_enforce_http_token_imds.yaml
 package builtin.aws.ec2.aws0130
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some config in input.aws.ec2.launchconfigurations
-	opts_do_not_require_token(config.metadataoptions)
+	tokens_is_not_required(config)
+	endpoint_is_not_disabled(config)
 	res := result.new(
 		"Launch configuration does not require IMDS access to require a token",
-		config.metadataoptions.httptokens,
+		metadata.obj_by_path(config, ["metadataoptions", "httptokens"]),
 	)
 }
 
 deny contains res if {
 	some tpl in input.aws.ec2.launchtemplates
-	opts_do_not_require_token(tpl.instance.metadataoptions)
+	tokens_is_not_required(tpl.instance)
+	endpoint_is_not_disabled(tpl.instance)
 	res := result.new(
 		"Launch template does not require IMDS access to require a token",
-		tpl.instance.metadataoptions.httptokens,
+		metadata.obj_by_path(tpl.instance, ["metadataoptions", "httptokens"]),
 	)
 }
 
-opts_do_not_require_token(opts) if {
-	opts.httptokens.value != "required"
-	opts.httpendpoint.value != "disabled"
-}
+tokens_is_not_required(instance) if value.is_not_equal(instance.metadataoptions.httptokens, "required")
+
+tokens_is_not_required(instance) if not instance.metadataoptions.httptokens
+
+endpoint_is_not_disabled(instance) if value.is_not_equal(instance.metadataoptions.httpendpoint, "disabled")
+
+endpoint_is_not_disabled(instance) if not instance.metadataoptions.httpendpoint

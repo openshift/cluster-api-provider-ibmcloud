@@ -24,13 +24,14 @@
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/mssql_server#minimum_tls_version
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/mysql_server#ssl_minimal_tls_version_enforced
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/postgresql_server#ssl_minimal_tls_version_enforced
-#     good_examples: checks/cloud/azure/database/secure_tls_policy.tf.go
-#     bad_examples: checks/cloud/azure/database/secure_tls_policy.tf.go
+#     good_examples: checks/cloud/azure/database/secure_tls_policy.yaml
+#     bad_examples: checks/cloud/azure/database/secure_tls_policy.yaml
 package builtin.azure.database.azure0026
 
 import rego.v1
 
 import data.lib.azure.database
+import data.lib.cloud.metadata
 
 recommended_tls_version := "TLS1_2"
 
@@ -41,7 +42,7 @@ deny contains res if {
 	not is_recommended_tls(server)
 	res := result.new(
 		"Database server does not require a secure TLS version.",
-		object.get(server, "minimumtlsversion", server),
+		metadata.obj_by_path(server, "minimumtlsversion"),
 	)
 }
 
@@ -50,7 +51,7 @@ deny contains res if {
 	not is_recommended_mssql_tls(server)
 	res := result.new(
 		"Database server does not require a secure TLS version.",
-		object.get(server, "minimumtlsversion", server),
+		metadata.obj_by_path(server, "minimumtlsversion"),
 	)
 }
 

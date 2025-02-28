@@ -21,9 +21,9 @@
 #         subtypes:
 #           - service: sam
 #             provider: aws
-#   cloudformation:
-#     good_examples: checks/cloud/aws/sam/enable_state_machine_tracing.cf.go
-#     bad_examples: checks/cloud/aws/sam/enable_state_machine_tracing.cf.go
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/sam/enable_state_machine_tracing.yaml
+#     bad_examples: checks/cloud/aws/sam/enable_state_machine_tracing.yaml
 package builtin.aws.sam.aws0117
 
 import rego.v1

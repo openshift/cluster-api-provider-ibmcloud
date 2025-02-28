@@ -27,14 +27,16 @@
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster_instance#performance_insights_kms_key_id
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance#performance_insights_kms_key_id
-#     good_examples: checks/cloud/aws/rds/performance_insights_encryption_customer_key.tf.go
-#     bad_examples: checks/cloud/aws/rds/performance_insights_encryption_customer_key.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/rds/performance_insights_encryption_customer_key.cf.go
-#     bad_examples: checks/cloud/aws/rds/performance_insights_encryption_customer_key.cf.go
+#     good_examples: checks/cloud/aws/rds/performance_insights_encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/rds/performance_insights_encryption_customer_key.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/rds/performance_insights_encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/rds/performance_insights_encryption_customer_key.yaml
 package builtin.aws.rds.aws0078
 
 import rego.v1
+
+import data.lib.cloud.value
 
 deny contains res if {
 	some cluster in input.aws.rds.clusters
@@ -58,7 +60,9 @@ deny contains res if {
 kms_key_not_used(instance) if {
 	isManaged(instance)
 	instance.performanceinsights.enabled.value
-	not has_perfomance_insights_kms_key_id(instance)
+	perfomance_insights_kms_key_id_missed(instance)
 }
 
-has_perfomance_insights_kms_key_id(instance) := instance.performanceinsights.kmskeyid.value != ""
+perfomance_insights_kms_key_id_missed(instance) if value.is_empty(instance.performanceinsights.kmskeyid)
+
+perfomance_insights_kms_key_id_missed(instance) if not instance.performanceinsights.kmskeyid

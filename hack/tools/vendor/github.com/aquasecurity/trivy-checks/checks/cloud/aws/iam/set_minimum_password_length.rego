@@ -33,17 +33,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_account_password_policy
-#     good_examples: checks/cloud/aws/iam/set_minimum_password_length.tf.go
-#     bad_examples: checks/cloud/aws/iam/set_minimum_password_length.tf.go
+#     good_examples: checks/cloud/aws/iam/set_minimum_password_length.yaml
+#     bad_examples: checks/cloud/aws/iam/set_minimum_password_length.yaml
 package builtin.aws.iam.aws0063
 
 import rego.v1
+
+import data.lib.cloud.value
 
 msg := "Password policy allows a maximum password age of greater than 90 days"
 
 deny contains res if {
 	policy := input.aws.iam.passwordpolicy
 	isManaged(policy)
-	policy.minimumlength.value < 14
-	res := result.new("Password policy allows a maximum password age of greater than 90 days", policy.minimumlength)
+	value.less_than(policy.minimumlength, 14)
+	res := result.new(
+		"Password policy allows a maximum password age of greater than 90 days",
+		policy.minimumlength,
+	)
 }

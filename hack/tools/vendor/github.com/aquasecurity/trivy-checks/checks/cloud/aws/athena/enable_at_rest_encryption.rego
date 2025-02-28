@@ -25,29 +25,38 @@
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/athena_workgroup#encryption_configuration
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/athena_database#encryption_configuration
-#     good_examples: checks/cloud/aws/athena/enable_at_rest_encryption.tf.go
-#     bad_examples: checks/cloud/aws/athena/enable_at_rest_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/athena/enable_at_rest_encryption.cf.go
-#     bad_examples: checks/cloud/aws/athena/enable_at_rest_encryption.cf.go
+#     good_examples: checks/cloud/aws/athena/enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/athena/enable_at_rest_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/athena/enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/athena/enable_at_rest_encryption.yaml
 package builtin.aws.athena.aws0006
 
 import rego.v1
+
+import data.lib.cloud.metadata
+import data.lib.cloud.value
 
 encryption_type_none := ""
 
 deny contains res if {
 	some workgroup in input.aws.athena.workgroups
-	is_encryption_type_none(workgroup.encryption)
-	res := result.new("Workgroup does not have encryption configured.", workgroup)
+	not_encrypted(workgroup)
+	res := result.new(
+		"Workgroup does not have encryption configured.",
+		metadata.obj_by_path(workgroup, ["encryption", "type"]),
+	)
 }
 
 deny contains res if {
 	some database in input.aws.athena.databases
-	is_encryption_type_none(database.encryption)
-	res := result.new("Database does not have encryption configured.", database)
+	not_encrypted(database)
+	res := result.new(
+		"Database does not have encryption configured.",
+		metadata.obj_by_path(database, ["encryption", "type"]),
+	)
 }
 
-is_encryption_type_none(encryption) if {
-	encryption.type.value == encryption_type_none
-}
+not_encrypted(encryptable) if value.is_equal(encryptable.encryption.type, encryption_type_none)
+
+not_encrypted(encryptable) if not encryptable.encryption.type

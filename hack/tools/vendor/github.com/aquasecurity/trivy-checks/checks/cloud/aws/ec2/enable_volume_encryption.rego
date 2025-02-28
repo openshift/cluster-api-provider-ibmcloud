@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-AWS-0026
 #   avd_id: AVD-AWS-0026
+#   aliases:
+#     - aws-ebs-enable-volume-encryption
 #   provider: aws
 #   service: ec2
 #   severity: HIGH
@@ -24,18 +26,23 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ebs_volume#encrypted
-#     good_examples: checks/cloud/aws/ec2/enable_volume_encryption.tf.go
-#     bad_examples: checks/cloud/aws/ec2/enable_volume_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ec2/enable_volume_encryption.cf.go
-#     bad_examples: checks/cloud/aws/ec2/enable_volume_encryption.cf.go
+#     good_examples: checks/cloud/aws/ec2/enable_volume_encryption.yaml
+#     bad_examples: checks/cloud/aws/ec2/enable_volume_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ec2/enable_volume_encryption.yaml
+#     bad_examples: checks/cloud/aws/ec2/enable_volume_encryption.yaml
 package builtin.aws.ec2.aws0026
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some volume in input.aws.ec2.volumes
-	volume.__defsec_metadata.managed
-	volume.encryption.enabled.value == false
-	res := result.new("EBS volume is not encrypted.", volume.encryption.enabled)
+	isManaged(volume)
+	not volume.encryption.enabled.value
+	res := result.new(
+		"EBS volume is not encrypted.",
+		metadata.obj_by_path(volume, ["encryption", "enabled"]),
+	)
 }

@@ -26,14 +26,16 @@
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster_instance#performance_insights_kms_key_id
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance#performance_insights_kms_key_id
-#     good_examples: checks/cloud/aws/rds/enable_performance_insights.tf.go
-#     bad_examples: checks/cloud/aws/rds/enable_performance_insights.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/rds/enable_performance_insights.cf.go
-#     bad_examples: checks/cloud/aws/rds/enable_performance_insights.cf.go
+#     good_examples: checks/cloud/aws/rds/enable_performance_insights.yaml
+#     bad_examples: checks/cloud/aws/rds/enable_performance_insights.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/rds/enable_performance_insights.yaml
+#     bad_examples: checks/cloud/aws/rds/enable_performance_insights.yaml
 package builtin.aws.rds.aws0133
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some cluster in input.aws.rds.clusters
@@ -42,7 +44,7 @@ deny contains res if {
 	not instance.instance.performanceinsights.enabled.value
 	res := result.new(
 		"Instance does not have performance insights enabled.",
-		object.get(instance.instance.performanceinsights, "enabled", instance.instance.performanceinsights),
+		metadata.obj_by_path(instance.instance, ["performanceinsights", "enabled"]),
 	)
 }
 
@@ -52,6 +54,6 @@ deny contains res if {
 	not instance.performanceinsights.enabled.value
 	res := result.new(
 		"Instance does not have performance insights enabled.",
-		object.get(instance.performanceinsights, "enabled", instance.performanceinsights),
+		metadata.obj_by_path(instance, ["performanceinsights", "enabled"]),
 	)
 }

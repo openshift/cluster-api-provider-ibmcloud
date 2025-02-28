@@ -25,15 +25,15 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket#uniform_bucket_level_access
-#     good_examples: checks/cloud/google/storage/enable_ubla.tf.go
-#     bad_examples: checks/cloud/google/storage/enable_ubla.tf.go
+#     good_examples: checks/cloud/google/storage/enable_ubla.yaml
+#     bad_examples: checks/cloud/google/storage/enable_ubla.yaml
 package builtin.google.storage.google0002
 
 import rego.v1
 
 deny contains res if {
 	some bucket in input.google.storage.buckets
-	bucket.__defsec_metadata.managed
+	isManaged(bucket)
 	bucket.enableuniformbucketlevelaccess.value == false
 	res := result.new("Bucket has uniform bucket level access disabled.", bucket.enableuniformbucketlevelaccess)
 }

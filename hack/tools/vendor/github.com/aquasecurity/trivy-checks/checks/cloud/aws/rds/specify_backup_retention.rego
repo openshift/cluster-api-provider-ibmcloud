@@ -25,14 +25,16 @@
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster#backup_retention_period
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance#backup_retention_period
-#     good_examples: checks/cloud/aws/rds/specify_backup_retention.tf.go
-#     bad_examples: checks/cloud/aws/rds/specify_backup_retention.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/rds/specify_backup_retention.cf.go
-#     bad_examples: checks/cloud/aws/rds/specify_backup_retention.cf.go
+#     good_examples: checks/cloud/aws/rds/specify_backup_retention.yaml
+#     bad_examples: checks/cloud/aws/rds/specify_backup_retention.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/rds/specify_backup_retention.yaml
+#     bad_examples: checks/cloud/aws/rds/specify_backup_retention.yaml
 package builtin.aws.rds.aws0077
 
 import rego.v1
+
+import data.lib.cloud.value
 
 deny contains res if {
 	some cluster in input.aws.rds.clusters
@@ -54,8 +56,10 @@ deny contains res if {
 
 has_low_backup_retention_period(instance) if {
 	isManaged(instance)
-	not has_replication_source(instance)
-	instance.backupretentionperioddays.value < 2
+	without_replication_source(instance)
+	value.less_than(instance.backupretentionperioddays, 2)
 }
 
-has_replication_source(instance) := instance.replicationsourcearn.value != ""
+without_replication_source(instance) if value.is_empty(instance.replicationsourcearn)
+
+without_replication_source(instance) if not instance.replicationsourcearn

@@ -22,20 +22,25 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/app_service#identity
-#     good_examples: checks/cloud/azure/appservice/account_identity_registered.tf.go
-#     bad_examples: checks/cloud/azure/appservice/account_identity_registered.tf.go
+#     good_examples: checks/cloud/azure/appservice/account_identity_registered.yaml
+#     bad_examples: checks/cloud/azure/appservice/account_identity_registered.yaml
 package builtin.azure.appservice.azure0002
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some service in input.azure.appservice.services
 	isManaged(service)
-	not has_identity_type(service)
+	identity_type_missed(service)
 	res := result.new(
 		"App service does not have an identity type.",
-		object.get(service, ["identity", "type"], service),
+		metadata.obj_by_path(service, ["identity", "type"]),
 	)
 }
 
-has_identity_type(service) := service.identity.type.value != ""
+identity_type_missed(service) if value.is_empty(service.identity.type)
+
+identity_type_missed(service) if not service.identity.type

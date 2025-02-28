@@ -24,17 +24,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/elasticsearch_domain#encrypt_at_rest
-#     good_examples: checks/cloud/aws/elasticsearch/enable_in_transit_encryption.tf.go
-#     bad_examples: checks/cloud/aws/elasticsearch/enable_in_transit_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/elasticsearch/enable_in_transit_encryption.cf.go
-#     bad_examples: checks/cloud/aws/elasticsearch/enable_in_transit_encryption.cf.go
+#     good_examples: checks/cloud/aws/elasticsearch/enable_in_transit_encryption.yaml
+#     bad_examples: checks/cloud/aws/elasticsearch/enable_in_transit_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/elasticsearch/enable_in_transit_encryption.yaml
+#     bad_examples: checks/cloud/aws/elasticsearch/enable_in_transit_encryption.yaml
 package builtin.aws.elasticsearch.aws0043
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some domain in input.aws.elasticsearch.domains
-	domain.transitencryption.enabled.value == false
-	res := result.new("Domain does not have in-transit encryption enabled.", domain.transitencryption.enabled)
+	not domain.transitencryption.enabled.value
+	res := result.new(
+		"Domain does not have in-transit encryption enabled.",
+		metadata.obj_by_path(domain, ["transitencryption", "enabled"]),
+	)
 }

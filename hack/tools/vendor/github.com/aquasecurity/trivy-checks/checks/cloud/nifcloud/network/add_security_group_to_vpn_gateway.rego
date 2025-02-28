@@ -10,6 +10,8 @@
 # custom:
 #   id: AVD-NIF-0018
 #   avd_id: AVD-NIF-0018
+#   aliases:
+#     - nifcloud-computing-add-security-group-to-vpn-gateway
 #   provider: nifcloud
 #   service: network
 #   severity: CRITICAL
@@ -24,14 +26,20 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/nifcloud/nifcloud/latest/docs/resources/vpn_gateway#security_group
-#     good_examples: checks/cloud/nifcloud/network/add_security_group_to_vpn_gateway.tf.go
-#     bad_examples: checks/cloud/nifcloud/network/add_security_group_to_vpn_gateway.tf.go
+#     good_examples: checks/cloud/nifcloud/network/add_security_group_to_vpn_gateway.yaml
+#     bad_examples: checks/cloud/nifcloud/network/add_security_group_to_vpn_gateway.yaml
 package builtin.nifcloud.network.nifcloud0018
 
 import rego.v1
 
+import data.lib.cloud.value
+
 deny contains res if {
 	some gateway in input.nifcloud.network.vpngateways
-	gateway.securitygroup.value == ""
+	without_sg(gateway)
 	res := result.new("VpnGateway does not have a securiy group.", gateway.securitygroup)
 }
+
+without_sg(gateway) if value.is_empty(gateway.securitygroup)
+
+without_sg(gateway) if not gateway.securitygroup

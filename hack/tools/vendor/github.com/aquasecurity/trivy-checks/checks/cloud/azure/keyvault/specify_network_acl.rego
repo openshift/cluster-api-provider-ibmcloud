@@ -26,11 +26,13 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault#network_acls
-#     good_examples: checks/cloud/azure/keyvault/specify_network_acl.tf.go
-#     bad_examples: checks/cloud/azure/keyvault/specify_network_acl.tf.go
+#     good_examples: checks/cloud/azure/keyvault/specify_network_acl.yaml
+#     bad_examples: checks/cloud/azure/keyvault/specify_network_acl.yaml
 package builtin.azure.keyvault.azure0013
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some vault in input.azure.keyvault.vaults
@@ -38,7 +40,7 @@ deny contains res if {
 	not block_access_by_default(vault)
 	res := result.new(
 		"Vault network ACL does not block access by default.",
-		object.get(vault, ["networkacls", "defaultaction"], vault),
+		metadata.obj_by_path(vault, ["networkacls", "defaultaction"]),
 	)
 }
 

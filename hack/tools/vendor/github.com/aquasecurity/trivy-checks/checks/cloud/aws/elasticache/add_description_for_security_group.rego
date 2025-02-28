@@ -25,17 +25,27 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/elasticache_security_group#description
-#     good_examples: checks/cloud/aws/elasticache/add_description_for_security_group.tf.go
-#     bad_examples: checks/cloud/aws/elasticache/add_description_for_security_group.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/elasticache/add_description_for_security_group.cf.go
-#     bad_examples: checks/cloud/aws/elasticache/add_description_for_security_group.cf.go
+#     good_examples: checks/cloud/aws/elasticache/add_description_for_security_group.yaml
+#     bad_examples: checks/cloud/aws/elasticache/add_description_for_security_group.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/elasticache/add_description_for_security_group.yaml
+#     bad_examples: checks/cloud/aws/elasticache/add_description_for_security_group.yaml
 package builtin.aws.elasticache.aws0049
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some secgroup in input.aws.elasticache.securitygroups
-	secgroup.description.value == ""
-	res := result.new("Security group does not have a description.", secgroup.description)
+	without_description(secgroup)
+	res := result.new(
+		"Security group does not have a description.",
+		metadata.obj_by_path(secgroup, ["description"]),
+	)
 }
+
+without_description(sg) if value.is_empty(sg.description)
+
+without_description(sg) if not sg.description

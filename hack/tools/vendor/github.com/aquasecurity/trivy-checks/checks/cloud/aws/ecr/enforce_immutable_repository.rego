@@ -25,18 +25,22 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecr_repository
-#     good_examples: checks/cloud/aws/ecr/enforce_immutable_repository.tf.go
-#     bad_examples: checks/cloud/aws/ecr/enforce_immutable_repository.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/ecr/enforce_immutable_repository.cf.go
-#     bad_examples: checks/cloud/aws/ecr/enforce_immutable_repository.cf.go
+#     good_examples: checks/cloud/aws/ecr/enforce_immutable_repository.yaml
+#     bad_examples: checks/cloud/aws/ecr/enforce_immutable_repository.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/ecr/enforce_immutable_repository.yaml
+#     bad_examples: checks/cloud/aws/ecr/enforce_immutable_repository.yaml
 package builtin.aws.ecr.aws0031
 
 import rego.v1
 
+import data.lib.cloud.metadata
+
 deny contains res if {
 	some repo in input.aws.ecr.repositories
-	repo.imagetagsimmutable.value == false
-
-	res := result.new("Repository tags are mutable.", repo.imagetagsimmutable)
+	not repo.imagetagsimmutable.value
+	res := result.new(
+		"Repository tags are mutable.",
+		metadata.obj_by_path(repo, ["imagetagsimmutable"]),
+	)
 }

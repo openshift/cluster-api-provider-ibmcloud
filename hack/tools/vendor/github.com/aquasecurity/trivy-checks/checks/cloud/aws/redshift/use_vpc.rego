@@ -25,22 +25,26 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/redshift_cluster#cluster_subnet_group_name
-#     good_examples: checks/cloud/aws/redshift/use_vpc.tf.go
-#     bad_examples: checks/cloud/aws/redshift/use_vpc.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/redshift/use_vpc.cf.go
-#     bad_examples: checks/cloud/aws/redshift/use_vpc.cf.go
+#     good_examples: checks/cloud/aws/redshift/use_vpc.yaml
+#     bad_examples: checks/cloud/aws/redshift/use_vpc.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/redshift/use_vpc.yaml
+#     bad_examples: checks/cloud/aws/redshift/use_vpc.yaml
 package builtin.aws.redshift.aws0127
 
 import rego.v1
 
+import data.lib.cloud.value
+
 deny contains res if {
 	some cluster in input.aws.redshift.clusters
-	not has_subnet_group_name(cluster)
+	subnet_group_name_missed(cluster)
 	res := result.new(
 		"Cluster is deployed outside of a VPC.",
 		object.get(cluster, "subnetgroupname", cluster),
 	)
 }
 
-has_subnet_group_name(cluster) if cluster.subnetgroupname.value != ""
+subnet_group_name_missed(cluster) if value.is_empty(cluster.subnetgroupname)
+
+subnet_group_name_missed(cluster) if not cluster.subnetgroupname

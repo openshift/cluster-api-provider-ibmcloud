@@ -25,19 +25,29 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudtrail#kms_key_id
-#     good_examples: checks/cloud/aws/cloudtrail/encryption_customer_key.tf.go
-#     bad_examples: checks/cloud/aws/cloudtrail/encryption_customer_key.tf.go
-#   cloudformation:
+#     good_examples: checks/cloud/aws/cloudtrail/encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/cloudtrail/encryption_customer_key.yaml
+#   cloud_formation:
 #     links:
 #       - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudtrail-trail.html#cfn-cloudtrail-trail-kmskeyid
-#     good_examples: checks/cloud/aws/cloudtrail/encryption_customer_key.cf.go
-#     bad_examples: checks/cloud/aws/cloudtrail/encryption_customer_key.cf.go
+#     good_examples: checks/cloud/aws/cloudtrail/encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/cloudtrail/encryption_customer_key.yaml
 package builtin.aws.cloudtrail.aws0015
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some trail in input.aws.cloudtrail.trails
-	trail.kmskeyid.value == ""
-	res := result.new("CloudTrail does not use a customer managed key to encrypt the logs.", trail.kmskeyid)
+	without_cmk(trail)
+	res := result.new(
+		"CloudTrail does not use a customer managed key to encrypt the logs.",
+		metadata.obj_by_path(trail, ["kmskeyid"]),
+	)
 }
+
+without_cmk(trail) if value.is_empty(trail.kmskeyid)
+
+without_cmk(trail) if not trail.kmskeyid

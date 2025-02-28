@@ -25,36 +25,43 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster
-#     good_examples: checks/cloud/aws/rds/encrypt_cluster_storage_data.tf.go
-#     bad_examples: checks/cloud/aws/rds/encrypt_cluster_storage_data.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/rds/encrypt_cluster_storage_data.cf.go
-#     bad_examples: checks/cloud/aws/rds/encrypt_cluster_storage_data.cf.go
+#     good_examples: checks/cloud/aws/rds/encrypt_cluster_storage_data.yaml
+#     bad_examples: checks/cloud/aws/rds/encrypt_cluster_storage_data.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/rds/encrypt_cluster_storage_data.yaml
+#     bad_examples: checks/cloud/aws/rds/encrypt_cluster_storage_data.yaml
 package builtin.aws.rds.aws0079
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some cluster in input.aws.rds.clusters
 	isManaged(cluster)
-	not encryption_enabled(cluster)
+	encryption_disabled(cluster)
 	res := result.new(
 		"Cluster does not have storage encryption enabled.",
-		object.get(cluster.encryption, "encryptstorage", cluster.encryption),
+		metadata.obj_by_path(cluster, ["encryption", "encryptstorage"]),
 	)
 }
 
 deny contains res if {
 	some cluster in input.aws.rds.clusters
 	isManaged(cluster)
-	encryption_enabled(cluster)
-	not has_kms_key(cluster)
+	cluster.encryption.encryptstorage.value
+	without_cmk(cluster)
 	res := result.new(
 		"Cluster does not specify a customer managed key for storage encryption.",
-		object.get(cluster.encryption, "kmskeyid", cluster.encryption),
+		metadata.obj_by_path(cluster, ["encryption", "kmskeyid"]),
 	)
 }
 
-encryption_enabled(cluster) := cluster.encryption.encryptstorage.value
+encryption_disabled(cluster) if value.is_false(cluster.encryption.encryptstorage)
 
-has_kms_key(cluster) := cluster.encryption.kmskeyid.value != ""
+encryption_disabled(cluster) if not cluster.encryption.encryptstorage
+
+without_cmk(cluster) if value.is_empty(cluster.encryption.kmskeyid)
+
+without_cmk(cluster) if not cluster.encryption.kmskeyid

@@ -26,11 +26,13 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_account#logging
-#     good_examples: checks/cloud/azure/storage/queue_services_logging_enabled.tf.go
-#     bad_examples: checks/cloud/azure/storage/queue_services_logging_enabled.tf.go
+#     good_examples: checks/cloud/azure/storage/queue_services_logging_enabled.yaml
+#     bad_examples: checks/cloud/azure/storage/queue_services_logging_enabled.yaml
 package builtin.azure.storage.azure0009
 
 import rego.v1
+
+import data.lib.cloud.metadata
 
 deny contains res if {
 	some account in input.azure.storage.accounts
@@ -39,6 +41,6 @@ deny contains res if {
 	not account.queueproperties.enablelogging.value
 	res := result.new(
 		"Queue services storage account does not have logging enabled.",
-		object.get(account, ["queueproperties", "enablelogging"], account),
+		metadata.obj_by_path(account, ["queueproperties", "enablelogging"]),
 	)
 }

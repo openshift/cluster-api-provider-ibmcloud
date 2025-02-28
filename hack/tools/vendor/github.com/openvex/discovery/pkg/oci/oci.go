@@ -114,9 +114,10 @@ func GenerateReferenceIdentifiers(refString, os, arch string) (IdentifiersBundle
 
 	archDString, err := crane.Digest(refString, crane.WithPlatform(platform))
 	if err != nil {
-		// If there is no arch-specific variant, we simply don't
-		// include it. Return what we know.
-		if strings.Contains(err.Error(), "no child with platform") {
+		// If there is no arch-specific variant ot the image has not been pushed
+		// yet, we simply don't include it. Return what we know.
+		if strings.Contains(err.Error(), "no child with platform") ||
+			strings.Contains(err.Error(), "MANIFEST_UNKNOWN") {
 			return bundle, nil
 		}
 		return bundle, fmt.Errorf("getting image digest: %w", err)
@@ -143,7 +144,7 @@ func generateImagePurlVariants(registryString, imageName, digestString, tag, os,
 	// Purl with full qualifiers
 	qMap := map[string]string{}
 	if registryString != "" {
-		qMap["repository_url"] = strings.TrimSuffix(registryString, "/")
+		qMap["repository_url"] = registryString + imageName
 	}
 
 	purls = append(purls,
@@ -232,10 +233,8 @@ func PurlToReferenceString(purlString string, fopts ...RefConverterOptions) (str
 	qualifiers := p.Qualifiers.Map()
 
 	refString := p.Name
-	if _, ok := qualifiers["repository_url"]; ok {
-		refString = fmt.Sprintf(
-			"%s/%s", strings.TrimSuffix(qualifiers["repository_url"], "/"), p.Name,
-		)
+	if v, ok := qualifiers["repository_url"]; ok {
+		refString = v
 	} else if opts.DefaultRepository != "" {
 		refString = fmt.Sprintf(
 			"%s/%s", strings.TrimSuffix(opts.DefaultRepository, "/"), p.Name,

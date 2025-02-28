@@ -9,10 +9,8 @@ import (
 	"go/token"
 	"go/types"
 
-	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types/typeutil"
-	"golang.org/x/tools/internal/aliases"
 	"golang.org/x/tools/internal/typeparams"
 )
 
@@ -172,6 +170,26 @@ func (f function) String() string {
 	return fmt.Sprintf("Function(%s)", f.f.Name())
 }
 
+// resultVar represents the result
+// variable of a function, whether
+// named or not.
+type resultVar struct {
+	f     *ssa.Function
+	index int // valid index into result var tuple
+}
+
+func (o resultVar) Type() types.Type {
+	return o.f.Signature.Results().At(o.index).Type()
+}
+
+func (o resultVar) String() string {
+	v := o.f.Signature.Results().At(o.index)
+	if n := v.Name(); n != "" {
+		return fmt.Sprintf("Return(%s[%s])", o.f.Name(), n)
+	}
+	return fmt.Sprintf("Return(%s[%d])", o.f.Name(), o.index)
+}
+
 // nestedPtrInterface node represents all references and dereferences
 // of locals and globals that have a nested pointer to interface type.
 // We merge such constructs into a single node for simplicity and without
@@ -235,34 +253,73 @@ func (r recoverReturn) String() string {
 	return "Recover"
 }
 
+type empty = struct{}
+
+// idx is an index representing a unique node in a vtaGraph.
+type idx int
+
 // vtaGraph remembers for each VTA node the set of its successors.
 // Tailored for VTA, hence does not support singleton (sub)graphs.
-type vtaGraph map[node]map[node]bool
+type vtaGraph struct {
+	m    []map[idx]empty // m[i] has the successors for the node with index i.
+	idx  map[node]idx    // idx[n] is the index for the node n.
+	node []node          // node[i] is the node with index i.
+}
+
+func (g *vtaGraph) numNodes() int {
+	return len(g.idx)
+}
+
+func (g *vtaGraph) successors(x idx) func(yield func(y idx) bool) {
+	return func(yield func(y idx) bool) {
+		for y := range g.m[x] {
+			if !yield(y) {
+				return
+			}
+		}
+	}
+}
 
 // addEdge adds an edge x->y to the graph.
-func (g vtaGraph) addEdge(x, y node) {
-	succs, ok := g[x]
-	if !ok {
-		succs = make(map[node]bool)
-		g[x] = succs
+func (g *vtaGraph) addEdge(x, y node) {
+	if g.idx == nil {
+		g.idx = make(map[node]idx)
 	}
-	succs[y] = true
+	lookup := func(n node) idx {
+		i, ok := g.idx[n]
+		if !ok {
+			i = idx(len(g.idx))
+			g.m = append(g.m, nil)
+			g.idx[n] = i
+			g.node = append(g.node, n)
+		}
+		return i
+	}
+	a := lookup(x)
+	b := lookup(y)
+	succs := g.m[a]
+	if succs == nil {
+		succs = make(map[idx]empty)
+		g.m[a] = succs
+	}
+	succs[b] = empty{}
 }
 
 // typePropGraph builds a VTA graph for a set of `funcs` and initial
 // `callgraph` needed to establish interprocedural edges. Returns the
 // graph and a map for unique type representatives.
-func typePropGraph(funcs map[*ssa.Function]bool, callgraph *callgraph.Graph) (vtaGraph, *typeutil.Map) {
-	b := builder{graph: make(vtaGraph), callGraph: callgraph}
+func typePropGraph(funcs map[*ssa.Function]bool, callees calleesFunc) (*vtaGraph, *typeutil.Map) {
+	b := builder{callees: callees}
 	b.visit(funcs)
-	return b.graph, &b.canon
+	b.callees = nil // ensure callees is not pinned by pointers to other fields of b.
+	return &b.graph, &b.canon
 }
 
 // Data structure responsible for linearly traversing the
 // code and building a VTA graph.
 type builder struct {
-	graph     vtaGraph
-	callGraph *callgraph.Graph // initial call graph for creating flows at unresolved call sites.
+	graph   vtaGraph
+	callees calleesFunc // initial call graph for creating flows at unresolved call sites.
 
 	// Specialized type map for canonicalization of types.Type.
 	// Semantically equivalent types can have different implementations,
@@ -576,8 +633,26 @@ func (b *builder) call(c ssa.CallInstruction) {
 		return
 	}
 
-	siteCallees(c, b.callGraph)(func(f *ssa.Function) bool {
+	siteCallees(c, b.callees)(func(f *ssa.Function) bool {
 		addArgumentFlows(b, c, f)
+
+		site, ok := c.(ssa.Value)
+		if !ok {
+			return true // go or defer
+		}
+
+		results := f.Signature.Results()
+		if results.Len() == 1 {
+			// When there is only one return value, the destination register does not
+			// have a tuple type.
+			b.addInFlowEdge(resultVar{f: f, index: 0}, b.nodeFromVal(site))
+		} else {
+			tup := site.Type().(*types.Tuple)
+			for i := 0; i < results.Len(); i++ {
+				local := indexedLocal{val: site, typ: tup.At(i).Type(), index: i}
+				b.addInFlowEdge(resultVar{f: f, index: i}, local)
+			}
+		}
 		return true
 	})
 }
@@ -622,37 +697,11 @@ func addArgumentFlows(b *builder, c ssa.CallInstruction, f *ssa.Function) {
 	}
 }
 
-// rtrn produces flows between values of r and c where
-// c is a call instruction that resolves to the enclosing
-// function of r based on b.callGraph.
+// rtrn creates flow edges from the operands of the return
+// statement to the result variables of the enclosing function.
 func (b *builder) rtrn(r *ssa.Return) {
-	n := b.callGraph.Nodes[r.Parent()]
-	// n != nil when b.callgraph is sound, but the client can
-	// pass any callgraph, including an underapproximate one.
-	if n == nil {
-		return
-	}
-
-	for _, e := range n.In {
-		if cv, ok := e.Site.(ssa.Value); ok {
-			addReturnFlows(b, r, cv)
-		}
-	}
-}
-
-func addReturnFlows(b *builder, r *ssa.Return, site ssa.Value) {
-	results := r.Results
-	if len(results) == 1 {
-		// When there is only one return value, the destination register does not
-		// have a tuple type.
-		b.addInFlowEdge(b.nodeFromVal(results[0]), b.nodeFromVal(site))
-		return
-	}
-
-	tup := site.Type().(*types.Tuple)
-	for i, r := range results {
-		local := indexedLocal{val: site, typ: tup.At(i).Type(), index: i}
-		b.addInFlowEdge(b.nodeFromVal(r), local)
+	for i, rs := range r.Results {
+		b.addInFlowEdge(b.nodeFromVal(rs), resultVar{f: r.Parent(), index: i})
 	}
 }
 
@@ -663,7 +712,7 @@ func (b *builder) multiconvert(c *ssa.MultiConvert) {
 		// This is a adaptation of x/exp/typeparams.NormalTerms which x/tools cannot depend on.
 		var terms []*types.Term
 		var err error
-		switch typ := aliases.Unalias(typ).(type) {
+		switch typ := types.Unalias(typ).(type) {
 		case *types.TypeParam:
 			terms, err = typeparams.StructuralTerms(typ)
 		case *types.Union:
@@ -732,7 +781,7 @@ func (b *builder) addInFlowEdge(s, d node) {
 
 // Creates const, pointer, global, func, and local nodes based on register instructions.
 func (b *builder) nodeFromVal(val ssa.Value) node {
-	if p, ok := aliases.Unalias(val.Type()).(*types.Pointer); ok && !types.IsInterface(p.Elem()) && !isFunction(p.Elem()) {
+	if p, ok := types.Unalias(val.Type()).(*types.Pointer); ok && !types.IsInterface(p.Elem()) && !isFunction(p.Elem()) {
 		// Nested pointer to interfaces are modeled as a special
 		// nestedPtrInterface node.
 		if i := interfaceUnderPtr(p.Elem()); i != nil {
@@ -793,7 +842,7 @@ func (b *builder) representative(n node) node {
 		return field{StructType: canonicalize(i.StructType, &b.canon), index: i.index}
 	case indexedLocal:
 		return indexedLocal{typ: t, val: i.val, index: i.index}
-	case local, global, panicArg, recoverReturn, function:
+	case local, global, panicArg, recoverReturn, function, resultVar:
 		return n
 	default:
 		panic(fmt.Errorf("canonicalizing unrecognized node %v", n))

@@ -24,18 +24,27 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/mq_broker#audit
-#     good_examples: checks/cloud/aws/mq/enable_audit_logging.tf.go
-#     bad_examples: checks/cloud/aws/mq/enable_audit_logging.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/mq/enable_audit_logging.cf.go
-#     bad_examples: checks/cloud/aws/mq/enable_audit_logging.cf.go
+#     good_examples: checks/cloud/aws/mq/enable_audit_logging.yaml
+#     bad_examples: checks/cloud/aws/mq/enable_audit_logging.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/mq/enable_audit_logging.yaml
+#     bad_examples: checks/cloud/aws/mq/enable_audit_logging.yaml
 package builtin.aws.mq.aws0070
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some broker in input.aws.mq.brokers
-	broker.logging.audit.value == false
-
-	res := result.new("Broker does not have audit logging enabled.", broker.logging.audit)
+	logging_disabled(broker)
+	res := result.new(
+		"Broker does not have audit logging enabled.",
+		metadata.obj_by_path(broker, ["logging", "audit"]),
+	)
 }
+
+logging_disabled(broker) if value.is_false(broker.logging.audit)
+
+logging_disabled(broker) if not broker.logging.audit

@@ -26,14 +26,16 @@
 #     links:
 #       - https://registry.terraform.io/providers/integrations/github/latest/docs/resources/actions_environment_secret
 #       - https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
-#     good_examples: checks/cloud/github/actions/no_plain_text_action_secrets.tf.go
-#     bad_examples: checks/cloud/github/actions/no_plain_text_action_secrets.tf.go
+#     good_examples: checks/cloud/github/actions/no_plain_text_action_secrets.yaml
+#     bad_examples: checks/cloud/github/actions/no_plain_text_action_secrets.yaml
 package builtin.github.actions.github0002
 
 import rego.v1
 
+import data.lib.cloud.value
+
 deny contains res if {
 	some secret in input.github.environmentsecrets
-	secret.plaintextvalue.value != ""
+	value.is_not_empty(secret.plaintextvalue)
 	res := result.new("Secret has plain text value", secret.plaintextvalue)
 }

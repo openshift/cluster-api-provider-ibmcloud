@@ -24,15 +24,15 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket_iam#member/members
-#     good_examples: checks/cloud/google/storage/no_public_access.tf.go
-#     bad_examples: checks/cloud/google/storage/no_public_access.tf.go
+#     good_examples: checks/cloud/google/storage/no_public_access.yaml
+#     bad_examples: checks/cloud/google/storage/no_public_access.yaml
 package builtin.google.storage.google0001
 
 import rego.v1
 
 deny contains res if {
 	some bucket in input.google.storage.buckets
-	bucket.__defsec_metadata.managed
+	isManaged(bucket)
 	some member in bucket.bindings[_].members
 	is_member_external(member.value)
 	res := result.new("Bucket allows public access.", member)
@@ -40,7 +40,7 @@ deny contains res if {
 
 deny contains res if {
 	some bucket in input.google.storage.buckets
-	bucket.__defsec_metadata.managed
+	isManaged(bucket)
 	some member in bucket.members
 	is_member_external(member.member.value)
 	res := result.new("Bucket allows public access.", member.member)

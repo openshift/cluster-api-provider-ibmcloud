@@ -25,17 +25,28 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dax_cluster#server_side_encryption
-#     good_examples: checks/cloud/aws/dynamodb/enable_at_rest_encryption.tf.go
-#     bad_examples: checks/cloud/aws/dynamodb/enable_at_rest_encryption.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/dynamodb/enable_at_rest_encryption.cf.go
-#     bad_examples: checks/cloud/aws/dynamodb/enable_at_rest_encryption.cf.go
+#     good_examples: checks/cloud/aws/dynamodb/enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/dynamodb/enable_at_rest_encryption.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/dynamodb/enable_at_rest_encryption.yaml
+#     bad_examples: checks/cloud/aws/dynamodb/enable_at_rest_encryption.yaml
 package builtin.aws.dynamodb.aws0023
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some cluster in input.aws.dynamodb.daxclusters
-	cluster.serversideencryption.enabled.value == false
-	res := result.new("DAX encryption is not enabled.", cluster.serversideencryption.enabled)
+	not_encrypted(cluster)
+
+	res := result.new(
+		"DAX encryption is not enabled.",
+		metadata.obj_by_path(cluster, ["serversideencryption", "enabled"]),
+	)
 }
+
+not_encrypted(cluster) if value.is_false(cluster.serversideencryption.enabled)
+
+not_encrypted(cluster) if not cluster.serversideencryption.enabled

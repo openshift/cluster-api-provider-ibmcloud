@@ -24,19 +24,24 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/kubernetes_cluster#network_policy
-#     good_examples: checks/cloud/azure/container/configured_network_policy.tf.go
-#     bad_examples: checks/cloud/azure/container/configured_network_policy.tf.go
+#     good_examples: checks/cloud/azure/container/configured_network_policy.yaml
+#     bad_examples: checks/cloud/azure/container/configured_network_policy.yaml
 package builtin.azure.container.azure0043
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some cluster in input.azure.container.kubernetesclusters
-	not has_network_policy(cluster)
+	network_policy_missed(cluster)
 	res := result.new(
 		"Kubernetes cluster does not have a network policy set.",
-		object.get(cluster, ["networkprofile", "networkpolicy"], cluster),
+		metadata.obj_by_path(cluster, ["networkprofile", "networkpolicy"]),
 	)
 }
 
-has_network_policy(cluster) := cluster.networkprofile.networkpolicy.value != ""
+network_policy_missed(cluster) if value.is_empty(cluster.networkprofile.networkpolicy)
+
+network_policy_missed(cluster) if not cluster.networkprofile.networkpolicy

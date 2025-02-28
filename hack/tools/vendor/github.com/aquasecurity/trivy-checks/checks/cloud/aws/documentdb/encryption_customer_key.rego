@@ -24,26 +24,39 @@
 #   terraform:
 #     links:
 #       - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/docdb_cluster#kms_key_id
-#     good_examples: checks/cloud/aws/documentdb/encryption_customer_key.tf.go
-#     bad_examples: checks/cloud/aws/documentdb/encryption_customer_key.tf.go
-#   cloudformation:
-#     good_examples: checks/cloud/aws/documentdb/encryption_customer_key.cf.go
-#     bad_examples: checks/cloud/aws/documentdb/encryption_customer_key.cf.go
+#     good_examples: checks/cloud/aws/documentdb/encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/documentdb/encryption_customer_key.yaml
+#   cloud_formation:
+#     good_examples: checks/cloud/aws/documentdb/encryption_customer_key.yaml
+#     bad_examples: checks/cloud/aws/documentdb/encryption_customer_key.yaml
 package builtin.aws.documentdb.aws0022
 
 import rego.v1
 
+import data.lib.cloud.metadata
+import data.lib.cloud.value
+
 deny contains res if {
 	some cluster in input.aws.documentdb.clusters
-	cluster.kmskeyid.value == ""
-
-	res := result.new("Cluster encryption does not use a customer-managed KMS key.", cluster)
+	isManaged(cluster)
+	without_cmk(cluster)
+	res := result.new(
+		"Cluster encryption does not use a customer-managed KMS key.",
+		metadata.obj_by_path(cluster, ["kmskeyid"]),
+	)
 }
 
 deny contains res if {
 	some cluster in input.aws.documentdb.clusters
 	some instance in cluster.instances
-	instance.kmskeyid.value == ""
-
-	res := result.new("Instance encryption does not use a customer-managed KMS key.", cluster)
+	isManaged(instance)
+	without_cmk(instance)
+	res := result.new(
+		"Instance encryption does not use a customer-managed KMS key.",
+		metadata.obj_by_path(instance, ["kmskeyid"]),
+	)
 }
+
+without_cmk(obj) if value.is_empty(obj.kmskeyid)
+
+without_cmk(obj) if not obj.kmskeyid

@@ -26,13 +26,13 @@ type IKEPolicyCreate struct {
 	// DH group of the IKE Policy
 	// Example: 2
 	// Required: true
-	// Enum: [1 2 5 14 19 20 24]
+	// Enum: [1,2,5,14,19,20,24]
 	DhGroup *int64 `json:"dhGroup"`
 
 	// encryption of the IKE Policy
 	// Example: aes-256-cbc
 	// Required: true
-	// Enum: [aes-256-cbc aes-192-cbc aes-128-cbc aes-256-gcm aes-128-gcm 3des-cbc]
+	// Enum: ["aes-256-cbc","aes-192-cbc","aes-128-cbc","aes-256-gcm","aes-128-gcm","3des-cbc"]
 	Encryption *string `json:"encryption"`
 
 	// key lifetime
@@ -53,7 +53,7 @@ type IKEPolicyCreate struct {
 	// version of the IKE Policy
 	// Example: 2
 	// Required: true
-	// Enum: [1 2]
+	// Enum: [1,2]
 	Version *int64 `json:"version"`
 }
 
@@ -305,6 +305,10 @@ func (m *IKEPolicyCreate) ContextValidate(ctx context.Context, formats strfmt.Re
 
 func (m *IKEPolicyCreate) contextValidateAuthentication(ctx context.Context, formats strfmt.Registry) error {
 
+	if swag.IsZero(m.Authentication) { // not required
+		return nil
+	}
+
 	if err := m.Authentication.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("authentication")
@@ -320,6 +324,7 @@ func (m *IKEPolicyCreate) contextValidateAuthentication(ctx context.Context, for
 func (m *IKEPolicyCreate) contextValidateKeyLifetime(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.KeyLifetime != nil {
+
 		if err := m.KeyLifetime.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("keyLifetime")

@@ -38,13 +38,14 @@ import (
 var Analyzer = &analysis.Analyzer{
 	Name:       "pkgfact",
 	Doc:        "gather name/value pairs from constant declarations",
+	URL:        "https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/pkgfact",
 	Run:        run,
 	FactTypes:  []analysis.Fact{new(pairsFact)},
 	ResultType: reflect.TypeOf(map[string]string{}),
 }
 
 // A pairsFact is a package-level fact that records
-// an set of key=value strings accumulated from constant
+// a set of key=value strings accumulated from constant
 // declarations in this package and its dependencies.
 // Elements are ordered by keys, which are unique.
 type pairsFact []string
@@ -52,7 +53,7 @@ type pairsFact []string
 func (f *pairsFact) AFact()         {}
 func (f *pairsFact) String() string { return "pairs(" + strings.Join(*f, ", ") + ")" }
 
-func run(pass *analysis.Pass) (interface{}, error) {
+func run(pass *analysis.Pass) (any, error) {
 	result := make(map[string]string)
 
 	// At each import, print the fact from the imported

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func parseFlags(args []string, opts interface{}) ([]string, error) {
+func parseFlags(args []string, opts any) ([]string, error) {
 	rest := make([]string, 0, len(args))
 	val := reflect.ValueOf(opts).Elem()
 	typ := val.Type()
@@ -158,7 +158,7 @@ func parseFlags(args []string, opts interface{}) ([]string, error) {
 	return rest, nil
 }
 
-func formatFlags(opts interface{}) string {
+func formatFlags(opts any) string {
 	val := reflect.ValueOf(opts).Elem()
 	typ := val.Type()
 	var sb strings.Builder
@@ -186,24 +186,12 @@ func formatFlags(opts interface{}) string {
 			}
 			sb.WriteString("--")
 			sb.WriteString(flag)
-			switch val.Field(i).Kind() {
-			case reflect.Bool:
-				sb.WriteString(" ")
-			case reflect.Map:
-				if strings.HasSuffix(flag, "file") {
-					sb.WriteString(" name file")
-				} else {
-					sb.WriteString(" name value")
-				}
-			default:
-				if _, ok = tag.Lookup("positional"); !ok {
-					sb.WriteString("=")
-				}
-			}
-		} else {
-			sb.WriteString("=")
 		}
-		sb.WriteString("                       "[:24-sb.Len()+m])
+		if args, ok := tag.Lookup("args"); ok {
+			sb.WriteString(" ")
+			sb.WriteString(args)
+		}
+		sb.WriteString(strings.Repeat(" ", 24-(sb.Len()-m)))
 		sb.WriteString(tag.Get("description"))
 		sb.WriteString("\n")
 	}

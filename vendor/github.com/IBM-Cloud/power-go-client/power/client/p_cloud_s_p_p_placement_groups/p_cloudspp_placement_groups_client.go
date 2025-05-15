@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud s p p placement groups API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud s p p placement groups API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud s p p placement groups API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -46,7 +72,7 @@ type ClientService interface {
 }
 
 /*
-  PcloudSppplacementgroupsDelete deletes a shared processor pool placement group from a cloud instance
+PcloudSppplacementgroupsDelete deletes a shared processor pool placement group from a cloud instance
 */
 func (a *Client) PcloudSppplacementgroupsDelete(params *PcloudSppplacementgroupsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudSppplacementgroupsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -85,7 +111,7 @@ func (a *Client) PcloudSppplacementgroupsDelete(params *PcloudSppplacementgroups
 }
 
 /*
-  PcloudSppplacementgroupsGet gets the detail of a shared processor pool placement group for a cloud instance
+PcloudSppplacementgroupsGet gets the detail of a shared processor pool placement group for a cloud instance
 */
 func (a *Client) PcloudSppplacementgroupsGet(params *PcloudSppplacementgroupsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudSppplacementgroupsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -124,7 +150,7 @@ func (a *Client) PcloudSppplacementgroupsGet(params *PcloudSppplacementgroupsGet
 }
 
 /*
-  PcloudSppplacementgroupsGetall gets the list of shared processor pool placement groups for a cloud instance
+PcloudSppplacementgroupsGetall gets the list of shared processor pool placement groups for a cloud instance
 */
 func (a *Client) PcloudSppplacementgroupsGetall(params *PcloudSppplacementgroupsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudSppplacementgroupsGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -163,7 +189,7 @@ func (a *Client) PcloudSppplacementgroupsGetall(params *PcloudSppplacementgroups
 }
 
 /*
-  PcloudSppplacementgroupsMembersDelete deletes shared processor pool member from a shared processor pool placement group
+PcloudSppplacementgroupsMembersDelete deletes shared processor pool member from a shared processor pool placement group
 */
 func (a *Client) PcloudSppplacementgroupsMembersDelete(params *PcloudSppplacementgroupsMembersDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudSppplacementgroupsMembersDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -202,7 +228,7 @@ func (a *Client) PcloudSppplacementgroupsMembersDelete(params *PcloudSppplacemen
 }
 
 /*
-  PcloudSppplacementgroupsMembersPost adds shared processor pool as a member of a shared processor pool placement group
+PcloudSppplacementgroupsMembersPost adds shared processor pool as a member of a shared processor pool placement group
 */
 func (a *Client) PcloudSppplacementgroupsMembersPost(params *PcloudSppplacementgroupsMembersPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudSppplacementgroupsMembersPostOK, error) {
 	// TODO: Validate the params before sending
@@ -241,7 +267,7 @@ func (a *Client) PcloudSppplacementgroupsMembersPost(params *PcloudSppplacementg
 }
 
 /*
-  PcloudSppplacementgroupsPost creates a new shared processor pool placement group
+PcloudSppplacementgroupsPost creates a new shared processor pool placement group
 */
 func (a *Client) PcloudSppplacementgroupsPost(params *PcloudSppplacementgroupsPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudSppplacementgroupsPostOK, error) {
 	// TODO: Validate the params before sending

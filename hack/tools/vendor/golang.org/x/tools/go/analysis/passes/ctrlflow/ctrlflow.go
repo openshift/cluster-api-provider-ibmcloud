@@ -24,6 +24,7 @@ import (
 var Analyzer = &analysis.Analyzer{
 	Name:       "ctrlflow",
 	Doc:        "build a control-flow graph",
+	URL:        "https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/ctrlflow",
 	Run:        run,
 	ResultType: reflect.TypeOf(new(CFGs)),
 	FactTypes:  []analysis.Fact{new(noReturn)},
@@ -79,7 +80,7 @@ func (c *CFGs) FuncLit(lit *ast.FuncLit) *cfg.CFG {
 	return c.funcLits[lit].cfg
 }
 
-func run(pass *analysis.Pass) (interface{}, error) {
+func run(pass *analysis.Pass) (any, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	// Because CFG construction consumes and produces noReturn

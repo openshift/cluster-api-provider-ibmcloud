@@ -19,6 +19,9 @@ import (
 // swagger:model VolumeGroupDetails
 type VolumeGroupDetails struct {
 
+	// Indicates whether the volume group is for auxiliary volumes or master volumes
+	Auxiliary *bool `json:"auxiliary,omitempty"`
+
 	// The name of volume group at storage host level
 	ConsistencyGroupName string `json:"consistencyGroupName,omitempty"`
 
@@ -30,6 +33,9 @@ type VolumeGroupDetails struct {
 	// Required: true
 	Name *string `json:"name"`
 
+	// Indicates the replication site of the volume group
+	ReplicationSites []string `json:"replicationSites"`
+
 	// Replication status of volume group
 	ReplicationStatus string `json:"replicationStatus,omitempty"`
 
@@ -38,6 +44,9 @@ type VolumeGroupDetails struct {
 
 	// Status details of the volume group
 	StatusDescription *StatusDescription `json:"statusDescription,omitempty"`
+
+	// Indicates the storage pool of the volume group
+	StoragePool string `json:"storagePool,omitempty"`
 
 	// List of volume IDs,member of VolumeGroup
 	VolumeIDs []string `json:"volumeIDs"`
@@ -119,6 +128,11 @@ func (m *VolumeGroupDetails) ContextValidate(ctx context.Context, formats strfmt
 func (m *VolumeGroupDetails) contextValidateStatusDescription(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.StatusDescription != nil {
+
+		if swag.IsZero(m.StatusDescription) { // not required
+			return nil
+		}
+
 		if err := m.StatusDescription.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("statusDescription")

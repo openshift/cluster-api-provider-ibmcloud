@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/blang/semver"
+	"github.com/blang/semver/v4"
 	"github.com/pkg/errors"
 )
 
@@ -104,9 +104,8 @@ func newBuildIdentifiers(ids []string) buildIdentifiers {
 func (v buildIdentifiers) compare(o buildIdentifiers) int {
 	i := 0
 	for ; i < len(v) && i < len(o); i++ {
-		if comp := v[i].compare(o[i]); comp == 0 {
-			continue
-		} else {
+		comp := v[i].compare(o[i])
+		if comp != 0 {
 			return comp
 		}
 	}
@@ -116,9 +115,9 @@ func (v buildIdentifiers) compare(o buildIdentifiers) int {
 		return 0
 	} else if i == len(v) && i < len(o) {
 		return -1
-	} else {
-		return 1
 	}
+
+	return 1
 }
 
 type buildIdentifier struct {
@@ -192,10 +191,11 @@ type CompareOption func(*comparer)
 // - Identifiers with letters or hyphens are compared only for equality, otherwise, 2 is returned given
 // that it is not possible to identify if lower or greater (non-numeric identifiers could be random build
 // identifiers).
-//   -1 == a is less than b.
-//   0 == a is equal to b.
-//   1 == a is greater than b.
-//   2 == v is different than o (it is not possible to identify if lower or greater).
+//
+//	-1 == a is less than b.
+//	0 == a is equal to b.
+//	1 == a is greater than b.
+//	2 == v is different than o (it is not possible to identify if lower or greater).
 func WithBuildTags() CompareOption {
 	return func(c *comparer) {
 		c.buildTags = true

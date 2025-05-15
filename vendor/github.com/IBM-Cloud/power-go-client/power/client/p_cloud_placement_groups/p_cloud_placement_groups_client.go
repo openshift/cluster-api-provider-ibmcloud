@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud placement groups API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud placement groups API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud placement groups API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -46,7 +72,7 @@ type ClientService interface {
 }
 
 /*
-  PcloudPlacementgroupsDelete deletes server placement group
+PcloudPlacementgroupsDelete deletes server placement group
 */
 func (a *Client) PcloudPlacementgroupsDelete(params *PcloudPlacementgroupsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPlacementgroupsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -85,7 +111,7 @@ func (a *Client) PcloudPlacementgroupsDelete(params *PcloudPlacementgroupsDelete
 }
 
 /*
-  PcloudPlacementgroupsGet gets server placement group detail
+PcloudPlacementgroupsGet gets server placement group detail
 */
 func (a *Client) PcloudPlacementgroupsGet(params *PcloudPlacementgroupsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPlacementgroupsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -124,7 +150,7 @@ func (a *Client) PcloudPlacementgroupsGet(params *PcloudPlacementgroupsGetParams
 }
 
 /*
-  PcloudPlacementgroupsGetall gets all server placement groups
+PcloudPlacementgroupsGetall gets all server placement groups
 */
 func (a *Client) PcloudPlacementgroupsGetall(params *PcloudPlacementgroupsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPlacementgroupsGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -163,7 +189,7 @@ func (a *Client) PcloudPlacementgroupsGetall(params *PcloudPlacementgroupsGetall
 }
 
 /*
-  PcloudPlacementgroupsMembersDelete removes server from placement group
+PcloudPlacementgroupsMembersDelete removes server from placement group
 */
 func (a *Client) PcloudPlacementgroupsMembersDelete(params *PcloudPlacementgroupsMembersDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPlacementgroupsMembersDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -202,7 +228,7 @@ func (a *Client) PcloudPlacementgroupsMembersDelete(params *PcloudPlacementgroup
 }
 
 /*
-  PcloudPlacementgroupsMembersPost adds server to placement group
+PcloudPlacementgroupsMembersPost adds server to placement group
 */
 func (a *Client) PcloudPlacementgroupsMembersPost(params *PcloudPlacementgroupsMembersPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPlacementgroupsMembersPostOK, error) {
 	// TODO: Validate the params before sending
@@ -241,7 +267,7 @@ func (a *Client) PcloudPlacementgroupsMembersPost(params *PcloudPlacementgroupsM
 }
 
 /*
-  PcloudPlacementgroupsPost creates a new server placement group
+PcloudPlacementgroupsPost creates a new server placement group
 */
 func (a *Client) PcloudPlacementgroupsPost(params *PcloudPlacementgroupsPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPlacementgroupsPostOK, error) {
 	// TODO: Validate the params before sending

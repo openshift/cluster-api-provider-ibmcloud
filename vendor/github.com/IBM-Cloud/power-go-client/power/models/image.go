@@ -25,6 +25,9 @@ type Image struct {
 	// Format: date-time
 	CreationDate *strfmt.DateTime `json:"creationDate"`
 
+	// crn
+	Crn CRN `json:"crn,omitempty"`
+
 	// Description
 	Description string `json:"description,omitempty"`
 
@@ -36,6 +39,10 @@ type Image struct {
 	// Required: true
 	// Format: date-time
 	LastUpdateDate *strfmt.DateTime `json:"lastUpdateDate"`
+
+	// Maximum image volume size for multi-volume image
+	// Required: true
+	MaxImageVolumeSize *float64 `json:"maxImageVolumeSize"`
 
 	// Image Name
 	// Required: true
@@ -65,6 +72,9 @@ type Image struct {
 	// taskref
 	Taskref *TaskReference `json:"taskref,omitempty"`
 
+	// user tags
+	UserTags Tags `json:"userTags,omitempty"`
+
 	// Image Volumes
 	Volumes []*ImageVolume `json:"volumes"`
 }
@@ -77,11 +87,19 @@ func (m *Image) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateCrn(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateImageID(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if err := m.validateLastUpdateDate(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateMaxImageVolumeSize(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -109,6 +127,10 @@ func (m *Image) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateUserTags(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateVolumes(formats); err != nil {
 		res = append(res, err)
 	}
@@ -132,6 +154,23 @@ func (m *Image) validateCreationDate(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Image) validateCrn(formats strfmt.Registry) error {
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("crn")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("crn")
+		}
+		return err
+	}
+
+	return nil
+}
+
 func (m *Image) validateImageID(formats strfmt.Registry) error {
 
 	if err := validate.Required("imageID", "body", m.ImageID); err != nil {
@@ -148,6 +187,15 @@ func (m *Image) validateLastUpdateDate(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("lastUpdateDate", "body", "date-time", m.LastUpdateDate.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Image) validateMaxImageVolumeSize(formats strfmt.Registry) error {
+
+	if err := validate.Required("maxImageVolumeSize", "body", m.MaxImageVolumeSize); err != nil {
 		return err
 	}
 
@@ -228,6 +276,23 @@ func (m *Image) validateTaskref(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Image) validateUserTags(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserTags) { // not required
+		return nil
+	}
+
+	if err := m.UserTags.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("userTags")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("userTags")
+		}
+		return err
+	}
+
+	return nil
+}
+
 func (m *Image) validateVolumes(formats strfmt.Registry) error {
 	if swag.IsZero(m.Volumes) { // not required
 		return nil
@@ -258,11 +323,19 @@ func (m *Image) validateVolumes(formats strfmt.Registry) error {
 func (m *Image) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateCrn(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateSpecifications(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
 	if err := m.contextValidateTaskref(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUserTags(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -276,9 +349,32 @@ func (m *Image) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 	return nil
 }
 
+func (m *Image) contextValidateCrn(ctx context.Context, formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("crn")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("crn")
+		}
+		return err
+	}
+
+	return nil
+}
+
 func (m *Image) contextValidateSpecifications(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Specifications != nil {
+
+		if swag.IsZero(m.Specifications) { // not required
+			return nil
+		}
+
 		if err := m.Specifications.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("specifications")
@@ -295,6 +391,11 @@ func (m *Image) contextValidateSpecifications(ctx context.Context, formats strfm
 func (m *Image) contextValidateTaskref(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Taskref != nil {
+
+		if swag.IsZero(m.Taskref) { // not required
+			return nil
+		}
+
 		if err := m.Taskref.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("taskref")
@@ -308,11 +409,30 @@ func (m *Image) contextValidateTaskref(ctx context.Context, formats strfmt.Regis
 	return nil
 }
 
+func (m *Image) contextValidateUserTags(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserTags.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("userTags")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("userTags")
+		}
+		return err
+	}
+
+	return nil
+}
+
 func (m *Image) contextValidateVolumes(ctx context.Context, formats strfmt.Registry) error {
 
 	for i := 0; i < len(m.Volumes); i++ {
 
 		if m.Volumes[i] != nil {
+
+			if swag.IsZero(m.Volumes[i]) { // not required
+				return nil
+			}
+
 			if err := m.Volumes[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("volumes" + "." + strconv.Itoa(i))

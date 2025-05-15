@@ -29,15 +29,23 @@ import (
 
 // Version returns the kind CLI Semantic Version
 func Version() string {
-	v := VersionCore
+	return version(versionCore, versionPreRelease, gitCommit, gitCommitCount)
+}
+
+func version(core, preRelease, commit, commitCount string) string {
+	v := core
 	// add pre-release version info if we have it
-	if VersionPreRelease != "" {
-		v += "-" + VersionPreRelease
+	if preRelease != "" {
+		v += "-" + preRelease
+		// If commitCount was set, add to the pre-release version
+		if commitCount != "" {
+			v += "." + commitCount
+		}
 		// if commit was set, add the + <build>
 		// we only do this for pre-release versions
-		if GitCommit != "" {
+		if commit != "" {
 			// NOTE: use 14 character short hash, like Kubernetes
-			v += "+" + truncate(GitCommit, 14)
+			v += "+" + truncate(commit, 14)
 		}
 	}
 	return v
@@ -49,21 +57,24 @@ func DisplayVersion() string {
 	return "kind v" + Version() + " " + runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH
 }
 
-// VersionCore is the core portion of the kind CLI version per Semantic Versioning 2.0.0
-const VersionCore = "0.14.0"
+// versionCore is the core portion of the kind CLI version per Semantic Versioning 2.0.0
+const versionCore = "0.27.0"
 
-// VersionPreRelease is the pre-release portion of the kind CLI version per
+// versionPreRelease is the base pre-release portion of the kind CLI version per
 // Semantic Versioning 2.0.0
-const VersionPreRelease = ""
+var versionPreRelease = ""
 
-// GitCommit is the commit used to build the kind binary, if available.
+// gitCommitCount count the commits since the last release.
 // It is injected at build time.
-var GitCommit = ""
+var gitCommitCount = ""
+
+// gitCommit is the commit used to build the kind binary, if available.
+// It is injected at build time.
+var gitCommit = ""
 
 // NewCommand returns a new cobra.Command for version
 func NewCommand(logger log.Logger, streams cmd.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
-		Args:  cobra.NoArgs,
 		Use:   "version",
 		Short: "Prints the kind CLI version",
 		Long:  "Prints the kind CLI version",

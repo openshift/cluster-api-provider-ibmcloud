@@ -18,6 +18,7 @@ limitations under the License.
 package annotations
 
 import (
+	"regexp"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,6 +49,11 @@ func HasSkipRemediation(o metav1.Object) bool {
 	return hasAnnotation(o, clusterv1.MachineSkipRemediationAnnotation)
 }
 
+// HasRemediateMachine returns true if the object has the `remediate-machine` annotation.
+func HasRemediateMachine(o metav1.Object) bool {
+	return hasAnnotation(o, clusterv1.RemediateMachineAnnotation)
+}
+
 // HasWithPrefix returns true if at least one of the annotations has the prefix specified.
 func HasWithPrefix(prefix string, annotations map[string]string) bool {
 	for key := range annotations {
@@ -58,6 +64,11 @@ func HasWithPrefix(prefix string, annotations map[string]string) bool {
 	return false
 }
 
+// ReplicasManagedByExternalAutoscaler returns true if the standard annotation for external autoscaler is present.
+func ReplicasManagedByExternalAutoscaler(o metav1.Object) bool {
+	return hasTruthyAnnotationValue(o, clusterv1.ReplicasManagedByAnnotation)
+}
+
 // AddAnnotations sets the desired annotations on the object and returns true if the annotations have changed.
 func AddAnnotations(o metav1.Object, desired map[string]string) bool {
 	if len(desired) == 0 {
@@ -66,7 +77,6 @@ func AddAnnotations(o metav1.Object, desired map[string]string) bool {
 	annotations := o.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
-		o.SetAnnotations(annotations)
 	}
 	hasChanged := false
 	for k, v := range desired {
@@ -75,7 +85,38 @@ func AddAnnotations(o metav1.Object, desired map[string]string) bool {
 			hasChanged = true
 		}
 	}
+	o.SetAnnotations(annotations)
 	return hasChanged
+}
+
+// GetManagedAnnotations filters out and returns the CAPI-managed annotations for a Machine, with an optional list of regex patterns for user-specified annotations.
+func GetManagedAnnotations(m *clusterv1.Machine, additionalSyncMachineAnnotations ...*regexp.Regexp) map[string]string {
+	// Always sync CAPI's bookkeeping annotations
+	managedAnnotations := map[string]string{
+		clusterv1.ClusterNameAnnotation:      m.Spec.ClusterName,
+		clusterv1.ClusterNamespaceAnnotation: m.GetNamespace(),
+		clusterv1.MachineAnnotation:          m.Name,
+	}
+	if owner := metav1.GetControllerOfNoCopy(m); owner != nil {
+		managedAnnotations[clusterv1.OwnerKindAnnotation] = owner.Kind
+		managedAnnotations[clusterv1.OwnerNameAnnotation] = owner.Name
+	}
+	for key, value := range m.GetAnnotations() {
+		// Always sync CAPI's default annotation node domain
+		dnsSubdomainOrName := strings.Split(key, "/")[0]
+		if dnsSubdomainOrName == clusterv1.ManagedNodeAnnotationDomain || strings.HasSuffix(dnsSubdomainOrName, "."+clusterv1.ManagedNodeAnnotationDomain) {
+			managedAnnotations[key] = value
+			continue
+		}
+		// Sync if the annotations matches at least one user provided regex
+		for _, regex := range additionalSyncMachineAnnotations {
+			if regex.MatchString(key) {
+				managedAnnotations[key] = value
+				break
+			}
+		}
+	}
+	return managedAnnotations
 }
 
 // hasAnnotation returns true if the object has the specified annotation.
@@ -86,4 +127,16 @@ func hasAnnotation(o metav1.Object, annotation string) bool {
 	}
 	_, ok := annotations[annotation]
 	return ok
+}
+
+// hasTruthyAnnotationValue returns true if the object has an annotation with a value that is not "false".
+func hasTruthyAnnotationValue(o metav1.Object, annotation string) bool {
+	annotations := o.GetAnnotations()
+	if annotations == nil {
+		return false
+	}
+	if val, ok := annotations[annotation]; ok {
+		return val != "false"
+	}
+	return false
 }

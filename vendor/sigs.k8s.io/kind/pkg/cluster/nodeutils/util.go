@@ -19,6 +19,7 @@ package nodeutils
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"path"
 	"strings"
@@ -82,7 +83,7 @@ func LoadImageArchive(n nodes.Node, image io.Reader) error {
 	if err != nil {
 		return err
 	}
-	cmd := n.Command("ctr", "--namespace=k8s.io", "images", "import", "--digests", "--snapshotter="+snapshotter, "-").SetStdin(image)
+	cmd := n.Command("ctr", "--namespace=k8s.io", "images", "import", "--all-platforms", "--digests", "--snapshotter="+snapshotter, "-").SetStdin(image)
 	if err := cmd.Run(); err != nil {
 		return errors.Wrap(err, "failed to load image")
 	}
@@ -102,9 +103,24 @@ func parseSnapshotter(config string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "failed to detect containerd snapshotter")
 	}
-	snapshotter, ok := parsed.GetPath([]string{"plugins", "io.containerd.grpc.v1.cri", "containerd", "snapshotter"}).(string)
+	configVersion, ok := parsed.Get("version").(int64)
 	if !ok {
-		return "", errors.New("failed to detect containerd snapshotter")
+		return "", errors.New("failed to detect containerd config version")
+	}
+	var snapshotter string
+	switch configVersion {
+	case 2: // Introduced in containerd v1.3. Still supported in containerd v2.
+		snapshotter, ok = parsed.GetPath([]string{"plugins", "io.containerd.grpc.v1.cri", "containerd", "snapshotter"}).(string)
+		if !ok {
+			return "", errors.New("failed to detect containerd snapshotter (config version 2)")
+		}
+	case 3: // Introduced in containerd v2.0.
+		snapshotter, ok = parsed.GetPath([]string{"plugins", "io.containerd.cri.v1.images", "snapshotter"}).(string)
+		if !ok {
+			return "", errors.New("failed to detect containerd snapshotter (config version 3)")
+		}
+	default:
+		return "", fmt.Errorf("unknown containerd config version: %d (supported versions: 2 and 3)", configVersion)
 	}
 	return snapshotter, nil
 }
@@ -125,4 +141,32 @@ func ImageID(n nodes.Node, image string) (string, error) {
 		return "", err
 	}
 	return crictlOut.Status.ID, nil
+}
+
+// ImageTags is used to perform a reverse lookup of the ImageID to list set of available
+// RepoTags corresponding to the ImageID in question
+func ImageTags(n nodes.Node, imageID string) (map[string]bool, error) {
+	var out bytes.Buffer
+	tags := make(map[string]bool, 0)
+	if err := n.Command("crictl", "inspecti", imageID).SetStdout(&out).Run(); err != nil {
+		return tags, err
+	}
+	crictlOut := struct {
+		Status struct {
+			RepoTags []string `json:"repoTags"`
+		} `json:"status"`
+	}{}
+	if err := json.Unmarshal(out.Bytes(), &crictlOut); err != nil {
+		return tags, err
+	}
+	for _, tag := range crictlOut.Status.RepoTags {
+		tags[tag] = true
+	}
+	return tags, nil
+}
+
+// ReTagImage is used to tag an ImageID with a custom tag specified by imageName parameter
+func ReTagImage(n nodes.Node, imageID, imageName string) error {
+	var out bytes.Buffer
+	return n.Command("ctr", "--namespace=k8s.io", "images", "tag", "--force", imageID, imageName).SetStdout(&out).Run()
 }

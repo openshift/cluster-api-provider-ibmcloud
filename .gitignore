@@ -46,5 +46,6 @@ out/
 #ide settings
 .vscode/
 
-#claude settings
-.claude/
+
+# Do not ignore files in vendor directory
+!vendor/**

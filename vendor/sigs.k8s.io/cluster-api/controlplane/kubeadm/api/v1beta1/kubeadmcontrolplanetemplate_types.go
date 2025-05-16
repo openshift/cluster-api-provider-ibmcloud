@@ -19,11 +19,14 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
 )
 
 // KubeadmControlPlaneTemplateSpec defines the desired state of KubeadmControlPlaneTemplate.
 type KubeadmControlPlaneTemplateSpec struct {
+	// template defines the desired state of KubeadmControlPlaneTemplate.
+	// +required
 	Template KubeadmControlPlaneTemplateResource `json:"template"`
 }
 
@@ -34,9 +37,14 @@ type KubeadmControlPlaneTemplateSpec struct {
 
 // KubeadmControlPlaneTemplate is the Schema for the kubeadmcontrolplanetemplates API.
 type KubeadmControlPlaneTemplate struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the standard object's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// spec is the desired state of KubeadmControlPlaneTemplate.
+	// +optional
 	Spec KubeadmControlPlaneTemplateSpec `json:"spec,omitempty"`
 }
 
@@ -45,16 +53,27 @@ type KubeadmControlPlaneTemplate struct {
 // KubeadmControlPlaneTemplateList contains a list of KubeadmControlPlaneTemplate.
 type KubeadmControlPlaneTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
+	// metadata is the standard list's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#lists-and-simple-kinds
+	// +optional
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []KubeadmControlPlaneTemplate `json:"items"`
+	// items is the list of KubeadmControlPlaneTemplates.
+	Items []KubeadmControlPlaneTemplate `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&KubeadmControlPlaneTemplate{}, &KubeadmControlPlaneTemplateList{})
+	objectTypes = append(objectTypes, &KubeadmControlPlaneTemplate{}, &KubeadmControlPlaneTemplateList{})
 }
 
 // KubeadmControlPlaneTemplateResource describes the data needed to create a KubeadmControlPlane from a template.
 type KubeadmControlPlaneTemplateResource struct {
+	// metadata is the standard object's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+	// +optional
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
+
+	// spec is the desired state of KubeadmControlPlaneTemplateResource.
+	// +required
 	Spec KubeadmControlPlaneTemplateResourceSpec `json:"spec"`
 }
 
@@ -64,27 +83,43 @@ type KubeadmControlPlaneTemplateResource struct {
 // because they are calculated by the Cluster topology reconciler during reconciliation and thus cannot
 // be configured on the KubeadmControlPlaneTemplate.
 type KubeadmControlPlaneTemplateResourceSpec struct {
-	// MachineTemplate contains information about how machines
+	// machineTemplate contains information about how machines
 	// should be shaped when creating or updating a control plane.
 	// +optional
 	MachineTemplate *KubeadmControlPlaneTemplateMachineTemplate `json:"machineTemplate,omitempty"`
 
-	// KubeadmConfigSpec is a KubeadmConfigSpec
+	// kubeadmConfigSpec is a KubeadmConfigSpec
 	// to use for initializing and joining machines to the control plane.
+	// +required
 	KubeadmConfigSpec bootstrapv1.KubeadmConfigSpec `json:"kubeadmConfigSpec"`
 
-	// RolloutAfter is a field to indicate a rollout should be performed
+	// rolloutBefore is a field to indicate a rollout should be performed
+	// if the specified criteria is met.
+	//
+	// +optional
+	RolloutBefore *RolloutBefore `json:"rolloutBefore,omitempty"`
+
+	// rolloutAfter is a field to indicate a rollout should be performed
 	// after the specified time even if no changes have been made to the
 	// KubeadmControlPlane.
 	//
 	// +optional
 	RolloutAfter *metav1.Time `json:"rolloutAfter,omitempty"`
 
-	// The RolloutStrategy to use to replace control plane machines with
+	// rolloutStrategy is the RolloutStrategy to use to replace control plane machines with
 	// new ones.
 	// +optional
 	// +kubebuilder:default={type: "RollingUpdate", rollingUpdate: {maxSurge: 1}}
 	RolloutStrategy *RolloutStrategy `json:"rolloutStrategy,omitempty"`
+
+	// remediationStrategy is the RemediationStrategy that controls how control plane machine remediation happens.
+	// +optional
+	RemediationStrategy *RemediationStrategy `json:"remediationStrategy,omitempty"`
+
+	// machineNamingStrategy allows changing the naming pattern used when creating Machines.
+	// InfraMachines & KubeadmConfigs will use the same name as the corresponding Machines.
+	// +optional
+	MachineNamingStrategy *MachineNamingStrategy `json:"machineNamingStrategy,omitempty"`
 }
 
 // KubeadmControlPlaneTemplateMachineTemplate defines the template for Machines
@@ -94,13 +129,23 @@ type KubeadmControlPlaneTemplateResourceSpec struct {
 // because they are calculated by the Cluster topology reconciler during reconciliation and thus cannot
 // be configured on the KubeadmControlPlaneTemplate.
 type KubeadmControlPlaneTemplateMachineTemplate struct {
-	// NodeDrainTimeout is the total amount of time that the controller will spend on draining a controlplane node
+	// metadata is the standard object's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+	// +optional
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
+
+	// nodeDrainTimeout is the total amount of time that the controller will spend on draining a controlplane node
 	// The default value is 0, meaning that the node can be drained without any time limitations.
 	// NOTE: NodeDrainTimeout is different from `kubectl drain --timeout`
 	// +optional
 	NodeDrainTimeout *metav1.Duration `json:"nodeDrainTimeout,omitempty"`
 
-	// NodeDeletionTimeout defines how long the machine controller will attempt to delete the Node that the Machine
+	// nodeVolumeDetachTimeout is the total amount of time that the controller will spend on waiting for all volumes
+	// to be detached. The default value is 0, meaning that the volumes can be detached without any time limitations.
+	// +optional
+	NodeVolumeDetachTimeout *metav1.Duration `json:"nodeVolumeDetachTimeout,omitempty"`
+
+	// nodeDeletionTimeout defines how long the machine controller will attempt to delete the Node that the Machine
 	// hosts after the Machine is marked for deletion. A duration of 0 will retry deletion indefinitely.
 	// If no value is provided, the default value for this property of the Machine resource will be used.
 	// +optional

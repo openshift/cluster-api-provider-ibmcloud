@@ -3,6 +3,7 @@
 package junitxml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -32,6 +33,7 @@ type JUnitTestSuite struct {
 	XMLName    xml.Name        `xml:"testsuite"`
 	Tests      int             `xml:"tests,attr"`
 	Failures   int             `xml:"failures,attr"`
+	Skipped    int             `xml:"skipped,attr,omitempty"`
 	Time       string          `xml:"time,attr"`
 	Name       string          `xml:"name,attr"`
 	Properties []JUnitProperty `xml:"properties>property,omitempty"`
@@ -72,6 +74,8 @@ type Config struct {
 	ProjectName             string
 	FormatTestSuiteName     FormatFunc
 	FormatTestCaseClassname FormatFunc
+	HideEmptyPackages       bool
+	HideSkippedTests        bool
 	// This is used for tests to have a consistent timestamp
 	customTimestamp string
 	customElapsed   string
@@ -91,19 +95,35 @@ func Write(out io.Writer, exec *testjson.Execution, cfg Config) error {
 func generate(exec *testjson.Execution, cfg Config) JUnitTestSuites {
 	cfg = configWithDefaults(cfg)
 	version := goVersion()
+
+	total := exec.Total()
+	if cfg.HideSkippedTests && len(exec.Skipped()) > 0 {
+		total -= len(exec.Skipped())
+	}
+
 	suites := JUnitTestSuites{
 		Name:     cfg.ProjectName,
-		Tests:    exec.Total(),
+		Tests:    total,
 		Failures: len(exec.Failed()),
 		Errors:   len(exec.Errors()),
-		Time:     formatDurationAsSeconds(time.Since(exec.Started())),
+		Time:     formatDurationAsSeconds(exec.Elapsed()),
 	}
 
 	if cfg.customElapsed != "" {
 		suites.Time = cfg.customElapsed
 	}
+
 	for _, pkgname := range exec.Packages() {
 		pkg := exec.Package(pkgname)
+		if cfg.HideEmptyPackages && pkg.IsEmpty() {
+			continue
+		}
+
+		if cfg.HideSkippedTests && len(pkg.Skipped) > 0 {
+			pkg.Total -= len(pkg.Skipped)
+			pkg.Skipped = nil
+		}
+
 		junitpkg := JUnitTestSuite{
 			Name:       cfg.FormatTestSuiteName(pkgname),
 			Tests:      pkg.Total,
@@ -111,10 +131,11 @@ func generate(exec *testjson.Execution, cfg Config) JUnitTestSuites {
 			Properties: packageProperties(version),
 			TestCases:  packageTestCases(pkg, cfg.FormatTestCaseClassname),
 			Failures:   len(pkg.Failed),
+			Skipped:    len(pkg.Skipped),
 			Timestamp:  cfg.customTimestamp,
 		}
 		if cfg.customTimestamp == "" {
-			junitpkg.Timestamp = exec.Started().Format(time.RFC3339)
+			junitpkg.Timestamp = pkg.Start.Format(time.RFC3339)
 		}
 		suites.Suites = append(suites.Suites, junitpkg)
 	}
@@ -168,10 +189,12 @@ func packageTestCases(pkg *testjson.Package, formatClassname FormatFunc) []JUnit
 	cases := []JUnitTestCase{}
 
 	if pkg.TestMainFailed() {
+		var buf bytes.Buffer
+		pkg.WriteOutputTo(&buf, 0) //nolint:errcheck
 		jtc := newJUnitTestCase(testjson.TestCase{Test: "TestMain"}, formatClassname)
 		jtc.Failure = &JUnitFailure{
 			Message:  "Failed",
-			Contents: pkg.Output(0),
+			Contents: buf.String(),
 		}
 		cases = append(cases, jtc)
 	}

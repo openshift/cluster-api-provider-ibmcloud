@@ -19,13 +19,14 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
@@ -39,12 +40,47 @@ type QuickStartSpecInput struct {
 	BootstrapClusterProxy framework.ClusterProxy
 	ArtifactFolder        string
 	SkipCleanup           bool
-	ControlPlaneWaiters   clusterctl.ControlPlaneWaiters
+
+	// Cluster name allows to specify a deterministic clusterName.
+	// If not set, a random one will be generated.
+	ClusterName *string
+
+	// DeployClusterClassInSeparateNamespace defines if the ClusterClass should be deployed in a separate namespace.
+	DeployClusterClassInSeparateNamespace bool
+
+	// InfrastructureProvider allows to specify the infrastructure provider to be used when looking for
+	// cluster templates.
+	// If not set, clusterctl will look at the infrastructure provider installed in the management cluster;
+	// if only one infrastructure provider exists, it will be used, otherwise the operation will fail if more than one exists.
+	InfrastructureProvider *string
 
 	// Flavor, if specified is the template flavor used to create the cluster for testing.
-	// If not specified, and the e2econfig variable IPFamily is IPV6, then "ipv6" is used,
-	// otherwise the default flavor is used.
+	// If not specified, the default flavor for the selected infrastructure provider is used.
 	Flavor *string
+
+	// ControlPlaneMachineCount defines the number of control plane machines to be added to the workload cluster.
+	// If not specified, 1 will be used.
+	ControlPlaneMachineCount *int64
+
+	// WorkerMachineCount defines number of worker machines to be added to the workload cluster.
+	// If not specified, 1 will be used.
+	WorkerMachineCount *int64
+
+	// Allows to inject functions to be run while waiting for the control plane to be initialized,
+	// which unblocks CNI installation, and for the control plane machines to be ready (after CNI installation).
+	ControlPlaneWaiters clusterctl.ControlPlaneWaiters
+
+	// Allows to inject a function to be run after test namespace is created.
+	// If not specified, this is a no-op.
+	PostNamespaceCreated func(managementClusterProxy framework.ClusterProxy, workloadClusterNamespace string)
+
+	// Allows to inject a function to be run after machines are provisioned.
+	// If not specified, this is a no-op.
+	PostMachinesProvisioned func(managementClusterProxy framework.ClusterProxy, workloadClusterNamespace, workloadClusterName string)
+
+	// ClusterctlVariables allows injecting variables to the cluster template.
+	// If not specified, this is a no-op.
+	ClusterctlVariables map[string]string
 }
 
 // QuickStartSpec implements a spec that mimics the operation described in the Cluster API quick start, that is
@@ -53,11 +89,12 @@ type QuickStartSpecInput struct {
 // NOTE: This test works with Clusters with and without ClusterClass.
 func QuickStartSpec(ctx context.Context, inputGetter func() QuickStartSpecInput) {
 	var (
-		specName         = "quick-start"
-		input            QuickStartSpecInput
-		namespace        *corev1.Namespace
-		cancelWatches    context.CancelFunc
-		clusterResources *clusterctl.ApplyClusterTemplateAndWaitResult
+		specName              = "quick-start"
+		input                 QuickStartSpecInput
+		namespace             *corev1.Namespace
+		clusterClassNamespace *corev1.Namespace
+		cancelWatches         context.CancelFunc
+		clusterResources      *clusterctl.ApplyClusterTemplateAndWaitResult
 	)
 
 	BeforeEach(func() {
@@ -71,16 +108,50 @@ func QuickStartSpec(ctx context.Context, inputGetter func() QuickStartSpecInput)
 		Expect(input.E2EConfig.Variables).To(HaveKey(KubernetesVersion))
 
 		// Setup a Namespace where to host objects for this spec and create a watcher for the namespace events.
-		namespace, cancelWatches = setupSpecNamespace(ctx, specName, input.BootstrapClusterProxy, input.ArtifactFolder)
+		namespace, cancelWatches = framework.SetupSpecNamespace(ctx, specName, input.BootstrapClusterProxy, input.ArtifactFolder, input.PostNamespaceCreated)
+
+		if input.DeployClusterClassInSeparateNamespace {
+			clusterClassNamespace = framework.CreateNamespace(ctx, framework.CreateNamespaceInput{Creator: input.BootstrapClusterProxy.GetClient(), Name: fmt.Sprintf("%s-clusterclass", namespace.Name)}, "40s", "10s")
+			Expect(clusterClassNamespace).ToNot(BeNil(), "Failed to create namespace")
+		}
+
 		clusterResources = new(clusterctl.ApplyClusterTemplateAndWaitResult)
 	})
 
 	It("Should create a workload cluster", func() {
 		By("Creating a workload cluster")
 
+		infrastructureProvider := clusterctl.DefaultInfrastructureProvider
+		if input.InfrastructureProvider != nil {
+			infrastructureProvider = *input.InfrastructureProvider
+		}
+
 		flavor := clusterctl.DefaultFlavor
 		if input.Flavor != nil {
 			flavor = *input.Flavor
+		}
+
+		controlPlaneMachineCount := ptr.To[int64](1)
+		if input.ControlPlaneMachineCount != nil {
+			controlPlaneMachineCount = input.ControlPlaneMachineCount
+		}
+
+		workerMachineCount := ptr.To[int64](1)
+		if input.WorkerMachineCount != nil {
+			workerMachineCount = input.WorkerMachineCount
+		}
+
+		clusterName := fmt.Sprintf("%s-%s", specName, util.RandomString(6))
+		if input.ClusterName != nil {
+			clusterName = *input.ClusterName
+		}
+
+		variables := map[string]string{}
+		maps.Copy(variables, input.ClusterctlVariables)
+
+		if input.DeployClusterClassInSeparateNamespace {
+			variables["CLUSTER_CLASS_NAMESPACE"] = clusterClassNamespace.Name
+			By("Creating a cluster referencing a ClusterClass from another namespace")
 		}
 
 		clusterctl.ApplyClusterTemplateAndWait(ctx, clusterctl.ApplyClusterTemplateAndWaitInput{
@@ -88,19 +159,25 @@ func QuickStartSpec(ctx context.Context, inputGetter func() QuickStartSpecInput)
 			ConfigCluster: clusterctl.ConfigClusterInput{
 				LogFolder:                filepath.Join(input.ArtifactFolder, "clusters", input.BootstrapClusterProxy.GetName()),
 				ClusterctlConfigPath:     input.ClusterctlConfigPath,
+				ClusterctlVariables:      variables,
 				KubeconfigPath:           input.BootstrapClusterProxy.GetKubeconfigPath(),
-				InfrastructureProvider:   clusterctl.DefaultInfrastructureProvider,
+				InfrastructureProvider:   infrastructureProvider,
 				Flavor:                   flavor,
 				Namespace:                namespace.Name,
-				ClusterName:              fmt.Sprintf("%s-%s", specName, util.RandomString(6)),
-				KubernetesVersion:        input.E2EConfig.GetVariable(KubernetesVersion),
-				ControlPlaneMachineCount: pointer.Int64Ptr(1),
-				WorkerMachineCount:       pointer.Int64Ptr(1),
+				ClusterName:              clusterName,
+				KubernetesVersion:        input.E2EConfig.MustGetVariable(KubernetesVersion),
+				ControlPlaneMachineCount: controlPlaneMachineCount,
+				WorkerMachineCount:       workerMachineCount,
 			},
 			ControlPlaneWaiters:          input.ControlPlaneWaiters,
 			WaitForClusterIntervals:      input.E2EConfig.GetIntervals(specName, "wait-cluster"),
 			WaitForControlPlaneIntervals: input.E2EConfig.GetIntervals(specName, "wait-control-plane"),
 			WaitForMachineDeployments:    input.E2EConfig.GetIntervals(specName, "wait-worker-nodes"),
+			PostMachinesProvisioned: func() {
+				if input.PostMachinesProvisioned != nil {
+					input.PostMachinesProvisioned(input.BootstrapClusterProxy, namespace.Name, clusterName)
+				}
+			},
 		}, clusterResources)
 
 		By("PASSED!")
@@ -108,6 +185,12 @@ func QuickStartSpec(ctx context.Context, inputGetter func() QuickStartSpecInput)
 
 	AfterEach(func() {
 		// Dumps all the resources in the spec namespace, then cleanups the cluster object and the spec namespace itself.
-		dumpSpecResourcesAndCleanup(ctx, specName, input.BootstrapClusterProxy, input.ArtifactFolder, namespace, cancelWatches, clusterResources.Cluster, input.E2EConfig.GetIntervals, input.SkipCleanup)
+		framework.DumpSpecResourcesAndCleanup(ctx, specName, input.BootstrapClusterProxy, input.ClusterctlConfigPath, input.ArtifactFolder, namespace, cancelWatches, clusterResources.Cluster, input.E2EConfig.GetIntervals, input.SkipCleanup)
+		if input.DeployClusterClassInSeparateNamespace && !input.SkipCleanup {
+			framework.DeleteNamespace(ctx, framework.DeleteNamespaceInput{
+				Deleter: input.BootstrapClusterProxy.GetClient(),
+				Name:    clusterClassNamespace.Name,
+			})
+		}
 	})
 }

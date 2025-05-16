@@ -64,6 +64,9 @@ type ExtensionRegistration struct {
 	// ExtensionConfigName is the name of the corresponding ExtensionConfig.
 	ExtensionConfigName string
 
+	// ExtensionConfigResourceVersion is the ResourceVersion of the corresponding ExtensionConfig.
+	ExtensionConfigResourceVersion string
+
 	// GroupVersionHook is the GroupVersionHook that the RuntimeExtension implements.
 	GroupVersionHook runtimecatalog.GroupVersionHook
 
@@ -78,6 +81,9 @@ type ExtensionRegistration struct {
 
 	// FailurePolicy defines how failures in calls to the RuntimeExtension should be handled by a client.
 	FailurePolicy *runtimev1.FailurePolicy
+
+	// Settings captures additional information sent in call to the RuntimeExtensions.
+	Settings map[string]string
 }
 
 // extensionRegistry is an implementation of ExtensionRegistry.
@@ -244,8 +250,9 @@ func (r *extensionRegistry) add(extensionConfig *runtimev1.ExtensionConfig) erro
 
 		// Registrations will only be added to the registry if no errors occur (all or nothing).
 		registrations = append(registrations, &ExtensionRegistration{
-			ExtensionConfigName: extensionConfig.Name,
-			Name:                e.Name,
+			ExtensionConfigName:            extensionConfig.Name,
+			ExtensionConfigResourceVersion: extensionConfig.ResourceVersion,
+			Name:                           e.Name,
 			GroupVersionHook: runtimecatalog.GroupVersionHook{
 				Group:   gv.Group,
 				Version: gv.Version,
@@ -255,6 +262,7 @@ func (r *extensionRegistry) add(extensionConfig *runtimev1.ExtensionConfig) erro
 			ClientConfig:      extensionConfig.Spec.ClientConfig,
 			TimeoutSeconds:    e.TimeoutSeconds,
 			FailurePolicy:     e.FailurePolicy,
+			Settings:          extensionConfig.Spec.Settings,
 		})
 	}
 

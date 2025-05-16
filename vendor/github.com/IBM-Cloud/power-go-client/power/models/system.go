@@ -20,15 +20,33 @@ import (
 type System struct {
 
 	// The host available Processor units
+	AvailableCores float64 `json:"availableCores,omitempty"`
+
+	// The host available RAM memory in GiB
+	AvailableMemory int64 `json:"availableMemory,omitempty"`
+
+	// The host available Processor units
 	// Required: true
 	Cores *float64 `json:"cores"`
 
 	// The host identifier
 	ID int64 `json:"id,omitempty"`
 
-	// The host available RAM memory in GiB
+	// The host total RAM memory in GiB
 	// Required: true
 	Memory *int64 `json:"memory"`
+
+	// The host total usable Processor units
+	TotalCores float64 `json:"totalCores,omitempty"`
+
+	// The host total usable RAM memory in GiB
+	TotalMemory int64 `json:"totalMemory,omitempty"`
+
+	// Total number of physical cores in the Pod
+	TotalPhysCores float64 `json:"totalPhysCores,omitempty"`
+
+	// Total amount of physical memory in the Pod (GB)
+	TotalPhysMemory int64 `json:"totalPhysMemory,omitempty"`
 }
 
 // Validate validates this system

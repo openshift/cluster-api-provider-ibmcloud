@@ -1,1 +1,0 @@
-Collection of Docker checks

@@ -13,52 +13,43 @@
 # limitations under the License.
 
 # Go
-GO_VERSION ?=1.22.12
+GO_VERSION ?=1.23.8
 GO_CONTAINER_IMAGE ?= golang:$(GO_VERSION)
 
 REGISTRY=gcr.io/k8s-staging-capi-ibmcloud
 IMG=powervs-cloud-controller-manager
 
 # POWERVS_CLOUD_CONTROLLER_COMMIT can be fetched from here https://github.com/openshift/cloud-provider-powervs/commits/main
-POWERVS_CLOUD_CONTROLLER_COMMIT?=0b19baf
+POWERVS_CLOUD_CONTROLLER_COMMIT?=ef83f3f
 TAG?=$(POWERVS_CLOUD_CONTROLLER_COMMIT)
 
-build-image-linux-amd64: init-buildx
+build-image: init-buildx gcloud-auth
 	{ \
-        set -e ; \
-        docker buildx build \
-                --build-arg golang_image=$(GO_CONTAINER_IMAGE) \
-                --build-arg TARGETPLATFORM=linux/amd64 --build-arg ARCH=amd64 \
-                --build-arg POWERVS_CLOUD_CONTROLLER_COMMIT=$(POWERVS_CLOUD_CONTROLLER_COMMIT) \
-                -t $(REGISTRY)/$(IMG):$(TAG)_linux_amd64 . --load --target centos-base; \
-        }
-
-build-image-linux-ppc64le: init-buildx
-	{ \
-        set -e ; \
-        docker buildx build \
-                --build-arg golang_image=$(GO_CONTAINER_IMAGE) \
-                --build-arg TARGETPLATFORM=linux/ppc64le --build-arg ARCH=ppc64le \
-                --build-arg POWERVS_CLOUD_CONTROLLER_COMMIT=$(POWERVS_CLOUD_CONTROLLER_COMMIT) \
-                -t $(REGISTRY)/$(IMG):$(TAG)_linux_ppc64le . --load --target centos-base; \
-        }
-
-build-image-and-push-linux-amd64: build-image-linux-amd64
-	docker push $(REGISTRY)/$(IMG):$(TAG)_linux_amd64
-
-build-image-and-push-linux-ppc64le: build-image-linux-ppc64le
-	docker push $(REGISTRY)/$(IMG):$(TAG)_linux_ppc64le
+		set -e ; \
+		docker buildx build \
+			--platform=linux/amd64,linux/ppc64le --pull \
+			--build-arg golang_image=$(GO_CONTAINER_IMAGE) \
+			--build-arg POWERVS_CLOUD_CONTROLLER_COMMIT=$(POWERVS_CLOUD_CONTROLLER_COMMIT) \
+			-t $(REGISTRY)/$(IMG):$(TAG) . --push --target centos-base; \
+    }
 
 init-buildx:
 	# Ensure we use a builder that can leverage it (the default on linux will not)
 	-docker buildx rm multiarch-multiplatform-builder
 	docker buildx create --use --name=multiarch-multiplatform-builder
 	docker run --rm --privileged multiarch/qemu-user-static --reset --credential yes --persistent yes
+
+gcloud-auth:
 	# Register gcloud as a Docker credential helper.
 	# Required for "docker buildx build --push".
 	gcloud auth configure-docker --quiet
 
-
-build-and-push-multi-arch: build-image-and-push-linux-amd64 build-image-and-push-linux-ppc64le
-	docker manifest create --amend $(REGISTRY)/$(IMG):$(TAG) $(REGISTRY)/$(IMG):$(TAG)_linux_amd64 $(REGISTRY)/$(IMG):$(TAG)_linux_ppc64le
-	docker manifest push $(REGISTRY)/$(IMG):$(TAG)
+build-local: init-buildx
+	{ \
+		set -e ; \
+		docker buildx build \
+			--platform=linux/$(ARCH) --pull \
+			--build-arg golang_image=$(GO_CONTAINER_IMAGE) \
+			--build-arg POWERVS_CLOUD_CONTROLLER_COMMIT=$(POWERVS_CLOUD_CONTROLLER_COMMIT) \
+			-t $(REGISTRY)/$(IMG)-$(ARCH):$(TAG) . --output=type=docker --target centos-base; \
+    }

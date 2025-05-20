@@ -22,34 +22,36 @@ import (
 	"os"
 	"testing"
 
+	"go.uber.org/mock/gomock"
+
 	"github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/ibm-cos-sdk-go/aws/awserr"
+	"github.com/IBM/ibm-cos-sdk-go/service/s3"
+	tgapiv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	regionUtil "github.com/ppc64le-cloud/powervs-utils"
-	"go.uber.org/mock/gomock"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	tgapiv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
-	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
-	mockP "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs/mock"
-	tgmock "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/transitgateway/mock"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
+	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/utils"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/cos"
 	mockcos "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/cos/mock"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs"
+	mockP "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs/mock"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcecontroller"
 	mockRC "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcecontroller/mock"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcemanager"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/transitgateway"
+	tgmock "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/transitgateway/mock"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc/mock"
 
-	"github.com/IBM/ibm-cos-sdk-go/service/s3"
 	. "github.com/onsi/gomega"
 )
 
@@ -1199,7 +1201,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 
 		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(nil, nil, errors.New("failed to fetch VPC load balancer details"))
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(loadBalancerReady).To(BeFalse())
 	})
@@ -1228,7 +1230,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 			Name:               ptr.To("test-lb"),
 		}, nil, nil)
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(loadBalancerReady).To(BeFalse())
 	})
@@ -1266,7 +1268,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 			Name:               ptr.To("test-inactive-lb"),
 		}, nil, nil)
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(loadBalancerReady).To(BeFalse())
 	})
@@ -1296,7 +1298,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 			Name:               ptr.To("test-lb"),
 		}, nil, nil)
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(loadBalancerReady).To(BeTrue())
 		g.Expect(err).To(BeNil())
 
@@ -1327,7 +1329,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 
 		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, errors.New("failed to get load balancer by name"))
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(loadBalancerReady).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -1352,7 +1354,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 
 		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(loadBalancerReady).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -1383,7 +1385,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 			ID:                 ptr.To("test-lb-instanceid"),
 		}, nil)
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(loadBalancerReady).To(BeTrue())
 		g.Expect(err).To(BeNil())
 
@@ -1428,7 +1430,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 
 		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(loadBalancerReady).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -1479,7 +1481,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 
 		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
 		mockVpc.EXPECT().CreateLoadBalancer(gomock.Any()).Return(nil, nil, errors.New("failed loadBalancer creation"))
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(loadBalancerReady).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -1535,7 +1537,7 @@ func TestReconcileLoadBalancers(t *testing.T) {
 			Hostname:           ptr.To("test-lb-hostname"),
 		}, nil, nil)
 
-		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers()
+		loadBalancerReady, err := clusterScope.ReconcileLoadBalancers(ctx)
 		g.Expect(loadBalancerReady).To(BeFalse())
 		g.Expect(err).To(BeNil())
 
@@ -1591,7 +1593,7 @@ func TestCreateLoadbalancer(t *testing.T) {
 			},
 		}
 
-		loadBalancerStatus, err := clusterScope.createLoadBalancer(lb)
+		loadBalancerStatus, err := clusterScope.createLoadBalancer(ctx, lb)
 		g.Expect(loadBalancerStatus).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -1627,7 +1629,7 @@ func TestCreateLoadbalancer(t *testing.T) {
 			},
 		}
 
-		loadbalancerStatus, err := clusterScope.createLoadBalancer(lb)
+		loadbalancerStatus, err := clusterScope.createLoadBalancer(ctx, lb)
 		g.Expect(loadbalancerStatus).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -1686,7 +1688,7 @@ func TestCreateLoadbalancer(t *testing.T) {
 		}
 
 		mockVpc.EXPECT().CreateLoadBalancer(gomock.Any()).Return(nil, nil, errors.New("failed loadBalancer creation"))
-		loadBalancerStatus, err := clusterScope.createLoadBalancer(lb)
+		loadBalancerStatus, err := clusterScope.createLoadBalancer(ctx, lb)
 		g.Expect(loadBalancerStatus).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -1750,7 +1752,7 @@ func TestCreateLoadbalancer(t *testing.T) {
 			Hostname:           ptr.To("test-lb-hostname"),
 		}, nil, nil)
 
-		loadBalancerStatus, err := clusterScope.createLoadBalancer(lb)
+		loadBalancerStatus, err := clusterScope.createLoadBalancer(ctx, lb)
 		g.Expect(err).To(BeNil())
 		g.Expect(loadBalancerStatus.State).To(BeEquivalentTo(infrav1beta2.VPCLoadBalancerStateActive))
 		g.Expect(loadBalancerStatus.ControllerCreated).To(Equal(ptr.To(true)))
@@ -1846,7 +1848,7 @@ func TestCheckLoadBalancer(t *testing.T) {
 		}
 
 		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, errors.New("failed to get load balancer by name"))
-		loadBalancerStatus, err := clusterScope.checkLoadBalancer(lb)
+		loadBalancerStatus, err := clusterScope.checkLoadBalancer(ctx, lb)
 		g.Expect(loadBalancerStatus).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -1875,7 +1877,7 @@ func TestCheckLoadBalancer(t *testing.T) {
 
 		mockVpc.EXPECT().GetLoadBalancerByName(gomock.Any()).Return(nil, nil)
 
-		loadBalancerStatus, err := clusterScope.checkLoadBalancer(lb)
+		loadBalancerStatus, err := clusterScope.checkLoadBalancer(ctx, lb)
 		g.Expect(loadBalancerStatus).To(BeNil())
 		g.Expect(err).To(BeNil())
 	})
@@ -1910,7 +1912,7 @@ func TestCheckLoadBalancer(t *testing.T) {
 			Name: "test-lb",
 		}
 
-		loadBalancerStatus, err := clusterScope.checkLoadBalancer(lb)
+		loadBalancerStatus, err := clusterScope.checkLoadBalancer(ctx, lb)
 		g.Expect(err).To(BeNil())
 		g.Expect(loadBalancerStatus.ID).To(Equal(ptr.To("test-lb-instanceid")))
 		g.Expect(loadBalancerStatus.State).To(Equal(infrav1beta2.VPCLoadBalancerStateActive))
@@ -1945,7 +1947,7 @@ func TestCheckLoadBalancerStatus(t *testing.T) {
 		g := NewWithT(t)
 		clusterScope := PowerVSClusterScope{}
 		t.Run(tc.name, func(_ *testing.T) {
-			isReady := clusterScope.checkLoadBalancerStatus(tc.loadbalancer)
+			isReady := clusterScope.checkLoadBalancerStatus(ctx, tc.loadbalancer)
 			g.Expect(isReady).To(Equal(tc.expectedStatus))
 		})
 	}
@@ -1982,7 +1984,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to get resource instance"))
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2005,7 +2007,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, nil)
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2032,7 +2034,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 		}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(instance, nil, nil)
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2059,7 +2061,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 		}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(instance, nil, nil)
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2082,7 +2084,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to get resource instance"))
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2110,7 +2112,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 		}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(instance, nil, nil)
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.ServiceInstance.ID).To(Equal("instance-GUID"))
@@ -2148,7 +2150,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 		}
 		mockResourceController.EXPECT().GetResourceInstance(resource).Return(instance, nil, nil)
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2167,7 +2169,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().GetServiceInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2192,7 +2194,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 		mockResourceController.EXPECT().GetServiceInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(nil, nil, nil)
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2222,7 +2224,7 @@ func TestReconcilePowerVSServiceInstance(t *testing.T) {
 		mockResourceController.EXPECT().GetServiceInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(instance, nil, nil)
 
-		requeue, err := clusterScope.ReconcilePowerVSServiceInstance()
+		requeue, err := clusterScope.ReconcilePowerVSServiceInstance(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.ServiceInstance.ID).To(Equal("instance-GUID"))
@@ -2262,7 +2264,7 @@ func TestCheckServiceInstanceState(t *testing.T) {
 		g := NewWithT(t)
 		t.Run(tc.name, func(_ *testing.T) {
 			clusterScope := PowerVSClusterScope{}
-			requeue, err := clusterScope.checkServiceInstanceState(tc.instance)
+			requeue, err := clusterScope.checkServiceInstanceState(ctx, tc.instance)
 			g.Expect(requeue).To(Equal(tc.requeue))
 			if tc.expectedErr != nil {
 				g.Expect(err).To(Equal(tc.expectedErr))
@@ -2303,7 +2305,7 @@ func TestIsServiceInstanceExists(t *testing.T) {
 
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to get resource instance"))
 
-		instanceID, requeue, err := clusterScope.isServiceInstanceExists()
+		instanceID, requeue, err := clusterScope.isServiceInstanceExists(ctx)
 		g.Expect(instanceID).To(Equal(""))
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).NotTo(BeNil())
@@ -2326,7 +2328,7 @@ func TestIsServiceInstanceExists(t *testing.T) {
 
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to get resource instance"))
 
-		instanceID, requeue, err := clusterScope.isServiceInstanceExists()
+		instanceID, requeue, err := clusterScope.isServiceInstanceExists(ctx)
 		g.Expect(instanceID).To(Equal(""))
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).NotTo(BeNil())
@@ -2349,7 +2351,7 @@ func TestIsServiceInstanceExists(t *testing.T) {
 
 		mockResourceController.EXPECT().GetServiceInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 
-		instanceID, requeue, err := clusterScope.isServiceInstanceExists()
+		instanceID, requeue, err := clusterScope.isServiceInstanceExists(ctx)
 		g.Expect(instanceID).To(Equal(""))
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).To(BeNil())
@@ -2373,7 +2375,7 @@ func TestIsServiceInstanceExists(t *testing.T) {
 
 		mockResourceController.EXPECT().GetServiceInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{Name: ptr.To("instance"), State: ptr.To("unknown")}, nil)
 
-		instanceID, requeue, err := clusterScope.isServiceInstanceExists()
+		instanceID, requeue, err := clusterScope.isServiceInstanceExists(ctx)
 		g.Expect(instanceID).To(Equal(""))
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
@@ -2397,7 +2399,7 @@ func TestIsServiceInstanceExists(t *testing.T) {
 
 		mockResourceController.EXPECT().GetServiceInstance(gomock.Any(), gomock.Any(), gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{GUID: ptr.To("guid"), Name: ptr.To("instance"), State: ptr.To("active")}, nil)
 
-		instanceID, requeue, err := clusterScope.isServiceInstanceExists()
+		instanceID, requeue, err := clusterScope.isServiceInstanceExists(ctx)
 		g.Expect(instanceID).To(Equal("guid"))
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).To(BeNil())
@@ -2429,7 +2431,7 @@ func TestCreateServiceInstance(t *testing.T) {
 			},
 		}
 
-		instance, err := clusterScope.createServiceInstance()
+		instance, err := clusterScope.createServiceInstance(ctx)
 		g.Expect(instance).To(BeNil())
 		g.Expect(err).NotTo(BeNil())
 	})
@@ -2449,7 +2451,7 @@ func TestCreateServiceInstance(t *testing.T) {
 			},
 		}
 
-		instance, err := clusterScope.createServiceInstance()
+		instance, err := clusterScope.createServiceInstance(ctx)
 		g.Expect(instance).To(BeNil())
 		g.Expect(err).NotTo(BeNil())
 	})
@@ -2472,7 +2474,7 @@ func TestCreateServiceInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to create resource instance"))
 
-		instance, err := clusterScope.createServiceInstance()
+		instance, err := clusterScope.createServiceInstance(ctx)
 		g.Expect(instance).To(BeNil())
 		g.Expect(err).NotTo(BeNil())
 	})
@@ -2495,7 +2497,7 @@ func TestCreateServiceInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{}, nil, nil)
 
-		instance, err := clusterScope.createServiceInstance()
+		instance, err := clusterScope.createServiceInstance(ctx)
 		g.Expect(instance).ToNot(BeNil())
 		g.Expect(err).To(BeNil())
 	})
@@ -2527,7 +2529,7 @@ func TestReconcileVPC(t *testing.T) {
 		vpcOutput := &vpcv1.VPC{Name: ptr.To("VPCName"), ID: ptr.To("VPCID")}
 		mockVPC.EXPECT().GetVPCByName(gomock.Any()).Return(vpcOutput, nil)
 
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPC.ID).To(Equal(vpcOutput.ID))
@@ -2542,7 +2544,7 @@ func TestReconcileVPC(t *testing.T) {
 			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{},
 		}
 		mockVPC.EXPECT().GetVPCByName(gomock.Any()).Return(nil, fmt.Errorf("GetVPCByName error"))
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2561,7 +2563,7 @@ func TestReconcileVPC(t *testing.T) {
 		mockVPC.EXPECT().GetVPCByName(gomock.Any()).Return(nil, nil)
 		mockVPC.EXPECT().CreateVPC(gomock.Any()).Return(vpcOutput, nil, nil)
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(nil, nil, nil)
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPC.ID).To(Equal(vpcOutput.ID))
@@ -2580,7 +2582,7 @@ func TestReconcileVPC(t *testing.T) {
 		mockVPC.EXPECT().GetVPCByName(gomock.Any()).Return(nil, nil)
 		mockVPC.EXPECT().CreateVPC(gomock.Any()).Return(nil, nil, fmt.Errorf("CreateVPC returns error"))
 
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2599,7 +2601,7 @@ func TestReconcileVPC(t *testing.T) {
 		vpcOutput := &vpcv1.VPC{Name: ptr.To("VPCName"), ID: ptr.To("VPCID")}
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(vpcOutput, nil, nil)
 
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPC.ID).To(Equal(vpcOutput.ID))
@@ -2617,7 +2619,7 @@ func TestReconcileVPC(t *testing.T) {
 				Status: infrav1beta2.IBMPowerVSClusterStatus{VPC: &infrav1beta2.ResourceReference{ID: ptr.To("VPCID")}}},
 		}
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(nil, nil, fmt.Errorf("GetVPC returns error"))
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2634,7 +2636,7 @@ func TestReconcileVPC(t *testing.T) {
 			},
 		}
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(nil, nil, nil)
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2652,7 +2654,7 @@ func TestReconcileVPC(t *testing.T) {
 			},
 		}
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(vpcOutput, nil, nil)
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -2669,7 +2671,7 @@ func TestReconcileVPC(t *testing.T) {
 				Status: infrav1beta2.IBMPowerVSClusterStatus{VPC: &infrav1beta2.ResourceReference{ID: ptr.To("VPCID")}}},
 		}
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(vpcOutput, nil, nil)
-		requeue, err := clusterScope.ReconcileVPC()
+		requeue, err := clusterScope.ReconcileVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -2767,22 +2769,6 @@ func TestGetServiceName(t *testing.T) {
 			expectedName: ptr.To("ServiceInstanceName"),
 		},
 		{
-			name:         "Resource type is network and Network is nil",
-			resourceType: infrav1beta2.ResourceTypeNetwork,
-			clusterScope: PowerVSClusterScope{
-				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{ObjectMeta: metav1.ObjectMeta{Name: "ClusterName"}},
-			},
-			expectedName: ptr.To("DHCPSERVERClusterName_Private"),
-		},
-		{
-			name:         "Resource type is network and Network is not nil",
-			resourceType: infrav1beta2.ResourceTypeNetwork,
-			clusterScope: PowerVSClusterScope{
-				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{Spec: infrav1beta2.IBMPowerVSClusterSpec{Network: infrav1beta2.IBMPowerVSResourceReference{Name: ptr.To("NetworkName")}}},
-			},
-			expectedName: ptr.To("NetworkName"),
-		},
-		{
 			name:         "Resource type is vpc and VPC is nil",
 			resourceType: infrav1beta2.ResourceTypeVPC,
 			clusterScope: PowerVSClusterScope{
@@ -2829,6 +2815,14 @@ func TestGetServiceName(t *testing.T) {
 				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{Spec: infrav1beta2.IBMPowerVSClusterSpec{DHCPServer: &infrav1beta2.DHCPServer{Name: ptr.To("DHCPServerName")}}},
 			},
 			expectedName: ptr.To("DHCPServerName"),
+		},
+		{
+			name:         "Resource type is dhcp server and dhcpserver is not nil and network is not nil",
+			resourceType: infrav1beta2.ResourceTypeDHCPServer,
+			clusterScope: PowerVSClusterScope{
+				IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{Spec: infrav1beta2.IBMPowerVSClusterSpec{Network: infrav1beta2.IBMPowerVSResourceReference{Name: ptr.To("NetworkName")}}},
+			},
+			expectedName: ptr.To("NetworkName"),
 		},
 		{
 			name:         "Resource type is cos instance and cos instance is nil",
@@ -2966,7 +2960,7 @@ func TestCheckVPC(t *testing.T) {
 		}
 		vpcOutput := &vpcv1.VPC{Name: ptr.To("VPCName"), ID: ptr.To("VPCID"), DefaultSecurityGroup: &vpcv1.SecurityGroupReference{ID: ptr.To("DefaultSecurityGroupID")}}
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(vpcOutput, nil, nil)
-		vpcID, err := clusterScope.checkVPC()
+		vpcID, err := clusterScope.checkVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(vpcID).To(Equal(*vpcOutput.ID))
 	})
@@ -2982,7 +2976,7 @@ func TestCheckVPC(t *testing.T) {
 		vpcOutput := &vpcv1.VPC{Name: ptr.To("VPCName"), ID: ptr.To("vpcID"), DefaultSecurityGroup: &vpcv1.SecurityGroupReference{ID: ptr.To("DefaultSecurityGroupID")}}
 		mockVPC.EXPECT().GetVPCByName(gomock.Any()).Return(vpcOutput, nil)
 
-		vpcID, err := clusterScope.checkVPC()
+		vpcID, err := clusterScope.checkVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(vpcID).To(Equal(*vpcOutput.ID))
 	})
@@ -2998,7 +2992,7 @@ func TestCheckVPC(t *testing.T) {
 		}
 		mockVPC.EXPECT().GetVPCByName(gomock.Any()).Return(nil, nil)
 
-		vpcID, err := clusterScope.checkVPC()
+		vpcID, err := clusterScope.checkVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(vpcID).To(Equal(""))
 	})
@@ -3013,7 +3007,7 @@ func TestCheckVPC(t *testing.T) {
 		}
 		mockVPC.EXPECT().GetVPCByName(gomock.Any()).Return(nil, fmt.Errorf("GetVPCByName returns error"))
 
-		vpcID, err := clusterScope.checkVPC()
+		vpcID, err := clusterScope.checkVPC(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(vpcID).To(Equal(""))
 	})
@@ -3043,7 +3037,7 @@ func TestIsDHCPServerActive(t *testing.T) {
 			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{Status: infrav1beta2.IBMPowerVSClusterStatus{DHCPServer: &infrav1beta2.ResourceReference{ID: ptr.To("dhcpID")}}},
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(nil, fmt.Errorf("GetDHCPServer returns error"))
-		isActive, err := clusterScope.isDHCPServerActive()
+		isActive, err := clusterScope.isDHCPServerActive(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(isActive).To(BeFalse())
 	})
@@ -3059,7 +3053,7 @@ func TestIsDHCPServerActive(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
 
-		isActive, err := clusterScope.isDHCPServerActive()
+		isActive, err := clusterScope.isDHCPServerActive(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(isActive).To(BeFalse())
 	})
@@ -3075,7 +3069,7 @@ func TestIsDHCPServerActive(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
 
-		isActive, err := clusterScope.isDHCPServerActive()
+		isActive, err := clusterScope.isDHCPServerActive(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(isActive).To(BeTrue())
 	})
@@ -3112,7 +3106,7 @@ func TestCheckDHCPServerStatus(t *testing.T) {
 		g := NewWithT(t)
 		clusterScope := PowerVSClusterScope{}
 		t.Run(tc.name, func(_ *testing.T) {
-			status, _ := clusterScope.checkDHCPServerStatus(tc.dhcpServer)
+			status, _ := clusterScope.checkDHCPServerStatus(ctx, tc.dhcpServer)
 			g.Expect(status).To(Equal(tc.expectedStatus))
 		})
 	}
@@ -3146,7 +3140,7 @@ func TestCreateDHCPServer(t *testing.T) {
 			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName}},
 		}
 		mockPowerVS.EXPECT().CreateDHCPServer(gomock.Any()).Return(dhcpServer, nil)
-		dhcpID, err := clusterScope.createDHCPServer()
+		dhcpID, err := clusterScope.createDHCPServer(ctx)
 		g.Expect(dhcpID).To(Equal(dhcpServer.ID))
 		g.Expect(err).To(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(dhcpNetwork.ID))
@@ -3171,7 +3165,7 @@ func TestCreateDHCPServer(t *testing.T) {
 			},
 		}
 		mockPowerVS.EXPECT().CreateDHCPServer(gomock.Any()).Return(dhcpServer, nil)
-		dhcpID, err := clusterScope.createDHCPServer()
+		dhcpID, err := clusterScope.createDHCPServer(ctx)
 		g.Expect(dhcpID).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3188,7 +3182,7 @@ func TestCreateDHCPServer(t *testing.T) {
 			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName}},
 		}
 		mockPowerVS.EXPECT().CreateDHCPServer(gomock.Any()).Return(dhcpServer, nil)
-		dhcpID, err := clusterScope.createDHCPServer()
+		dhcpID, err := clusterScope.createDHCPServer(ctx)
 		g.Expect(dhcpID).To(Equal(dhcpServer.ID))
 		g.Expect(err).To(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(dhcpNetwork.ID))
@@ -3204,7 +3198,7 @@ func TestCreateDHCPServer(t *testing.T) {
 			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName}},
 		}
 		mockPowerVS.EXPECT().CreateDHCPServer(gomock.Any()).Return(nil, nil)
-		dhcpID, err := clusterScope.createDHCPServer()
+		dhcpID, err := clusterScope.createDHCPServer(ctx)
 		g.Expect(dhcpID).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3219,7 +3213,7 @@ func TestCreateDHCPServer(t *testing.T) {
 			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName}},
 		}
 		mockPowerVS.EXPECT().CreateDHCPServer(gomock.Any()).Return(nil, fmt.Errorf("CreateDHCPServer returns error"))
-		dhcpID, err := clusterScope.createDHCPServer()
+		dhcpID, err := clusterScope.createDHCPServer(ctx)
 		g.Expect(dhcpID).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3254,7 +3248,7 @@ func TestReconcileNetwork(t *testing.T) {
 		network := &models.Network{NetworkID: ptr.To("netID")}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
 
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(isNetworkAvailable).To(BeTrue())
 	})
@@ -3269,7 +3263,7 @@ func TestReconcileNetwork(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(nil, fmt.Errorf("GetNetworkByID error"))
 
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(isNetworkAvailable).To(BeFalse())
 	})
@@ -3288,7 +3282,7 @@ func TestReconcileNetwork(t *testing.T) {
 		network := &models.Network{NetworkID: ptr.To("netID")}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
 
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(isNetworkAvailable).To(BeTrue())
 	})
@@ -3306,7 +3300,7 @@ func TestReconcileNetwork(t *testing.T) {
 		network := &models.Network{NetworkID: ptr.To("netID")}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
 
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(isNetworkAvailable).To(BeFalse())
 	})
@@ -3323,7 +3317,7 @@ func TestReconcileNetwork(t *testing.T) {
 		network := &models.Network{}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, fmt.Errorf("GetNetworkByID error"))
 
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(isNetworkAvailable).To(BeFalse())
 	})
@@ -3340,7 +3334,7 @@ func TestReconcileNetwork(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
 		mockPowerVS.EXPECT().GetAllDHCPServers().Return(nil, nil)
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(network.NetworkID))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ControllerCreated).To(Equal(ptr.To(false)))
 		g.Expect(err).To(BeNil())
@@ -3360,7 +3354,7 @@ func TestReconcileNetwork(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetAllDHCPServers().Return(nil, nil)
 		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any()).Return(network, nil)
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(netID))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ControllerCreated).To(Equal(ptr.To(false)))
 		g.Expect(err).To(BeNil())
@@ -3381,7 +3375,7 @@ func TestReconcileNetwork(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(netID))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ControllerCreated).To(Equal(ptr.To(false)))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.DHCPServer.ID).To(Equal(dhcpID))
@@ -3404,7 +3398,7 @@ func TestReconcileNetwork(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(isNetworkAvailable).To(BeFalse())
 	})
@@ -3422,7 +3416,7 @@ func TestReconcileNetwork(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(netID))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ControllerCreated).To(Equal(ptr.To(false)))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.DHCPServer.ID).To(Equal(dhcpID))
@@ -3441,7 +3435,7 @@ func TestReconcileNetwork(t *testing.T) {
 				DHCPServer: &infrav1beta2.DHCPServer{ID: ptr.To("dhcpID")}}},
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(nil, fmt.Errorf("dhcp server by ID not found"))
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(isNetworkAvailable).To(BeFalse())
 	})
@@ -3461,7 +3455,7 @@ func TestReconcileNetwork(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
 		mockPowerVS.EXPECT().GetAllDHCPServers().Return(dhcpServers, nil)
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(netID))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ControllerCreated).To(Equal(ptr.To(false)))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.DHCPServer.ID).To(Equal(dhcpID))
@@ -3484,7 +3478,7 @@ func TestReconcileNetwork(t *testing.T) {
 		}
 		mockPowerVS.EXPECT().GetAllDHCPServers().Return(dhcpServers, nil)
 		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any()).Return(network, nil)
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(netID))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ControllerCreated).To(Equal(ptr.To(false)))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.DHCPServer.ID).To(Equal(dhcpID))
@@ -3507,7 +3501,7 @@ func TestReconcileNetwork(t *testing.T) {
 		mockPowerVS.EXPECT().GetAllDHCPServers().Return(nil, nil)
 		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any()).Return(nil, nil)
 		mockPowerVS.EXPECT().CreateDHCPServer(gomock.Any()).Return(dhcpServer, nil)
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.DHCPServer.ID).To(Equal(dhcpServer.ID))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.DHCPServer.ControllerCreated).To(Equal(ptr.To(true)))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal(dhcpNetwork.ID))
@@ -3528,7 +3522,7 @@ func TestReconcileNetwork(t *testing.T) {
 		mockPowerVS.EXPECT().GetAllDHCPServers().Return(nil, nil)
 		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any()).Return(nil, nil)
 		mockPowerVS.EXPECT().CreateDHCPServer(gomock.Any()).Return(nil, fmt.Errorf("CreateDHCPServer error"))
-		isNetworkAvailable, err := clusterScope.ReconcileNetwork()
+		isNetworkAvailable, err := clusterScope.ReconcileNetwork(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(isNetworkAvailable).To(BeFalse())
 	})
@@ -3567,7 +3561,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 		subnet2Details := &vpcv1.Subnet{ID: ptr.To("subnet2ID"), Name: ptr.To("subnet2Name")}
 		subnet2Options := &vpcv1.GetSubnetOptions{ID: subnet2Details.ID}
 		mockVPC.EXPECT().GetSubnet(subnet2Options).Return(subnet2Details, nil, nil)
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).To(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCSubnet[*subnet1Details.Name].ID).To(Equal(subnet1Details.ID))
@@ -3629,7 +3623,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 			subnetDetails := &vpcv1.Subnet{ID: ptr.To(fmt.Sprintf("subnet%dID", i+1)), Name: ptr.To(fmt.Sprintf("subnet%dName", i+1))}
 			mockVPC.EXPECT().CreateSubnet(subnet1Options).Return(subnetDetails, nil, nil)
 		}
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(err).To(BeNil())
 		for i := 1; i <= len(clusterScope.IBMPowerVSCluster.Spec.VPCSubnets); i++ {
@@ -3681,7 +3675,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 			subnetDetails := &vpcv1.Subnet{ID: ptr.To(fmt.Sprintf("subnet%dID", i+1)), Name: ptr.To(fmt.Sprintf("subnet%dName", i+1))}
 			mockVPC.EXPECT().CreateSubnet(subnet1Options).Return(subnetDetails, nil, nil)
 		}
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(err).To(BeNil())
 		for i := 1; i <= len(clusterScope.IBMPowerVSCluster.Spec.VPCSubnets); i++ {
@@ -3709,7 +3703,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 		subnet1Details := &vpcv1.Subnet{ID: ptr.To("subnet1ID"), Name: ptr.To("ClusterName-vpcsubnet-eu-de-1")}
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil).Times(3)
 		mockVPC.EXPECT().CreateSubnet(gomock.Any()).Return(subnet1Details, nil, nil).Times(3)
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(err).To(BeNil())
 		g.Expect(len(clusterScope.IBMPowerVSCluster.Status.VPCSubnet)).To(Equal(3))
@@ -3739,7 +3733,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil)
 		mockVPC.EXPECT().CreateSubnet(gomock.Any()).Return(subnet1Details, nil, nil)
 
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(err).To(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCSubnet[*subnet1Details.Name].ID).To(Equal(subnet1Details.ID))
@@ -3757,7 +3751,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 					VPC: &infrav1beta2.VPCResourceReference{Region: ptr.To("aa-dde")}},
 			},
 		}
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3773,7 +3767,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 					VPC: &infrav1beta2.VPCResourceReference{Region: ptr.To("")}},
 			},
 		}
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3800,7 +3794,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 		subnet1Details := &vpcv1.Subnet{ID: ptr.To("subnet1ID"), Name: &vpcSubnet1Name}
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(subnet1Details, nil)
 
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).To(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCSubnet[*subnet1Details.Name].ID).To(Equal(subnet1Details.ID))
@@ -3828,7 +3822,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSubnet(gomock.Any()).Return(nil, nil, fmt.Errorf("GetSubnet returns error"))
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3854,7 +3848,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSubnet(gomock.Any()).Return(nil, nil, nil)
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3874,7 +3868,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 			},
 		}
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, fmt.Errorf("GetVPCSubnetByName returns error"))
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3894,7 +3888,7 @@ func TestReconcileVPCSubnets(t *testing.T) {
 			},
 		}
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil)
-		requeue, err := clusterScope.ReconcileVPCSubnets()
+		requeue, err := clusterScope.ReconcileVPCSubnets(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3936,7 +3930,7 @@ func TestSetVPCSubnetStatus(t *testing.T) {
 	for _, tc := range testCases {
 		g := NewWithT(t)
 		t.Run(tc.name, func(_ *testing.T) {
-			tc.clusterScope.SetVPCSubnetStatus(tc.subnetName, tc.resource)
+			tc.clusterScope.SetVPCSubnetStatus(ctx, tc.subnetName, tc.resource)
 			g.Expect(tc.clusterScope.IBMPowerVSCluster.Status.VPCSubnet[tc.subnetName].ID).To(Equal(tc.resource.ID))
 			g.Expect(tc.clusterScope.IBMPowerVSCluster.Status.VPCSubnet[tc.subnetName].ControllerCreated).To(Equal(tc.resource.ControllerCreated))
 		})
@@ -3965,7 +3959,7 @@ func TestCheckVPCSubnet(t *testing.T) {
 			IBMVPCClient: mockVPC,
 		}
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil)
-		vpcSubnetID, err := clusterScope.checkVPCSubnet("subnet1Name")
+		vpcSubnetID, err := clusterScope.checkVPCSubnet(ctx, "subnet1Name")
 		g.Expect(vpcSubnetID).To(Equal(""))
 		g.Expect(err).To(BeNil())
 	})
@@ -3978,7 +3972,7 @@ func TestCheckVPCSubnet(t *testing.T) {
 			IBMVPCClient: mockVPC,
 		}
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, fmt.Errorf("GetVPCSubnetByName returns error"))
-		vpcSubnetID, err := clusterScope.checkVPCSubnet("subnet1Name")
+		vpcSubnetID, err := clusterScope.checkVPCSubnet(ctx, "subnet1Name")
 		g.Expect(vpcSubnetID).To(Equal(""))
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -3992,7 +3986,7 @@ func TestCheckVPCSubnet(t *testing.T) {
 		}
 		subnet1Details := &vpcv1.Subnet{ID: ptr.To("subnet1ID"), Name: ptr.To("subnet1Name")}
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(subnet1Details, nil)
-		vpcSubnetID, err := clusterScope.checkVPCSubnet("subnet1Name")
+		vpcSubnetID, err := clusterScope.checkVPCSubnet(ctx, "subnet1Name")
 		g.Expect(vpcSubnetID).To(Equal(*subnet1Details.ID))
 		g.Expect(err).To(BeNil())
 	})
@@ -4163,7 +4157,7 @@ func TestPowerVSDeleteLoadBalancer(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteLoadBalancer()
+		requeue, err := clusterScope.DeleteLoadBalancer(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4179,7 +4173,7 @@ func TestPowerVSDeleteLoadBalancer(t *testing.T) {
 		}, nil, nil)
 		mockVpc.EXPECT().DeleteLoadBalancer(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete load balancer"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteLoadBalancer()
+		requeue, err := clusterScope.DeleteLoadBalancer(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4195,7 +4189,7 @@ func TestPowerVSDeleteLoadBalancer(t *testing.T) {
 			ProvisioningStatus: ptr.To(string(infrav1beta2.VPCLoadBalancerStateDeletePending)),
 		}, nil, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteLoadBalancer()
+		requeue, err := clusterScope.DeleteLoadBalancer(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4207,7 +4201,7 @@ func TestPowerVSDeleteLoadBalancer(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetLoadBalancer(gomock.Any()).Return(nil, nil, errors.New("failed to get loadbalancer"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteLoadBalancer()
+		requeue, err := clusterScope.DeleteLoadBalancer(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4224,7 +4218,7 @@ func TestPowerVSDeleteLoadBalancer(t *testing.T) {
 		}, nil, nil)
 		mockVpc.EXPECT().DeleteLoadBalancer(gomock.Any()).Return(&core.DetailedResponse{}, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteLoadBalancer()
+		requeue, err := clusterScope.DeleteLoadBalancer(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4241,7 +4235,7 @@ func TestPowerVSDeleteLoadBalancer(t *testing.T) {
 			},
 		}
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteLoadBalancer()
+		requeue, err := clusterScope.DeleteLoadBalancer(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4268,7 +4262,7 @@ func TestPowerVSDeleteLoadBalancer(t *testing.T) {
 		}, nil, nil)
 		mockVpc.EXPECT().DeleteLoadBalancer(gomock.Any()).Return(&core.DetailedResponse{}, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteLoadBalancer()
+		requeue, err := clusterScope.DeleteLoadBalancer(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4299,7 +4293,7 @@ func TestPowerVSDeleteLoadBalancer(t *testing.T) {
 		}, nil, nil).Times(3)
 		mockVpc.EXPECT().DeleteLoadBalancer(gomock.Any()).Return(&core.DetailedResponse{}, nil).Times(3)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteLoadBalancer()
+		requeue, err := clusterScope.DeleteLoadBalancer(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4342,7 +4336,7 @@ func TestDeleteVPCSecurityGroups(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
 		clusterScope.IBMVPCClient = mockVpc
-		err := clusterScope.DeleteVPCSecurityGroups()
+		err := clusterScope.DeleteVPCSecurityGroups(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When DeleteSecurityGroup returns error", func(*testing.T) {
@@ -4357,7 +4351,7 @@ func TestDeleteVPCSecurityGroups(t *testing.T) {
 		}, nil, nil)
 		mockVpc.EXPECT().DeleteSecurityGroup(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete security group"))
 		clusterScope.IBMVPCClient = mockVpc
-		err := clusterScope.DeleteVPCSecurityGroups()
+		err := clusterScope.DeleteVPCSecurityGroups(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -4368,7 +4362,7 @@ func TestDeleteVPCSecurityGroups(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to get security group"))
 		clusterScope.IBMVPCClient = mockVpc
-		err := clusterScope.DeleteVPCSecurityGroups()
+		err := clusterScope.DeleteVPCSecurityGroups(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -4383,7 +4377,7 @@ func TestDeleteVPCSecurityGroups(t *testing.T) {
 		}, nil, nil)
 		mockVpc.EXPECT().DeleteSecurityGroup(gomock.Any()).Return(&core.DetailedResponse{}, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		err := clusterScope.DeleteVPCSecurityGroups()
+		err := clusterScope.DeleteVPCSecurityGroups(ctx)
 		g.Expect(err).To(BeNil())
 	})
 
@@ -4412,7 +4406,7 @@ func TestDeleteVPCSecurityGroups(t *testing.T) {
 		}, nil, nil).Times(3)
 		mockVpc.EXPECT().DeleteSecurityGroup(gomock.Any()).Return(&core.DetailedResponse{}, nil).Times(3)
 		clusterScope.IBMVPCClient = mockVpc
-		err := clusterScope.DeleteVPCSecurityGroups()
+		err := clusterScope.DeleteVPCSecurityGroups(ctx)
 		g.Expect(err).To(BeNil())
 	})
 
@@ -4437,7 +4431,7 @@ func TestDeleteVPCSecurityGroups(t *testing.T) {
 		}, nil, nil)
 		mockVpc.EXPECT().DeleteSecurityGroup(gomock.Any()).Return(&core.DetailedResponse{}, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		err := clusterScope.DeleteVPCSecurityGroups()
+		err := clusterScope.DeleteVPCSecurityGroups(ctx)
 		g.Expect(err).To(BeNil())
 	})
 
@@ -4453,7 +4447,7 @@ func TestDeleteVPCSecurityGroups(t *testing.T) {
 			},
 		}
 		clusterScope.IBMVPCClient = mockVpc
-		err := clusterScope.DeleteVPCSecurityGroups()
+		err := clusterScope.DeleteVPCSecurityGroups(ctx)
 		g.Expect(err).To(BeNil())
 	})
 }
@@ -4495,7 +4489,7 @@ func TestDeleteVPCSubnet(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPCSubnet()
+		requeue, err := clusterScope.DeleteVPCSubnet(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4507,7 +4501,7 @@ func TestDeleteVPCSubnet(t *testing.T) {
 		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnet1"), Status: ptr.To("active")}, nil, nil)
 		mockVpc.EXPECT().DeleteSubnet(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete subnet"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPCSubnet()
+		requeue, err := clusterScope.DeleteVPCSubnet(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4519,7 +4513,7 @@ func TestDeleteVPCSubnet(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnet1"), Status: ptr.To(string(infrav1beta2.VPCSubnetStateDeleting))}, nil, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPCSubnet()
+		requeue, err := clusterScope.DeleteVPCSubnet(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4531,7 +4525,7 @@ func TestDeleteVPCSubnet(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(nil, nil, errors.New("failed to get subnet"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPCSubnet()
+		requeue, err := clusterScope.DeleteVPCSubnet(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4544,7 +4538,7 @@ func TestDeleteVPCSubnet(t *testing.T) {
 		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnet1"), Status: ptr.To("active")}, nil, nil)
 		mockVpc.EXPECT().DeleteSubnet(gomock.Any()).Return(&core.DetailedResponse{}, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPCSubnet()
+		requeue, err := clusterScope.DeleteVPCSubnet(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4571,7 +4565,7 @@ func TestDeleteVPCSubnet(t *testing.T) {
 		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnetid"), Status: ptr.To("active")}, nil, nil).Times(3)
 		mockVpc.EXPECT().DeleteSubnet(gomock.Any()).Return(&core.DetailedResponse{}, nil).Times(3)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPCSubnet()
+		requeue, err := clusterScope.DeleteVPCSubnet(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4594,7 +4588,7 @@ func TestDeleteVPCSubnet(t *testing.T) {
 		clusterScope.IBMVPCClient = mockVpc
 		mockVpc.EXPECT().GetSubnet(gomock.Any()).Return(&vpcv1.Subnet{Name: ptr.To("subnetid"), Status: ptr.To("active")}, nil, nil)
 		mockVpc.EXPECT().DeleteSubnet(gomock.Any()).Return(&core.DetailedResponse{}, nil)
-		requeue, err := clusterScope.DeleteVPCSubnet()
+		requeue, err := clusterScope.DeleteVPCSubnet(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4611,7 +4605,7 @@ func TestDeleteVPCSubnet(t *testing.T) {
 			},
 		}
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPCSubnet()
+		requeue, err := clusterScope.DeleteVPCSubnet(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4652,7 +4646,7 @@ func TestPowerVSDeleteVPC(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPC()
+		requeue, err := clusterScope.DeleteVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4665,7 +4659,7 @@ func TestPowerVSDeleteVPC(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		clusterScope.IBMPowerVSCluster.Status.VPC.ID = nil
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPC()
+		requeue, err := clusterScope.DeleteVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4678,7 +4672,7 @@ func TestPowerVSDeleteVPC(t *testing.T) {
 		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{ID: ptr.To("vpcid"), Status: ptr.To("active")}, nil, nil)
 		mockVpc.EXPECT().DeleteVPC(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete vpc"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPC()
+		requeue, err := clusterScope.DeleteVPC(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4690,7 +4684,7 @@ func TestPowerVSDeleteVPC(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{ID: ptr.To("vpcid"), Status: ptr.To(string(infrav1beta2.VPCStateDeleting))}, nil, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPC()
+		requeue, err := clusterScope.DeleteVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4702,7 +4696,7 @@ func TestPowerVSDeleteVPC(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(nil, nil, errors.New("failed to get subnet"))
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPC()
+		requeue, err := clusterScope.DeleteVPC(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4715,7 +4709,7 @@ func TestPowerVSDeleteVPC(t *testing.T) {
 		mockVpc.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{ID: ptr.To("vpcid"), Status: ptr.To("active")}, nil, nil)
 		mockVpc.EXPECT().DeleteVPC(gomock.Any()).Return(&core.DetailedResponse{}, nil)
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPC()
+		requeue, err := clusterScope.DeleteVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4730,7 +4724,7 @@ func TestPowerVSDeleteVPC(t *testing.T) {
 			ControllerCreated: ptr.To(false),
 		}
 		clusterScope.IBMVPCClient = mockVpc
-		requeue, err := clusterScope.DeleteVPC()
+		requeue, err := clusterScope.DeleteVPC(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4778,7 +4772,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		clusterScope.IBMPowerVSCluster.Status = infrav1beta2.IBMPowerVSClusterStatus{}
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4795,7 +4789,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		mockTG.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, nil).Times(2)
 		mockTG.EXPECT().DeleteTransitGateway(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete transit gateway"))
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4811,7 +4805,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4827,7 +4821,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, errors.New("failed to get transit gateway"))
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4843,7 +4837,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		clusterScope := powervsClusterScope()
 		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4862,7 +4856,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		mockTG.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, nil).Times(2)
 		mockTG.EXPECT().DeleteTransitGateway(gomock.Any()).Return(&core.DetailedResponse{}, nil)
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4880,7 +4874,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
 		mockTG.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(nil, &core.DetailedResponse{}, errors.New("failed to get transit gateway connections"))
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(Not(BeNil()))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -4899,7 +4893,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
 		mockTG.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(tgResponse, &core.DetailedResponse{}, nil)
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -4927,7 +4921,7 @@ func TestDeleteTransitGateway(t *testing.T) {
 		}
 		mockTG.EXPECT().GetTransitGateway(gomock.Any()).Return(tgw, nil, nil)
 		clusterScope.TransitGatewayClient = mockTG
-		requeue, err := clusterScope.DeleteTransitGateway()
+		requeue, err := clusterScope.DeleteTransitGateway(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5087,7 +5081,7 @@ func TestDeleteCOSInstance(t *testing.T) {
 		t.Cleanup(teardown)
 
 		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{}}
-		err := clusterScope.DeleteCOSInstance()
+		err := clusterScope.DeleteCOSInstance(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When COS instance ID is nil", func(t *testing.T) {
@@ -5102,7 +5096,7 @@ func TestDeleteCOSInstance(t *testing.T) {
 				},
 			},
 		}}
-		err := clusterScope.DeleteCOSInstance()
+		err := clusterScope.DeleteCOSInstance(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When COS instance state is pending_reclamation", func(t *testing.T) {
@@ -5123,7 +5117,7 @@ func TestDeleteCOSInstance(t *testing.T) {
 		}
 		cosInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("cosInstanceID"), State: ptr.To("pending_reclamation")}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(cosInstance, nil, nil)
-		err := clusterScope.DeleteCOSInstance()
+		err := clusterScope.DeleteCOSInstance(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When COS instance is not found", func(t *testing.T) {
@@ -5143,7 +5137,7 @@ func TestDeleteCOSInstance(t *testing.T) {
 			ResourceClient: mockResourceController,
 		}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: ResourceNotFoundCode}, fmt.Errorf("error getting resource instance"))
-		err := clusterScope.DeleteCOSInstance()
+		err := clusterScope.DeleteCOSInstance(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When GetResourceInstance returns error", func(t *testing.T) {
@@ -5163,7 +5157,7 @@ func TestDeleteCOSInstance(t *testing.T) {
 			ResourceClient: mockResourceController,
 		}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, fmt.Errorf("error getting resource instance"))
-		err := clusterScope.DeleteCOSInstance()
+		err := clusterScope.DeleteCOSInstance(ctx)
 		g.Expect(err.Error()).To(Equal("failed to fetch COS service instance: error getting resource instance"))
 	})
 	t.Run("When COS instance state is active and DeleteResourceInstance succeeds", func(t *testing.T) {
@@ -5185,7 +5179,7 @@ func TestDeleteCOSInstance(t *testing.T) {
 		cosInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("cosInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive))}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(cosInstance, nil, nil)
 		mockResourceController.EXPECT().DeleteResourceInstance(gomock.Any()).Return(nil, nil)
-		err := clusterScope.DeleteCOSInstance()
+		err := clusterScope.DeleteCOSInstance(ctx)
 		g.Expect(err).To(BeNil())
 	})
 
@@ -5208,7 +5202,7 @@ func TestDeleteCOSInstance(t *testing.T) {
 		cosInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("cosInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive))}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(cosInstance, nil, nil)
 		mockResourceController.EXPECT().DeleteResourceInstance(gomock.Any()).Return(nil, fmt.Errorf("error deleting resource instance"))
-		err := clusterScope.DeleteCOSInstance()
+		err := clusterScope.DeleteCOSInstance(ctx)
 		g.Expect(err).To(Equal(fmt.Errorf("error deleting resource instance")))
 	})
 }
@@ -5232,7 +5226,7 @@ func TestDeleteServiceInstance(t *testing.T) {
 		t.Cleanup(teardown)
 
 		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{}}
-		requeue, err := clusterScope.DeleteServiceInstance()
+		requeue, err := clusterScope.DeleteServiceInstance(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5248,7 +5242,7 @@ func TestDeleteServiceInstance(t *testing.T) {
 				},
 			},
 		}}
-		requeue, err := clusterScope.DeleteServiceInstance()
+		requeue, err := clusterScope.DeleteServiceInstance(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5270,7 +5264,7 @@ func TestDeleteServiceInstance(t *testing.T) {
 		}
 		serviceInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("serviceInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateRemoved))}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(serviceInstance, nil, nil)
-		requeue, err := clusterScope.DeleteServiceInstance()
+		requeue, err := clusterScope.DeleteServiceInstance(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5291,7 +5285,7 @@ func TestDeleteServiceInstance(t *testing.T) {
 			ResourceClient: mockResourceController,
 		}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, fmt.Errorf("error getting resource instance"))
-		requeue, err := clusterScope.DeleteServiceInstance()
+		requeue, err := clusterScope.DeleteServiceInstance(ctx)
 		g.Expect(err.Error()).To(Equal("failed to fetch PowerVS service instance: error getting resource instance"))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5314,7 +5308,7 @@ func TestDeleteServiceInstance(t *testing.T) {
 		serviceInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("serviceInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive))}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(serviceInstance, nil, nil)
 		mockResourceController.EXPECT().DeleteResourceInstance(gomock.Any()).Return(nil, nil)
-		requeue, err := clusterScope.DeleteServiceInstance()
+		requeue, err := clusterScope.DeleteServiceInstance(ctx)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -5338,8 +5332,8 @@ func TestDeleteServiceInstance(t *testing.T) {
 		serviceInstance := &resourcecontrollerv2.ResourceInstance{ID: ptr.To("serviceInstanceID"), State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive))}
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(serviceInstance, nil, nil)
 		mockResourceController.EXPECT().DeleteResourceInstance(gomock.Any()).Return(nil, fmt.Errorf("error deleting resource instance"))
-		requeue, err := clusterScope.DeleteServiceInstance()
-		g.Expect(err).To(Equal(fmt.Errorf("error deleting resource instance")))
+		requeue, err := clusterScope.DeleteServiceInstance(ctx)
+		g.Expect(err).To(MatchError(ContainSubstring("error deleting resource instance")))
 		g.Expect(requeue).To(BeFalse())
 	})
 }
@@ -5363,7 +5357,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 		t.Cleanup(teardown)
 
 		clusterScope := PowerVSClusterScope{IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{}}
-		err := clusterScope.DeleteDHCPServer()
+		err := clusterScope.DeleteDHCPServer(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When PowerVS service instance is created by controller", func(t *testing.T) {
@@ -5381,7 +5375,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 				},
 			},
 		}}
-		err := clusterScope.DeleteDHCPServer()
+		err := clusterScope.DeleteDHCPServer(ctx)
 		g.Expect(err).To(BeNil())
 	})
 
@@ -5398,7 +5392,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 				ServiceInstance: &infrav1beta2.ResourceReference{},
 			},
 		}}
-		err := clusterScope.DeleteDHCPServer()
+		err := clusterScope.DeleteDHCPServer(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When the DHCP server is not found", func(t *testing.T) {
@@ -5419,7 +5413,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 			IBMPowerVSClient: mockPowerVS,
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(nil, fmt.Errorf("dhcp server does not exist"))
-		err := clusterScope.DeleteDHCPServer()
+		err := clusterScope.DeleteDHCPServer(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When GetDHCPServer returns error", func(t *testing.T) {
@@ -5440,8 +5434,8 @@ func TestDeleteDHCPServer(t *testing.T) {
 			IBMPowerVSClient: mockPowerVS,
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(nil, fmt.Errorf("error getting dhcp server"))
-		err := clusterScope.DeleteDHCPServer()
-		g.Expect(err.Error()).To(Equal("failed to fetch DHCP server: error getting dhcp server"))
+		err := clusterScope.DeleteDHCPServer(ctx)
+		g.Expect(err).To(MatchError(ContainSubstring("error getting dhcp server")))
 	})
 	t.Run("When DeleteDHCPServer returns error", func(t *testing.T) {
 		g := NewWithT(t)
@@ -5463,7 +5457,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 		dhcpServer := &models.DHCPServerDetail{ID: ptr.To("dhcpServerID")}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
 		mockPowerVS.EXPECT().DeleteDHCPServer(gomock.Any()).Return(fmt.Errorf("error deleting dhcp server"))
-		err := clusterScope.DeleteDHCPServer()
+		err := clusterScope.DeleteDHCPServer(ctx)
 		g.Expect(err.Error()).To(Equal("failed to delete DHCP server: error deleting dhcp server"))
 	})
 	t.Run("When DHCP server deletion is successful", func(t *testing.T) {
@@ -5486,7 +5480,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 		dhcpServer := &models.DHCPServerDetail{ID: ptr.To("dhcpServerID")}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any()).Return(dhcpServer, nil)
 		mockPowerVS.EXPECT().DeleteDHCPServer(gomock.Any()).Return(nil)
-		err := clusterScope.DeleteDHCPServer()
+		err := clusterScope.DeleteDHCPServer(ctx)
 		g.Expect(err).To(BeNil())
 	})
 }
@@ -5524,7 +5518,7 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 		tgResponse := &tgapiv1.TransitGatewayConnectionCust{Status: ptr.To(string(infrav1beta2.TransitGatewayConnectionStateDeleting))}
 		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
 		mockTransitGateway.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
-		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(ctx, tg)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -5550,7 +5544,7 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
 		mockTransitGateway.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
 		mockTransitGateway.EXPECT().DeleteTransitGatewayConnection(gomock.Any()).Return(nil, fmt.Errorf("error deleting transit gateway connection"))
-		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(ctx, tg)
 		g.Expect(err.Error()).To(Equal("failed to delete transit gateway connection: error deleting transit gateway connection"))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5576,7 +5570,7 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
 		mockTransitGateway.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
 		mockTransitGateway.EXPECT().DeleteTransitGatewayConnection(gomock.Any()).Return(nil, nil)
-		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(ctx, tg)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -5601,7 +5595,7 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 		}
 		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
 		mockTransitGateway.EXPECT().GetTransitGatewayConnection(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 400}, fmt.Errorf("error getting transit gateway connection"))
-		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(ctx, tg)
 		g.Expect(err.Error()).To(Equal("failed to get transit gateway powervs connection: error getting transit gateway connection"))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5634,7 +5628,7 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 		vpcTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("vpctgID")}
 		mockTransitGateway.EXPECT().GetTransitGatewayConnection(vpcTGOptions).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
 		mockTransitGateway.EXPECT().DeleteTransitGatewayConnection(gomock.Any()).Return(nil, nil)
-		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(ctx, tg)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -5662,7 +5656,7 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
 		vpcTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("vpctgID")}
 		mockTransitGateway.EXPECT().GetTransitGatewayConnection(vpcTGOptions).Return(nil, &core.DetailedResponse{StatusCode: 500}, fmt.Errorf("error getting transit gateway connection"))
-		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(ctx, tg)
 		g.Expect(err.Error()).To(Equal("failed to get transit gateway powervs connection: error getting transit gateway connection"))
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5693,7 +5687,7 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 		vpcTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("vpctgID")}
 		mockTransitGateway.EXPECT().GetTransitGatewayConnection(vpcTGOptions).Return(tgResponse, &core.DetailedResponse{StatusCode: 200}, nil)
 		mockTransitGateway.EXPECT().DeleteTransitGatewayConnection(gomock.Any()).Return(nil, nil)
-		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(ctx, tg)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeTrue())
 	})
@@ -5722,7 +5716,7 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 		tg := &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID")}
 		vpcTGOptions := &tgapiv1.GetTransitGatewayConnectionOptions{TransitGatewayID: tg.ID, ID: ptr.To("vpctgID")}
 		mockTransitGateway.EXPECT().GetTransitGatewayConnection(vpcTGOptions).Return(nil, &core.DetailedResponse{StatusCode: ResourceNotFoundCode}, nil)
-		requeue, err := clusterScope.deleteTransitGatewayConnections(tg)
+		requeue, err := clusterScope.deleteTransitGatewayConnections(ctx, tg)
 		g.Expect(err).To(BeNil())
 		g.Expect(requeue).To(BeFalse())
 	})
@@ -5730,11 +5724,13 @@ func TestDeleteTransitGatewayConnections(t *testing.T) {
 func TestReconcileCOSInstance(t *testing.T) {
 	var (
 		mockResourceController *mockRC.MockResourceController
+		mockCOSController      *mockcos.MockCos
 		mockCtrl               *gomock.Controller
 	)
 	setup := func(t *testing.T) {
 		t.Helper()
 		mockCtrl = gomock.NewController(t)
+		mockCOSController = mockcos.NewMockCos(mockCtrl)
 		mockResourceController = mockRC.NewMockResourceController(mockCtrl)
 	}
 	teardown := func() {
@@ -5767,7 +5763,7 @@ func TestReconcileCOSInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("error fetching instance by name"))
 
-		err = clusterScope.ReconcileCOSInstance()
+		err = clusterScope.ReconcileCOSInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance).To(BeNil())
 	})
@@ -5806,10 +5802,10 @@ func TestReconcileCOSInstance(t *testing.T) {
 			GUID:  ptr.To("test-cos-instance-guid"),
 		}, nil)
 
-		err = clusterScope.ReconcileCOSInstance()
+		err = clusterScope.ReconcileCOSInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-cos-instance-guid")))
-		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(false))))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(false)))
 	})
 
 	t.Run("When COS service instance is not found in IBM Cloud and hence creates COS instance in cloud", func(t *testing.T) {
@@ -5847,10 +5843,10 @@ func TestReconcileCOSInstance(t *testing.T) {
 			Name: ptr.To("test-resource-instance-name"),
 		}, nil, nil)
 
-		err = clusterScope.ReconcileCOSInstance()
+		err = clusterScope.ReconcileCOSInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-resource-instance-guid")))
-		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(true))))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(true)))
 	})
 
 	t.Run("When COS service instance is not found in IBM Cloud and hence creates COS instance in cloud but fails during the creation", func(t *testing.T) {
@@ -5884,7 +5880,7 @@ func TestReconcileCOSInstance(t *testing.T) {
 		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to create COS service instance"))
 
-		err = clusterScope.ReconcileCOSInstance()
+		err = clusterScope.ReconcileCOSInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance).To(BeNil())
 	})
@@ -5916,10 +5912,10 @@ func TestReconcileCOSInstance(t *testing.T) {
 			GUID:  ptr.To("test-cos-instance-guid"),
 		}, nil)
 
-		err := clusterScope.ReconcileCOSInstance()
+		err := clusterScope.ReconcileCOSInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-cos-instance-guid")))
-		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(false))))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(false)))
 	})
 
 	t.Run("When COS bucket region is failed to be determined", func(t *testing.T) {
@@ -5954,7 +5950,7 @@ func TestReconcileCOSInstance(t *testing.T) {
 			Name: ptr.To("test-resource-instance-name"),
 		}, nil, nil)
 
-		err = clusterScope.ReconcileCOSInstance()
+		err = clusterScope.ReconcileCOSInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-resource-instance-guid")))
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(true))))
@@ -5994,14 +5990,110 @@ func TestReconcileCOSInstance(t *testing.T) {
 			Name: ptr.To("test-resource-instance-name"),
 		}, nil, nil)
 
-		err = clusterScope.ReconcileCOSInstance()
+		mockCOSController.EXPECT().GetBucketByName(gomock.Any()).Return(nil, fmt.Errorf("failed to get bucket by name"))
+
+		cos.NewServiceFunc = func(_ cos.ServiceOptions, _, _ string) (cos.Cos, error) {
+			return mockCOSController, nil
+		}
+
+		err = clusterScope.ReconcileCOSInstance(ctx)
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-resource-instance-guid")))
-		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(bool(true))))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(true)))
+	})
+	t.Run("When create COS bucket fails", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		err := os.Setenv("IBMCLOUD_APIKEY", "test-api-key")
+		g.Expect(err).To(BeNil())
+		defer os.Unsetenv("IBMCLOUD_APIKEY")
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{
+						BucketRegion: "test-bucket-region",
+					},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-group-id"),
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+
+		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			ID:   ptr.To("test-resource-instance-id"),
+			GUID: ptr.To("test-resource-instance-guid"),
+			Name: ptr.To("test-resource-instance-name"),
+		}, nil, nil)
+
+		mockCOSController.EXPECT().GetBucketByName(gomock.Any()).Return(nil, awserr.New(s3.ErrCodeNoSuchBucket, "bucket does not exist", nil))
+		mockCOSController.EXPECT().CreateBucket(gomock.Any()).Return(nil, fmt.Errorf("failed to create bucket"))
+
+		cos.NewServiceFunc = func(_ cos.ServiceOptions, _, _ string) (cos.Cos, error) {
+			return mockCOSController, nil
+		}
+
+		err = clusterScope.ReconcileCOSInstance(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-resource-instance-guid")))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(true)))
 	})
 
-	//TODO: Complete cases to cover control flow on checkCOSBucket and createCOSBucket
-	// Github issue: https://github.com/kubernetes-sigs/cluster-api-provider-ibmcloud/issues/2034
+	t.Run("When create COS bucket succeeds", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		err := os.Setenv("IBMCLOUD_APIKEY", "test-api-key")
+		g.Expect(err).To(BeNil())
+		defer os.Unsetenv("IBMCLOUD_APIKEY")
+
+		clusterScope := PowerVSClusterScope{
+			ResourceClient: mockResourceController,
+			IBMPowerVSCluster: &infrav1beta2.IBMPowerVSCluster{
+				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+					CosInstance: &infrav1beta2.CosInstance{
+						BucketRegion: "test-bucket-region",
+					},
+					ResourceGroup: &infrav1beta2.IBMPowerVSResourceReference{
+						ID: ptr.To("test-resource-group-id"),
+					},
+				},
+				Status: infrav1beta2.IBMPowerVSClusterStatus{
+					ServiceInstance: &infrav1beta2.ResourceReference{
+						ID: ptr.To("test-serviceinstance-id"),
+					},
+				},
+			},
+		}
+		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
+
+		mockResourceController.EXPECT().CreateResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{
+			ID:   ptr.To("test-resource-instance-id"),
+			GUID: ptr.To("test-resource-instance-guid"),
+			Name: ptr.To("test-resource-instance-name"),
+		}, nil, nil)
+
+		mockCOSController.EXPECT().GetBucketByName(gomock.Any()).Return(nil, awserr.New(s3.ErrCodeNoSuchBucket, "bucket does not exist", nil))
+		mockCOSController.EXPECT().CreateBucket(gomock.Any()).Return(nil, nil)
+
+		cos.NewServiceFunc = func(_ cos.ServiceOptions, _, _ string) (cos.Cos, error) {
+			return mockCOSController, nil
+		}
+
+		err = clusterScope.ReconcileCOSInstance(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ID).To(Equal(ptr.To("test-resource-instance-guid")))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.COSInstance.ControllerCreated).To(Equal(ptr.To(true)))
+	})
 }
 
 func TestCheckCOSServiceInstance(t *testing.T) {
@@ -6036,7 +6128,7 @@ func TestCheckCOSServiceInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("error listing COS instances"))
 
-		cosResourceInstance, err := clusterScope.checkCOSServiceInstance()
+		cosResourceInstance, err := clusterScope.checkCOSServiceInstance(ctx)
 		g.Expect(cosResourceInstance).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6059,7 +6151,7 @@ func TestCheckCOSServiceInstance(t *testing.T) {
 
 		mockResourceController.EXPECT().GetInstanceByName(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 
-		cosResourceInstance, err := clusterScope.checkCOSServiceInstance()
+		cosResourceInstance, err := clusterScope.checkCOSServiceInstance(ctx)
 		g.Expect(cosResourceInstance).To(BeNil())
 		g.Expect(err).To(BeNil())
 	})
@@ -6085,7 +6177,7 @@ func TestCheckCOSServiceInstance(t *testing.T) {
 			State: ptr.To("failed"),
 		}, nil)
 
-		cosResourceInstance, err := clusterScope.checkCOSServiceInstance()
+		cosResourceInstance, err := clusterScope.checkCOSServiceInstance(ctx)
 		g.Expect(cosResourceInstance).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 		g.Expect(err).To(MatchError(fmt.Errorf("COS service instance is not in active state, current state: %s", "failed")))
@@ -6111,7 +6203,7 @@ func TestCheckCOSServiceInstance(t *testing.T) {
 			State: ptr.To(string(infrav1beta2.ServiceInstanceStateActive)),
 		}, nil)
 
-		cosResourceInstance, err := clusterScope.checkCOSServiceInstance()
+		cosResourceInstance, err := clusterScope.checkCOSServiceInstance(ctx)
 		g.Expect(cosResourceInstance.Name).To(Equal(ptr.To("test-cos-resource-name")))
 		g.Expect(cosResourceInstance.State).To(Equal(ptr.To(string(infrav1beta2.ServiceInstanceStateActive))))
 		g.Expect(err).To(BeNil())
@@ -6461,7 +6553,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 		}
 
 		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(nil, nil, errors.New("failed to get transit gateway"))
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6484,7 +6576,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 
 		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}, nil, nil)
 		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(nil, nil, errors.New("failed to get transitGateway connections"))
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6506,7 +6598,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 		}
 
 		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStatePending))}, nil, nil)
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(err).To(BeNil())
 	})
@@ -6539,7 +6631,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeFalse())
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
@@ -6566,7 +6658,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 		}
 
 		mockTransitGateway.EXPECT().GetTransitGateway(gomock.Any()).Return(nil, nil, errors.New("failed to get transit gateway"))
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6584,7 +6676,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 		}
 
 		mockTransitGateway.EXPECT().GetTransitGatewayByName(gomock.Any()).Return(&tgapiv1.TransitGateway{Name: ptr.To("transitGatewayName"), ID: ptr.To("transitGatewayID"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateFailed))}, nil)
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6602,7 +6694,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 		}
 
 		mockTransitGateway.EXPECT().GetTransitGatewayByName(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStatePending))}, nil)
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(err).To(BeNil())
 	})
@@ -6639,7 +6731,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
@@ -6663,7 +6755,7 @@ func TestReconcileTransitGateway(t *testing.T) {
 		}
 
 		mockTransitGateway.EXPECT().GetTransitGatewayByName(gomock.Any()).Return(nil, nil)
-		requeue, err := clusterScope.ReconcileTransitGateway()
+		requeue, err := clusterScope.ReconcileTransitGateway(ctx)
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6695,7 +6787,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 
 		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(nil, nil, errors.New("failed to get vpc"))
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6709,7 +6801,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to get serviceInstance"))
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6725,7 +6817,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeTrue())
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
@@ -6744,7 +6836,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(nil, nil, errors.New("error while creating connections"))
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6760,7 +6852,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeFalse())
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
@@ -6780,7 +6872,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).To(BeNil())
 	})
@@ -6795,7 +6887,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeTrue())
 		g.Expect(err).To(BeNil())
 	})
@@ -6810,7 +6902,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6826,7 +6918,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockTransitGateway.EXPECT().ListTransitGatewayConnections(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCollection{Connections: conn}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6842,7 +6934,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ControllerCreated).To(BeTrue())
 		g.Expect(requeue).To(BeTrue())
@@ -6860,7 +6952,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(nil, nil, errors.New("failed to create transit gateway connection"))
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6876,7 +6968,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ID).To(BeEquivalentTo("vpc-connID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.VPCConnection.ControllerCreated).To(BeTrue())
 		g.Expect(requeue).To(BeTrue())
@@ -6894,7 +6986,7 @@ func TestCheckAndUpdateTransitGatewayConnections(t *testing.T) {
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("vpc-crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("pvs-crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(nil, nil, errors.New("failed to create transit gateway connection"))
-		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
+		requeue, err := clusterScope.checkAndUpdateTransitGatewayConnections(ctx, &tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName")})
 		g.Expect(requeue).To(BeFalse())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6936,7 +7028,7 @@ func TestCreateTransitGateway(t *testing.T) {
 			},
 		}
 
-		err := clusterScope.createTransitGateway()
+		err := clusterScope.createTransitGateway(ctx)
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.TransitGateway).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6967,7 +7059,7 @@ func TestCreateTransitGateway(t *testing.T) {
 			},
 		}
 
-		err := clusterScope.createTransitGateway()
+		err := clusterScope.createTransitGateway(ctx)
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.TransitGateway).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -6999,7 +7091,7 @@ func TestCreateTransitGateway(t *testing.T) {
 		}
 
 		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(nil, nil, errors.New("failed to create transit Gateway"))
-		err := clusterScope.createTransitGateway()
+		err := clusterScope.createTransitGateway(ctx)
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.TransitGateway).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -7032,7 +7124,7 @@ func TestCreateTransitGateway(t *testing.T) {
 
 		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To("pending")}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(nil, nil, errors.New("failed to get vpc"))
-		err := clusterScope.createTransitGateway()
+		err := clusterScope.createTransitGateway(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
 		g.Expect(err).ToNot(BeNil())
@@ -7067,7 +7159,7 @@ func TestCreateTransitGateway(t *testing.T) {
 		mockTransitGateway.EXPECT().CreateTransitGateway(gomock.Any()).Return(&tgapiv1.TransitGateway{ID: ptr.To("transitGatewayID"), Name: ptr.To("transitGatewayName"), Status: ptr.To(string(infrav1beta2.TransitGatewayStateAvailable))}, nil, nil)
 		mockVPC.EXPECT().GetVPC(gomock.Any()).Return(&vpcv1.VPC{CRN: ptr.To("crn")}, nil, nil)
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(nil, nil, errors.New("failed to get power vs instance"))
-		err := clusterScope.createTransitGateway()
+		err := clusterScope.createTransitGateway(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
 		g.Expect(err).ToNot(BeNil())
@@ -7104,7 +7196,7 @@ func TestCreateTransitGateway(t *testing.T) {
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(nil, nil, errors.New("failed to create transit Gateway connection"))
-		err := clusterScope.createTransitGateway()
+		err := clusterScope.createTransitGateway(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
@@ -7141,7 +7233,7 @@ func TestCreateTransitGateway(t *testing.T) {
 			},
 		}
 
-		err := clusterScope.createTransitGateway()
+		err := clusterScope.createTransitGateway(ctx)
 		g.Expect(clusterScope.IBMPowerVSCluster.Status.TransitGateway).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -7180,7 +7272,7 @@ func TestCreateTransitGateway(t *testing.T) {
 		mockResourceController.EXPECT().GetResourceInstance(gomock.Any()).Return(&resourcecontrollerv2.ResourceInstance{CRN: ptr.To("crn")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("pvs-connID")}, nil, nil)
 		mockTransitGateway.EXPECT().CreateTransitGatewayConnection(gomock.Any()).Return(&tgapiv1.TransitGatewayConnectionCust{ID: ptr.To("vpc-connID")}, nil, nil)
-		err := clusterScope.createTransitGateway()
+		err := clusterScope.createTransitGateway(ctx)
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ID).To(BeEquivalentTo("transitGatewayID"))
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.ControllerCreated).To(BeTrue())
 		g.Expect(*clusterScope.IBMPowerVSCluster.Status.TransitGateway.PowerVSConnection.ID).To(BeEquivalentTo("pvs-connID"))
@@ -7247,7 +7339,7 @@ func TestReconcileVPCSecurityGroups(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to get security group"))
-		err := clusterScope.ReconcileVPCSecurityGroups()
+		err := clusterScope.ReconcileVPCSecurityGroups(ctx)
 		g.Expect(err).ToNot(BeNil())
 	})
 	t.Run("When SecurityGroup Name is set and returns error while creating SecurityGroup", func(t *testing.T) {
@@ -7267,7 +7359,7 @@ func TestReconcileVPCSecurityGroups(t *testing.T) {
 
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, nil)
 		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to create security group"))
-		err := clusterScope.ReconcileVPCSecurityGroups()
+		err := clusterScope.ReconcileVPCSecurityGroups(ctx)
 		g.Expect(err).ToNot(BeNil())
 	})
 
@@ -7288,7 +7380,7 @@ func TestReconcileVPCSecurityGroups(t *testing.T) {
 
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, nil)
 		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{ID: ptr.To("securityGroupID")}, nil, nil)
-		err := clusterScope.ReconcileVPCSecurityGroups()
+		err := clusterScope.ReconcileVPCSecurityGroups(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When SecurityGroup Name is set and SecurityGroup already exists", func(t *testing.T) {
@@ -7312,7 +7404,7 @@ func TestReconcileVPCSecurityGroups(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(&vpcv1.SecurityGroup{Name: &securityGroupName, ID: &securityGroupID, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}, nil)
-		err := clusterScope.ReconcileVPCSecurityGroups()
+		err := clusterScope.ReconcileVPCSecurityGroups(ctx)
 		g.Expect(err).To(BeNil())
 	})
 
@@ -7337,7 +7429,7 @@ func TestReconcileVPCSecurityGroups(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{Name: &securityGroupName, ID: &securityGroupID, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}, nil, nil)
-		err := clusterScope.ReconcileVPCSecurityGroups()
+		err := clusterScope.ReconcileVPCSecurityGroups(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When SecurityGroup Name is set and GetSecurityGroup returns error", func(t *testing.T) {
@@ -7361,7 +7453,7 @@ func TestReconcileVPCSecurityGroups(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to get security group"))
-		err := clusterScope.ReconcileVPCSecurityGroups()
+		err := clusterScope.ReconcileVPCSecurityGroups(ctx)
 		g.Expect(err).ToNot(BeNil())
 	})
 	t.Run("When SecurityGroup Name is set  and returns error while getting SecurityGroupRules", func(t *testing.T) {
@@ -7386,7 +7478,7 @@ func TestReconcileVPCSecurityGroups(t *testing.T) {
 
 		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{ID: ptr.To("securityGroupID"), Name: ptr.To("securityGroupName")}, nil, nil)
 		mockVPC.EXPECT().GetSecurityGroupRule(gomock.Any()).Return(nil, nil, errors.New("failed to get security group rule"))
-		err := clusterScope.ReconcileVPCSecurityGroups()
+		err := clusterScope.ReconcileVPCSecurityGroups(ctx)
 		g.Expect(err).ToNot(BeNil())
 	})
 
@@ -7425,7 +7517,7 @@ func TestReconcileVPCSecurityGroups(t *testing.T) {
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, nil)
 		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{ID: ptr.To("securityGroupID")}, nil, nil)
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(nil, nil, errors.New("failed to create security group rule"))
-		err := clusterScope.ReconcileVPCSecurityGroups()
+		err := clusterScope.ReconcileVPCSecurityGroups(ctx)
 		g.Expect(err).ToNot(BeNil())
 	})
 }
@@ -7486,7 +7578,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 
 		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), Rules: vpcSecurityGroupRules, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
 		g.Expect(sg).To(BeEquivalentTo(securityGroupDetails))
 		g.Expect(err).To(BeNil())
@@ -7534,7 +7626,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 
 		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), Rules: vpcSecurityGroupRules, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
 		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(securityGroupDetails, nil, nil)
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
 		g.Expect(sg).To(BeEquivalentTo(securityGroupDetails))
 		g.Expect(err).To(BeNil())
@@ -7562,7 +7654,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, errors.New("failed to get SecurityGroup"))
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
@@ -7590,7 +7682,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to get SecurityGroup"))
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
@@ -7619,7 +7711,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 
 		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("sgID")}
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeEmpty())
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
@@ -7648,7 +7740,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 
 		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("sgID"), VPC: &vpcv1.VPCReference{ID: ptr.To("vpcID")}}
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
@@ -7677,7 +7769,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 
 		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("sgID"), VPC: &vpcv1.VPCReference{ID: ptr.To("vpcID")}}
 		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(securityGroupDetails, nil, nil)
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
@@ -7707,8 +7799,8 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 				CIDRBlock: ptr.To("192.168.1.1/24"),
 			},
 			ID:      ptr.To("ruleID"),
-			PortMax: (ptr.To(int64(65535))),
-			PortMin: (ptr.To(int64(1))),
+			PortMax: ptr.To(int64(65535)),
+			PortMin: ptr.To(int64(1)),
 		}
 		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
 
@@ -7732,7 +7824,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), Rules: vpcSecurityGroupRules, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
 		mockVPC.EXPECT().GetSecurityGroup(gomock.Any()).Return(securityGroupDetails, nil, nil)
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, errors.New("failed to get VPC subnet"))
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
@@ -7774,7 +7866,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{Protocol: ptr.To("tcp"), ID: ptr.To("ruleID")}, nil, nil)
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).To(BeNil())
@@ -7826,7 +7918,7 @@ func TestValidateVPCSecurityGroup(t *testing.T) {
 
 		securityGroupDetails := &vpcv1.SecurityGroup{Name: ptr.To("securityGroupName"), ID: ptr.To("securityGroupID"), Rules: vpcSecurityGroupRules, VPC: &vpcv1.VPCReference{ID: ptr.To("VPCID")}}
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(securityGroupDetails, nil)
-		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(vpcSecurityGroup)
+		sg, ruleIDs, err := clusterScope.validateVPCSecurityGroup(ctx, vpcSecurityGroup)
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
@@ -7871,8 +7963,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 				CIDRBlock: ptr.To("0.0.0.0/0"),
 			},
 			ID:      ptr.To("ruleID"),
-			PortMax: (ptr.To(int64(65535))),
-			PortMin: (ptr.To(int64(1))),
+			PortMax: ptr.To(int64(65535)),
+			PortMin: ptr.To(int64(1)),
 		}
 
 		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
@@ -7923,8 +8015,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 				CIDRBlock: ptr.To("192.168.1.1/24"),
 			},
 			ID:      ptr.To("ruleID"),
-			PortMax: (ptr.To(int64(65535))),
-			PortMin: (ptr.To(int64(1))),
+			PortMax: ptr.To(int64(65535)),
+			PortMin: ptr.To(int64(1)),
 		}
 
 		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
@@ -7976,8 +8068,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 				CIDRBlock: ptr.To("192.168.1.1/24"),
 			},
 			ID:      ptr.To("ruleID"),
-			PortMax: (ptr.To(int64(65535))),
-			PortMin: (ptr.To(int64(1))),
+			PortMax: ptr.To(int64(65535)),
+			PortMin: ptr.To(int64(1)),
 		}
 
 		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
@@ -8028,7 +8120,7 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 			ID: ptr.To("ruleID"),
 		}
 
-		vpcSecurityGroupRules := []vpcv1.SecurityGroupRuleIntf{}
+		var vpcSecurityGroupRules []vpcv1.SecurityGroupRuleIntf
 		vpcSecurityGroupRules = append(vpcSecurityGroupRules, &vpcSecurityGroupRule)
 		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
 			ID:    ptr.To("securityGroupID"),
@@ -8077,7 +8169,7 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 			ID: ptr.To("ruleID"),
 		}
 
-		vpcSecurityGroupRules := []vpcv1.SecurityGroupRuleIntf{}
+		var vpcSecurityGroupRules []vpcv1.SecurityGroupRuleIntf
 		vpcSecurityGroupRules = append(vpcSecurityGroupRules, &vpcSecurityGroupRule)
 		vpcSecurityGroup := infrav1beta2.VPCSecurityGroup{
 			ID:    ptr.To("securityGroupID"),
@@ -8164,8 +8256,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
 				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
 				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
-				ICMPCode: (ptr.To(int64(12))),
-				ICMPType: (ptr.To(int64(3))),
+				ICMPCode: ptr.To(int64(12)),
+				ICMPType: ptr.To(int64(3)),
 			},
 		}
 		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp{
@@ -8175,8 +8267,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 				CRN: ptr.To("crn"),
 			},
 			ID:   ptr.To("ruleID"),
-			Code: (ptr.To(int64(12))),
-			Type: (ptr.To(int64(3))),
+			Code: ptr.To(int64(12)),
+			Type: ptr.To(int64(3)),
 		}
 
 		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
@@ -8217,8 +8309,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
 				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
 				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
-				ICMPCode: (ptr.To(int64(12))),
-				ICMPType: (ptr.To(int64(3))),
+				ICMPCode: ptr.To(int64(12)),
+				ICMPType: ptr.To(int64(3)),
 			},
 		}
 		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp{
@@ -8228,8 +8320,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 				CRN: ptr.To("crn"),
 			},
 			ID:   ptr.To("ruleID"),
-			Code: (ptr.To(int64(12))),
-			Type: (ptr.To(int64(3))),
+			Code: ptr.To(int64(12)),
+			Type: ptr.To(int64(3)),
 		}
 
 		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
@@ -8270,8 +8362,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 			Destination: &infrav1beta2.VPCSecurityGroupRulePrototype{
 				Remotes:  append([]infrav1beta2.VPCSecurityGroupRuleRemote{}, remote),
 				Protocol: infrav1beta2.VPCSecurityGroupRuleProtocolTCP,
-				ICMPCode: (ptr.To(int64(12))),
-				ICMPType: (ptr.To(int64(3))),
+				ICMPCode: ptr.To(int64(12)),
+				ICMPType: ptr.To(int64(3)),
 			},
 		}
 		vpcSecurityGroupRule := vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp{
@@ -8281,8 +8373,8 @@ func TestValidateVPCSecurityGroupRule(t *testing.T) {
 				CRN: ptr.To("crn"),
 			},
 			ID:   ptr.To("ruleID"),
-			Code: (ptr.To(int64(12))),
-			Type: (ptr.To(int64(3))),
+			Code: ptr.To(int64(12)),
+			Type: ptr.To(int64(3)),
 		}
 
 		vpcSecurityGroupRules := append([]vpcv1.SecurityGroupRuleIntf{}, &vpcSecurityGroupRule)
@@ -9002,7 +9094,7 @@ func TestCreateVPCSecurityGroupRule(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
-		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(ctx, &securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
 		g.Expect(ruleID).To(BeEquivalentTo(ptr.To("ruleID")))
 		g.Expect(err).To(BeNil())
 	})
@@ -9041,7 +9133,7 @@ func TestCreateVPCSecurityGroupRule(t *testing.T) {
 
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(&vpcv1.Subnet{Ipv4CIDRBlock: ptr.To("192.168.1.1/24")}, nil)
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
-		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(ctx, &securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
 		g.Expect(ruleID).To(BeEquivalentTo(ptr.To("ruleID")))
 		g.Expect(err).To(BeNil())
 	})
@@ -9079,7 +9171,7 @@ func TestCreateVPCSecurityGroupRule(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, errors.New("failed to get VPC subnet"))
-		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(ctx, &securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
 		g.Expect(ruleID).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -9116,7 +9208,7 @@ func TestCreateVPCSecurityGroupRule(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
-		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(ctx, &securityGroupID, ptr.To("outbound"), &protocol, &portMin, &portMax, remote)
 		g.Expect(ruleID).To(BeEquivalentTo(ptr.To("ruleID")))
 		g.Expect(err).To(BeNil())
 	})
@@ -9155,7 +9247,7 @@ func TestCreateVPCSecurityGroupRule(t *testing.T) {
 
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(&vpcv1.SecurityGroup{CRN: ptr.To("crn"), Name: ptr.To("securityGroupName")}, nil)
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp{Direction: ptr.To("inbound"), ID: ptr.To("ruleID")}, nil, nil)
-		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(ctx, &securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
 		g.Expect(ruleID).To(BeEquivalentTo(ptr.To("ruleID")))
 		g.Expect(err).To(BeNil())
 	})
@@ -9193,7 +9285,7 @@ func TestCreateVPCSecurityGroupRule(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, errors.New("failed to get security group"))
-		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(ctx, &securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
 		g.Expect(ruleID).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -9231,7 +9323,7 @@ func TestCreateVPCSecurityGroupRule(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetSecurityGroupByName(gomock.Any()).Return(nil, nil)
-		ruleID, err := clusterScope.createVPCSecurityGroupRule(&securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
+		ruleID, err := clusterScope.createVPCSecurityGroupRule(ctx, &securityGroupID, ptr.To("inbound"), &protocol, &portMin, &portMax, remote)
 		g.Expect(ruleID).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -9288,7 +9380,7 @@ func TestCreateVPCSecurityGroupRules(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
-		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
+		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(ctx, vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
 		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
 		g.Expect(err).To(BeNil())
 	})
@@ -9326,7 +9418,7 @@ func TestCreateVPCSecurityGroupRules(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil)
-		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
+		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(ctx, vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -9367,7 +9459,7 @@ func TestCreateVPCSecurityGroupRules(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp{Direction: ptr.To("inbound"), ID: ptr.To("ruleID")}, nil, nil)
-		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
+		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(ctx, vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
 		g.Expect(ruleIDs).To(BeEquivalentTo([]*string{ptr.To("ruleID")}))
 		g.Expect(err).To(BeNil())
 	})
@@ -9405,7 +9497,7 @@ func TestCreateVPCSecurityGroupRules(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().GetVPCSubnetByName(gomock.Any()).Return(nil, nil)
-		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
+		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(ctx, vpcSecurityGroup.Rules, ptr.To("securityGroupID"))
 		g.Expect(ruleIDs).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})
@@ -9457,7 +9549,7 @@ func TestCreateVPCSecurityGroupRulesAndSetStatus(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(&vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll{Direction: ptr.To("outbound"), ID: ptr.To("ruleID")}, nil, nil)
-		err := clusterScope.createVPCSecurityGroupRulesAndSetStatus(vpcSecurityGroup.Rules, ptr.To("securityGroupID"), ptr.To("securityGroupName"))
+		err := clusterScope.createVPCSecurityGroupRulesAndSetStatus(ctx, vpcSecurityGroup.Rules, ptr.To("securityGroupID"), ptr.To("securityGroupName"))
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When CreateSecurityGroupRule returns error", func(t *testing.T) {
@@ -9493,7 +9585,7 @@ func TestCreateVPCSecurityGroupRulesAndSetStatus(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().CreateSecurityGroupRule(gomock.Any()).Return(nil, nil, errors.New("failed to create securityGroupRules"))
-		err := clusterScope.createVPCSecurityGroupRulesAndSetStatus(vpcSecurityGroup.Rules, ptr.To("securityGroupID"), ptr.To("securityGroupName"))
+		err := clusterScope.createVPCSecurityGroupRulesAndSetStatus(ctx, vpcSecurityGroup.Rules, ptr.To("securityGroupID"), ptr.To("securityGroupName"))
 		g.Expect(err).ToNot(BeNil())
 	})
 }
@@ -9530,7 +9622,7 @@ func TestCreateVPCSecurityGroup(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(&vpcv1.SecurityGroup{ID: ptr.To("securityGroupID")}, nil, nil)
-		sg, err := clusterScope.createVPCSecurityGroup(clusterScope.IBMPowerVSCluster.Spec.VPCSecurityGroups[0])
+		sg, err := clusterScope.createVPCSecurityGroup(ctx, clusterScope.IBMPowerVSCluster.Spec.VPCSecurityGroups[0])
 		g.Expect(*sg).To(BeEquivalentTo("securityGroupID"))
 		g.Expect(err).To(BeNil())
 	})
@@ -9553,7 +9645,7 @@ func TestCreateVPCSecurityGroup(t *testing.T) {
 		}
 
 		mockVPC.EXPECT().CreateSecurityGroup(gomock.Any()).Return(nil, nil, errors.New("failed to create SecurityGroup"))
-		sg, err := clusterScope.createVPCSecurityGroup(clusterScope.IBMPowerVSCluster.Spec.VPCSecurityGroups[0])
+		sg, err := clusterScope.createVPCSecurityGroup(ctx, clusterScope.IBMPowerVSCluster.Spec.VPCSecurityGroups[0])
 		g.Expect(sg).To(BeNil())
 		g.Expect(err).ToNot(BeNil())
 	})

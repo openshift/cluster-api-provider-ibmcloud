@@ -8,7 +8,6 @@ cmd/manager/manager
 IBM_Cloud_CLI*
 
 # command generated files
-kubeconfig
 cmd/clusterctl/kubeconfig
 
 # scripts outputs

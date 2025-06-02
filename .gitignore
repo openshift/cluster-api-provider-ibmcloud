@@ -10,6 +10,7 @@ IBM_Cloud_CLI*
 # command generated files
 kubeconfig
 cmd/clusterctl/kubeconfig
+!kubeconfig/
 
 # scripts outputs
 cmd/clusterctl/examples/ibmcloud/out/

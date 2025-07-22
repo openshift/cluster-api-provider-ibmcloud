@@ -8,15 +8,13 @@ approvers:
 - mkumatag
 - nrb
 reviewers:
-- JoelSpeed
 - RadekManak
 - damdo
-- elmiko
 - karthik-k-n
+- mdbooth
 - mkumatag
 - nrb
 - racheljpg
-- sub-mod
 - theobarberbany
 component: Cloud Compute
 subcomponent: IBM Provider

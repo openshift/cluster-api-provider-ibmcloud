@@ -8,6 +8,7 @@ toolchain go1.22.9
 replace (
 	github.com/onsi/ginkgo/v2 => github.com/onsi/ginkgo/v2 v2.21.0
 	github.com/onsi/gomega => github.com/onsi/gomega v1.35.1
+	golang.org/x/crypto => github.com/openshift/golang-crypto v0.33.1-0.20250310193910-9003f682e581
 	sigs.k8s.io/cluster-api => sigs.k8s.io/cluster-api v1.9.4
 )
 

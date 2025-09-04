@@ -9,6 +9,7 @@ replace (
 	github.com/onsi/ginkgo/v2 => github.com/onsi/ginkgo/v2 v2.21.0
 	github.com/onsi/gomega => github.com/onsi/gomega v1.35.1
 	golang.org/x/crypto => github.com/openshift/golang-crypto v0.33.1-0.20250310193910-9003f682e581
+	golang.org/x/oauth2 => github.com/openshift/golang-oauth2 v0.26.1-0.20250310184649-06a918c6239d
 	sigs.k8s.io/cluster-api => sigs.k8s.io/cluster-api v1.9.4
 )
 

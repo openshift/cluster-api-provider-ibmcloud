@@ -1,10 +1,5 @@
 # Kubernetes Cluster API Provider IBM Cloud
 
-<p align="center">
-<img src="../images/k8s-ibm-cloud.png" alt="Kubernetes Cluster API Provider IBM Cloud">
-</p>
-
-------
 <p align="center">Kubernetes-native declarative infrastructure for IBM Cloud.</p>
 
 ## What is the Cluster API Provider IBM Cloud
@@ -14,14 +9,15 @@ The [Cluster API](https://github.com/kubernetes-sigs/cluster-api) brings declara
 The API itself is shared across multiple cloud providers allowing for true IBM Cloud
 hybrid deployments of Kubernetes.  It is built atop the lessons learned from
 previous cluster managers such as [kops](https://github.com/kubernetes/kops) and
-[kubicorn](http://kubicorn.io/).
+[kubicorn](https://github.com/kubicorn/kubicorn).
 
 <aside class="note">
 
 <h1>Cluster API Provider IBM Cloud documentation versions</h1>
 
-This book documents Cluster API Provider IBM Cloud v0.10. For other versions please see the corresponding documentation:
+This book documents Cluster API Provider IBM Cloud v0.11. For other versions please see the corresponding documentation:
 * [main.cluster-api-ibmcloud.sigs.k8s.io](https://main.cluster-api-ibmcloud.sigs.k8s.io)
+* [release-0-11.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-11.cluster-api-ibmcloud.sigs.k8s.io/)
 * [release-0-10.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-10.cluster-api-ibmcloud.sigs.k8s.io/)
 * [release-0-9.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-9.cluster-api-ibmcloud.sigs.k8s.io/)
 * [release-0-8.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-8.cluster-api-ibmcloud.sigs.k8s.io/)
@@ -35,18 +31,18 @@ This book documents Cluster API Provider IBM Cloud v0.10. For other versions ple
 ## CAPIBM Supported Infrastructure-as-a-Service (IaaS)
 
 <p align="center">
-<img src="../images/ibm-cloud-iaas.png" alt="Supported IBM Cloud IaaS">
+<img src="../../images/ibm-cloud.svg" alt="Supported IBM Cloud IaaS">
 </p>
 
 Currently, the CAPIBM project exclusively facilitates the deployment of Kubernetes (K8s) clusters solely on two IBM infrastructure offerings, namely [IBM VPC (Virtual Server Instances)](https://cloud.ibm.com/docs/vpc?topic=vpc-about-advanced-virtual-servers) and [IBM PowerVS](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-about-virtual-server).
 
 ## Quick Start
 
-Check out the [getting started](./getting-started.html) section to create your first Kubernetes cluster on IBM Cloud using Cluster API.
+Check out the [getting started](./getting-started.md) section to create your first Kubernetes cluster on IBM Cloud using Cluster API.
 
 ## Tilt-based development environment
 
-See [developer guide](/developer/tilt.html) section for details.
+See [developer guide](./developer/tilt.md) section for details.
 
 
 ## Documentation

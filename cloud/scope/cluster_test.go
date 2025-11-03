@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
+	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc/mock"
 
 	. "github.com/onsi/gomega"
@@ -98,8 +98,8 @@ func TestCreateVPC(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcCluster := infrav1beta2.IBMVPCCluster{
-		Spec: infrav1beta2.IBMVPCClusterSpec{
+	vpcCluster := infrav1.IBMVPCCluster{
+		Spec: infrav1.IBMVPCClusterSpec{
 			Region:        "foo-region",
 			ResourceGroup: "foo-resource-group",
 			VPC:           "foo-vpc",
@@ -140,8 +140,8 @@ func TestCreateVPC(t *testing.T) {
 			mockController, mockvpc := setup(t)
 			t.Cleanup(mockController.Finish)
 			scope := setupClusterScope(clusterName, mockvpc)
-			vpcClusterCustom := infrav1beta2.IBMVPCCluster{
-				Spec: infrav1beta2.IBMVPCClusterSpec{
+			vpcClusterCustom := infrav1.IBMVPCCluster{
+				Spec: infrav1.IBMVPCClusterSpec{
 					Region:        "foo-region-1",
 					ResourceGroup: "foo-resource-group-1",
 					VPC:           "foo-vpc-1",
@@ -216,12 +216,12 @@ func TestDeleteVPC(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcCluster := infrav1beta2.IBMVPCCluster{
-		Spec: infrav1beta2.IBMVPCClusterSpec{
+	vpcCluster := infrav1.IBMVPCCluster{
+		Spec: infrav1.IBMVPCClusterSpec{
 			VPC: "foo-vpc",
 		},
-		Status: infrav1beta2.IBMVPCClusterStatus{
-			VPC: infrav1beta2.VPC{
+		Status: infrav1.IBMVPCClusterStatus{
+			VPC: infrav1.VPC{
 				ID: "foo-vpc",
 			},
 		},
@@ -260,15 +260,15 @@ func TestCreateSubnet(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcCluster := infrav1beta2.IBMVPCCluster{
-		Spec: infrav1beta2.IBMVPCClusterSpec{
+	vpcCluster := infrav1.IBMVPCCluster{
+		Spec: infrav1.IBMVPCClusterSpec{
 			Region:        "foo-region",
 			ResourceGroup: "foo-resource-group",
 			VPC:           "foo-vpc",
 			Zone:          "foo-zone",
 		},
-		Status: infrav1beta2.IBMVPCClusterStatus{
-			VPC: infrav1beta2.VPC{
+		Status: infrav1.IBMVPCClusterStatus{
+			VPC: infrav1.VPC{
 				ID: *core.StringPtr("foo-vpc"),
 			},
 		},
@@ -435,12 +435,12 @@ func TestDeleteSubnet(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcCluster := infrav1beta2.IBMVPCCluster{
-		Spec: infrav1beta2.IBMVPCClusterSpec{
+	vpcCluster := infrav1.IBMVPCCluster{
+		Spec: infrav1.IBMVPCClusterSpec{
 			VPC: "foo-vpc",
 		},
-		Status: infrav1beta2.IBMVPCClusterStatus{
-			Subnet: infrav1beta2.Subnet{
+		Status: infrav1.IBMVPCClusterStatus{
+			Subnet: infrav1.Subnet{
 				ID: core.StringPtr("foo-vpc-subnet-id"),
 			},
 		},
@@ -468,7 +468,7 @@ func TestDeleteSubnet(t *testing.T) {
 			mockvpc.EXPECT().UnsetSubnetPublicGateway(gomock.AssignableToTypeOf(&vpcv1.UnsetSubnetPublicGatewayOptions{})).Return(&core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().DeletePublicGateway(gomock.AssignableToTypeOf(&vpcv1.DeletePublicGatewayOptions{})).Return(&core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().DeleteSubnet(gomock.AssignableToTypeOf(&vpcv1.DeleteSubnetOptions{})).Return(&core.DetailedResponse{}, nil)
-			err := scope.DeleteSubnet()
+			err := scope.DeleteSubnet(ctx)
 			g.Expect(err).To(BeNil())
 		})
 
@@ -482,7 +482,7 @@ func TestDeleteSubnet(t *testing.T) {
 			mockvpc.EXPECT().ListSubnets(gomock.AssignableToTypeOf(&vpcv1.ListSubnetsOptions{})).Return(subnet, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().GetSubnetPublicGateway(gomock.AssignableToTypeOf(&vpcv1.GetSubnetPublicGatewayOptions{})).Return(publicGateway, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().UnsetSubnetPublicGateway(gomock.AssignableToTypeOf(&vpcv1.UnsetSubnetPublicGatewayOptions{})).Return(&core.DetailedResponse{}, errors.New("Error when unsetting publicgateway for subnet"))
-			err := scope.DeleteSubnet()
+			err := scope.DeleteSubnet(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 
@@ -497,7 +497,7 @@ func TestDeleteSubnet(t *testing.T) {
 			mockvpc.EXPECT().GetSubnetPublicGateway(gomock.AssignableToTypeOf(&vpcv1.GetSubnetPublicGatewayOptions{})).Return(publicGateway, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().UnsetSubnetPublicGateway(gomock.AssignableToTypeOf(&vpcv1.UnsetSubnetPublicGatewayOptions{})).Return(&core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().DeletePublicGateway(gomock.AssignableToTypeOf(&vpcv1.DeletePublicGatewayOptions{})).Return(&core.DetailedResponse{}, errors.New("Error when deleting publicgateway for subnet"))
-			err := scope.DeleteSubnet()
+			err := scope.DeleteSubnet(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 
@@ -513,7 +513,7 @@ func TestDeleteSubnet(t *testing.T) {
 			mockvpc.EXPECT().UnsetSubnetPublicGateway(gomock.AssignableToTypeOf(&vpcv1.UnsetSubnetPublicGatewayOptions{})).Return(&core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().DeletePublicGateway(gomock.AssignableToTypeOf(&vpcv1.DeletePublicGatewayOptions{})).Return(&core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().DeleteSubnet(gomock.AssignableToTypeOf(&vpcv1.DeleteSubnetOptions{})).Return(&core.DetailedResponse{}, errors.New("Error when deleting subnet"))
-			err := scope.DeleteSubnet()
+			err := scope.DeleteSubnet(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 
@@ -525,7 +525,7 @@ func TestDeleteSubnet(t *testing.T) {
 			scope.IBMVPCCluster.Spec = vpcCluster.Spec
 			scope.IBMVPCCluster.Status = vpcCluster.Status
 			mockvpc.EXPECT().ListSubnets(gomock.AssignableToTypeOf(&vpcv1.ListSubnetsOptions{})).Return(nil, &core.DetailedResponse{}, errors.New("Error listing subnets"))
-			err := scope.DeleteSubnet()
+			err := scope.DeleteSubnet(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("Subnet doesn't exist", func(t *testing.T) {
@@ -536,7 +536,7 @@ func TestDeleteSubnet(t *testing.T) {
 			scope.IBMVPCCluster.Spec = vpcCluster.Spec
 			scope.IBMVPCCluster.Status = vpcCluster.Status
 			mockvpc.EXPECT().ListSubnets(gomock.AssignableToTypeOf(&vpcv1.ListSubnetsOptions{})).Return(&vpcv1.SubnetCollection{Subnets: []vpcv1.Subnet{}}, &core.DetailedResponse{}, nil)
-			err := scope.DeleteSubnet()
+			err := scope.DeleteSubnet(ctx)
 			g.Expect(err).To(BeNil())
 		})
 	})
@@ -548,14 +548,14 @@ func TestCreateLoadBalancer(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcCluster := infrav1beta2.IBMVPCCluster{
-		Spec: infrav1beta2.IBMVPCClusterSpec{
-			ControlPlaneLoadBalancer: &infrav1beta2.VPCLoadBalancerSpec{
+	vpcCluster := infrav1.IBMVPCCluster{
+		Spec: infrav1.IBMVPCClusterSpec{
+			ControlPlaneLoadBalancer: &infrav1.VPCLoadBalancerSpec{
 				Name: "foo-load-balancer",
 			},
 		},
-		Status: infrav1beta2.IBMVPCClusterStatus{
-			Subnet: infrav1beta2.Subnet{
+		Status: infrav1.IBMVPCClusterStatus{
+			Subnet: infrav1.Subnet{
 				ID: core.StringPtr("foo-subnet-id"),
 			},
 		},
@@ -578,14 +578,14 @@ func TestCreateLoadBalancer(t *testing.T) {
 			mockController, mockvpc := setup(t)
 			t.Cleanup(mockController.Finish)
 			scope := setupClusterScope(clusterName, mockvpc)
-			vpcClusterCustom := infrav1beta2.IBMVPCCluster{
-				Spec: infrav1beta2.IBMVPCClusterSpec{
-					ControlPlaneLoadBalancer: &infrav1beta2.VPCLoadBalancerSpec{
+			vpcClusterCustom := infrav1.IBMVPCCluster{
+				Spec: infrav1.IBMVPCClusterSpec{
+					ControlPlaneLoadBalancer: &infrav1.VPCLoadBalancerSpec{
 						Name: "foo-load-balancer-1",
 					},
 				},
-				Status: infrav1beta2.IBMVPCClusterStatus{
-					Subnet: infrav1beta2.Subnet{
+				Status: infrav1.IBMVPCClusterStatus{
+					Subnet: infrav1.Subnet{
 						ID: core.StringPtr("foo-subnet-id"),
 					},
 				},
@@ -692,14 +692,14 @@ func TestDeleteLoadBalancer(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcCluster := infrav1beta2.IBMVPCCluster{
-		Spec: infrav1beta2.IBMVPCClusterSpec{
-			ControlPlaneLoadBalancer: &infrav1beta2.VPCLoadBalancerSpec{
+	vpcCluster := infrav1.IBMVPCCluster{
+		Spec: infrav1.IBMVPCClusterSpec{
+			ControlPlaneLoadBalancer: &infrav1.VPCLoadBalancerSpec{
 				Name: "foo-load-balancer",
 			},
 		},
-		Status: infrav1beta2.IBMVPCClusterStatus{
-			VPCEndpoint: infrav1beta2.VPCEndpoint{
+		Status: infrav1.IBMVPCClusterStatus{
+			VPCEndpoint: infrav1.VPCEndpoint{
 				LBID: core.StringPtr("foo-load-balancer-id"),
 			},
 		},

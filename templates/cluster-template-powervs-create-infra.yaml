@@ -1,4 +1,4 @@
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:
   labels:
@@ -16,11 +16,11 @@ spec:
       cidrBlocks:
       - ${SERVICE_CIDR:="10.128.0.0/12"}
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    apiGroup: controlplane.cluster.x-k8s.io
     kind: KubeadmControlPlane
     name: ${CLUSTER_NAME}-control-plane
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+    apiGroup: infrastructure.cluster.x-k8s.io
     kind: IBMPowerVSCluster
     name: ${CLUSTER_NAME}
 ---
@@ -49,7 +49,7 @@ spec:
   loadBalancers:
   - name: ${CLUSTER_NAME}-loadbalancer
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlane
 metadata:
   name: ${CLUSTER_NAME}-control-plane
@@ -57,26 +57,29 @@ metadata:
 spec:
   kubeadmConfigSpec:
     clusterConfiguration:
-      apiServer:
-        extraArgs:
-          cloud-provider: external
       controllerManager:
         extraArgs:
-          cloud-provider: external
-          enable-hostpath-provisioner: "true"
+        - name: cloud-provider
+          value: external
+        - name: enable-hostpath-provisioner
+          value: "true"
     initConfiguration:
       nodeRegistration:
         criSocket: /var/run/containerd/containerd.sock
         kubeletExtraArgs:
-          cloud-provider: external
-          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+        - name: cloud-provider
+          value: external
+        - name: eviction-hard
+          value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
         name: '{{ v1.local_hostname }}'
     joinConfiguration:
       nodeRegistration:
         criSocket: /var/run/containerd/containerd.sock
         kubeletExtraArgs:
-          cloud-provider: external
-          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+        - name: cloud-provider
+          value: external
+        - name: eviction-hard
+          value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
         name: '{{ v1.local_hostname }}'
     preKubeadmCommands:
     - hostname "{{ v1.local_hostname }}"
@@ -84,12 +87,12 @@ spec:
     - echo "127.0.0.1   localhost" >>/etc/hosts
     - echo "127.0.0.1   {{ v1.local_hostname }}" >>/etc/hosts
     - echo "{{ v1.local_hostname }}" >/etc/hostname
-    useExperimentalRetryJoin: true
   machineTemplate:
-    infrastructureRef:
-      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
-      kind: IBMPowerVSMachineTemplate
-      name: ${CLUSTER_NAME}-control-plane
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: IBMPowerVSMachineTemplate
+        name: ${CLUSTER_NAME}-control-plane
   replicas: ${CONTROL_PLANE_MACHINE_COUNT}
   version: ${KUBERNETES_VERSION}
 ---
@@ -111,7 +114,7 @@ spec:
       serviceInstance:
         name: ${CLUSTER_NAME}-serviceInstance
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
 metadata:
   name: ${CLUSTER_NAME}-md-0
@@ -123,12 +126,12 @@ spec:
     spec:
       bootstrap:
         configRef:
-          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          apiGroup: bootstrap.cluster.x-k8s.io
           kind: KubeadmConfigTemplate
           name: ${CLUSTER_NAME}-md-0
       clusterName: ${CLUSTER_NAME}
       infrastructureRef:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+        apiGroup: infrastructure.cluster.x-k8s.io
         kind: IBMPowerVSMachineTemplate
         name: ${CLUSTER_NAME}-md-0
       version: ${KUBERNETES_VERSION}
@@ -151,7 +154,7 @@ spec:
       serviceInstance:
         name: ${CLUSTER_NAME}-serviceInstance
 ---
-apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
 metadata:
   labels:
@@ -166,8 +169,10 @@ spec:
         nodeRegistration:
           criSocket: /var/run/containerd/containerd.sock
           kubeletExtraArgs:
-            cloud-provider: external
-            eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+          - name: cloud-provider
+            value: external
+          - name: eviction-hard
+            value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
           name: '{{ v1.local_hostname }}'
       preKubeadmCommands:
       - hostname "{{ v1.local_hostname }}"
@@ -192,7 +197,7 @@ spec:
 status:
   ready: false
 ---
-apiVersion: addons.cluster.x-k8s.io/v1beta1
+apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
 metadata:
   name: crs-cloud-conf

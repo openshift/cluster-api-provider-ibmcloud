@@ -40,11 +40,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/flags"
 
 	infrav1beta1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta1"
-	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
+	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/controllers"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/internal/webhooks"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
@@ -77,8 +77,8 @@ func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 
 	_ = infrav1beta1.AddToScheme(scheme)
-	_ = infrav1beta2.AddToScheme(scheme)
-	_ = capiv1beta1.AddToScheme(scheme)
+	_ = infrav1.AddToScheme(scheme)
+	_ = clusterv1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -135,7 +135,7 @@ func initFlags(fs *pflag.FlagSet) {
 		"The webhook certificate directory, where the server should find the TLS certificate and key.")
 
 	fs.StringVar(&watchFilterValue, "watch-filter", "",
-		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. Label key is always %s. If unspecified, the controller watches for all cluster-api objects.", capiv1beta1.WatchLabel))
+		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. Label key is always %s. If unspecified, the controller watches for all cluster-api objects.", clusterv1.WatchLabel))
 	fs.BoolVar(&disableHTTP2, "disable-http2", true, "http/2 should be disabled due to its vulnerabilities. More specifically, disabling http/2 will"+
 		" prevent from being vulnerable to the HTTP/2 Stream Cancellation and Rapid Reset CVEs.")
 
@@ -233,7 +233,7 @@ func main() {
 				DisableFor: []client.Object{
 					// We want to avoid use of cache for IBMPowerVSCluster as we exclusively depend on IBMPowerVSCluster.Status.[Resource].ControllerCreated
 					// to mark resources created by controller.
-					&infrav1beta2.IBMPowerVSCluster{},
+					&infrav1.IBMPowerVSCluster{},
 				},
 			},
 		},

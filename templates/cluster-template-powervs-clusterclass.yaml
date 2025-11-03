@@ -1,4 +1,4 @@
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:
   labels:
@@ -15,7 +15,8 @@ spec:
       cidrBlocks:
       - ${SERVICE_CIDR:="10.128.0.0/12"}
   topology:
-    class: ${IBMPOWERVS_CLUSTER_CLASS_NAME}
+    classRef:
+      name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}
     controlPlane:
       replicas: ${CONTROL_PLANE_MACHINE_COUNT}
     version: ${KUBERNETES_VERSION}
@@ -23,42 +24,41 @@ spec:
       machineDeployments:
       - class: default-worker
         name: md-0
-        replicas: 2
+        replicas: ${WORKER_MACHINE_COUNT}
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: ClusterClass
 metadata:
   name: ${IBMPOWERVS_CLUSTER_CLASS_NAME:="powervs-cc"}
 spec:
   controlPlane:
     machineInfrastructure:
-      ref:
+      templateRef:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
         kind: IBMPowerVSMachineTemplate
         name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}-control-plane-machinetemplate
-    ref:
-      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    templateRef:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta2
       kind: KubeadmControlPlaneTemplate
       name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}-control-plane
   infrastructure:
-    ref:
+    templateRef:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
       kind: IBMPowerVSClusterTemplate
       name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}-cluster-template
   workers:
     machineDeployments:
-    - class: default-worker
-      template:
-        bootstrap:
-          ref:
-            apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
-            kind: KubeadmConfigTemplate
-            name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}-md-0
-        infrastructure:
-          ref:
-            apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
-            kind: IBMPowerVSMachineTemplate
-            name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}-worker-machinetemplate
+    - bootstrap:
+        templateRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+          kind: KubeadmConfigTemplate
+          name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}-md-0
+      class: default-worker
+      infrastructure:
+        templateRef:
+          apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+          kind: IBMPowerVSMachineTemplate
+          name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}-worker-machinetemplate
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
 kind: IBMPowerVSClusterTemplate
@@ -74,7 +74,7 @@ spec:
         name: ${IBMPOWERVS_NETWORK_NAME}
       serviceInstanceID: ${IBMPOWERVS_SERVICE_INSTANCE_ID}
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlaneTemplate
 metadata:
   name: ${IBMPOWERVS_CLUSTER_CLASS_NAME}-control-plane
@@ -87,13 +87,13 @@ spec:
             certSANs:
             - ${IBMPOWERVS_VIP}
             - ${IBMPOWERVS_VIP_EXTERNAL}
-            extraArgs:
-              cloud-provider: external
           controlPlaneEndpoint: ${IBMPOWERVS_VIP}:${API_SERVER_PORT:=6443}
           controllerManager:
             extraArgs:
-              cloud-provider: external
-              enable-hostpath-provisioner: "true"
+            - name: cloud-provider
+              value: external
+            - name: enable-hostpath-provisioner
+              value: "true"
         files:
         - content: |
             apiVersion: v1
@@ -215,21 +215,23 @@ spec:
           nodeRegistration:
             criSocket: unix:///var/run/containerd/containerd.sock
             kubeletExtraArgs:
-              cloud-provider: external
-              eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+            - name: cloud-provider
+              value: external
+            - name: eviction-hard
+              value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
             name: '{{ v1.local_hostname }}'
         joinConfiguration:
           discovery:
             bootstrapToken:
-              apiServerEndpoint: 192.168.167.85:${API_SERVER_PORT:=6443}
-              caCertHashes: []
-              token: ""
+              apiServerEndpoint: ${IBMPOWERVS_VIP}:${API_SERVER_PORT:=6443}
               unsafeSkipCAVerification: false
           nodeRegistration:
             criSocket: unix:///var/run/containerd/containerd.sock
             kubeletExtraArgs:
-              cloud-provider: external
-              eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+            - name: cloud-provider
+              value: external
+            - name: eviction-hard
+              value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
             name: '{{ v1.local_hostname }}'
         preKubeadmCommands:
         - hostname "{{ v1.local_hostname }}"
@@ -239,9 +241,8 @@ spec:
         - echo "{{ v1.local_hostname }}" >/etc/hostname
         - for script in $(find /etc/pre-kubeadm-commands/ -name '*.sh' -type f | sort);
           do echo "Running script $script"; "$script"; done
-        useExperimentalRetryJoin: true
 ---
-apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
 metadata:
   labels:
@@ -255,14 +256,14 @@ spec:
         discovery:
           bootstrapToken:
             apiServerEndpoint: ${IBMPOWERVS_VIP}:${API_SERVER_PORT:=6443}
-            caCertHashes: []
-            token: ""
             unsafeSkipCAVerification: false
         nodeRegistration:
           criSocket: unix:///var/run/containerd/containerd.sock
           kubeletExtraArgs:
-            cloud-provider: external
-            eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+          - name: cloud-provider
+            value: external
+          - name: eviction-hard
+            value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
           name: '{{ v1.local_hostname }}'
       preKubeadmCommands:
       - hostname "{{ v1.local_hostname }}"
@@ -307,7 +308,7 @@ spec:
       sshKey: ${IBMPOWERVS_SSHKEY_NAME}
       systemType: ${IBMPOWERVS_CONTROL_PLANE_SYSTYPE:="s922"}
 ---
-apiVersion: addons.cluster.x-k8s.io/v1beta1
+apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
 metadata:
   name: crs-cloud-conf

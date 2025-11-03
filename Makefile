@@ -84,7 +84,7 @@ RELEASE_NOTES_DIR := CHANGELOG
 OUTPUT_TYPE ?= type=registry
 
 # Go
-GO_VERSION ?=1.23.8
+GO_VERSION ?=1.24.6
 GO_CONTAINER_IMAGE ?= golang:$(GO_VERSION)
 
 # Trivy
@@ -105,7 +105,7 @@ PULL_POLICY ?= Always
 # Set build time variables including version details
 LDFLAGS := $(shell ./hack/version.sh)
 
-KUBEBUILDER_ENVTEST_KUBERNETES_VERSION ?= 1.32.0
+KUBEBUILDER_ENVTEST_KUBERNETES_VERSION ?= 1.33.0
 
 # main controller
 CORE_IMAGE_NAME ?= cluster-api-ibmcloud-controller
@@ -179,8 +179,8 @@ help:  # Display this help
 
 # Generate code
 .PHONY: generate
-generate: ## Run all generate-go generate-modules generate-manifests generate-go-deepcopy generate-go-conversions generate-templates
-	$(MAKE) generate-go generate-modules generate-manifests generate-go-deepcopy generate-go-conversions generate-templates
+generate: ## Run all generate-go generate-modules generate-manifests generate-go-deepcopy generate-go-conversions generate-templates generate-e2e-templates
+	$(MAKE) generate-go generate-modules generate-manifests generate-go-deepcopy generate-go-conversions generate-templates generate-e2e-templates
 
 generate-go-deepcopy: $(CONTROLLER_GEN) ## Generate deepcopy go code
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
@@ -211,11 +211,8 @@ generate-templates: $(KUSTOMIZE) ## Generate cluster templates
 	
 .PHONY: generate-e2e-templates
 generate-e2e-templates: $(KUSTOMIZE) ## Generate E2E cluster templates
-ifeq ($(E2E_FLAVOR), powervs-md-remediation)
 	$(KUSTOMIZE) build $(E2E_TEMPLATES)/cluster-template-powervs-md-remediation --load-restrictor LoadRestrictionsNone > $(E2E_TEMPLATES)/cluster-template-powervs-md-remediation.yaml
-else
 	$(KUSTOMIZE) build $(E2E_TEMPLATES)/cluster-template-vpc --load-restrictor LoadRestrictionsNone > $(E2E_TEMPLATES)/cluster-template-vpc.yaml
-endif
 
 .PHONY: generate-modules
 generate-modules: ## Runs go mod to ensure modules are up to date
@@ -498,7 +495,7 @@ docker-build-core-image: ensure-buildx ## Build the multiarch core docker image
 
 .PHONY: lint
 lint: $(GOLANGCI_LINT) ## Lint codebase
-	$(GOLANGCI_LINT) run -v --fast=false
+	$(GOLANGCI_LINT) run -v --fast-only=false
 
 .PHONY: lint-fix
 lint-fix: $(GOLANGCI_LINT) ## Lint the codebase and run auto-fixers if supported by the linter
@@ -518,7 +515,7 @@ define checkdiff
 	git --no-pager diff --name-only FETCH_HEAD
 endef
 
-ALL_VERIFY_CHECKS = boilerplate shellcheck modules gen conversions go-version
+ALL_VERIFY_CHECKS = boilerplate shellcheck modules gen conversions go-version yamllint linkcheck
 
 .PHONY: verify
 verify: $(addprefix verify-,$(ALL_VERIFY_CHECKS)) ## Run all verify-* targets
@@ -586,9 +583,15 @@ else
 endif
 
 
-.PHONY: yamllint
-yamllint:
-	@docker run --rm $$(tty -s && echo "-it" || echo) -v $(PWD):/data cytopia/yamllint:latest /data --config-file /data/.yamllint --no-warnings
+CURR_DIR := $(shell pwd)
+.PHONY: verify-yamllint
+verify-yamllint:
+	@docker run -v $(CURR_DIR):/data cytopia/yamllint:latest /data --config-file /data/.yamllint --no-warnings
+
+MD_FILES := $(shell find . -iname "*.md")
+.PHONY: verify-linkcheck
+verify-linkcheck:
+	@docker run --init -w /input -v $(CURR_DIR):/input ghcr.io/tcort/markdown-link-check:3.12 -q -p $(MD_FILES)
 
 ## --------------------------------------
 ## Cleanup / Verification

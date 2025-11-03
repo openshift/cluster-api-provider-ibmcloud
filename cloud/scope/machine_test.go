@@ -29,25 +29,24 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/utils"
+	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/accounts"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc/mock"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/options"
 
 	. "github.com/onsi/gomega"
 )
 
-func newVPCMachine(clusterName, machineName string) *infrav1beta2.IBMVPCMachine {
-	return &infrav1beta2.IBMVPCMachine{
+func newVPCMachine(clusterName, machineName string) *infrav1.IBMVPCMachine {
+	return &infrav1.IBMVPCMachine{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
-				capiv1beta1.ClusterNameLabel: clusterName,
+				clusterv1.ClusterNameLabel: clusterName,
 			},
 			Name:      machineName,
 			Namespace: "default",
@@ -61,13 +60,13 @@ func setupMachineScope(clusterName string, machineName string, mockvpc *mock.Moc
 	secret := newBootstrapSecret(clusterName, machineName)
 	vpcMachine := newVPCMachine(clusterName, machineName)
 	vpcCluster := newVPCCluster(clusterName)
-	vpcCluster.Status = infrav1beta2.IBMVPCClusterStatus{
-		Network: &infrav1beta2.VPCNetworkStatus{
-			VPC: &infrav1beta2.ResourceStatus{
+	vpcCluster.Status = infrav1.IBMVPCClusterStatus{
+		Network: &infrav1.VPCNetworkStatus{
+			VPC: &infrav1.ResourceStatus{
 				ID: "vpc-id",
 			},
 		},
-		ResourceGroup: &infrav1beta2.ResourceStatus{
+		ResourceGroup: &infrav1.ResourceStatus{
 			ID: "resource-group-id",
 		},
 	}
@@ -79,7 +78,6 @@ func setupMachineScope(clusterName string, machineName string, mockvpc *mock.Moc
 	client := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(initObjects...).Build()
 	return &MachineScope{
 		Client:        client,
-		Logger:        klog.Background(),
 		IBMVPCClient:  mockvpc,
 		Cluster:       cluster,
 		Machine:       machine,
@@ -142,7 +140,7 @@ func TestSetVPCProviderID(t *testing.T) {
 		g := NewWithT(t)
 		scope := setupMachineScope(clusterName, machineName, mock.NewMockVpc(gomock.NewController(t)))
 		options.ProviderIDFormat = string("v2")
-		utils.GetAccountIDFunc = func() (string, error) {
+		accounts.GetAccountIDFunc = func() (string, error) {
 			return "dummy-account-id", nil // Return dummy value
 		}
 		err := scope.SetProviderID(ptr.To(providerID))
@@ -153,7 +151,7 @@ func TestSetVPCProviderID(t *testing.T) {
 		g := NewWithT(t)
 		scope := setupMachineScope(clusterName, machineName, mock.NewMockVpc(gomock.NewController(t)))
 		options.ProviderIDFormat = string("v2")
-		utils.GetAccountIDFunc = func() (string, error) {
+		accounts.GetAccountIDFunc = func() (string, error) {
 			return "", errors.New("error getting accountID") // Return dummy error
 		}
 		err := scope.SetProviderID(ptr.To(providerID))
@@ -167,14 +165,14 @@ func TestCreateMachine(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcMachine := infrav1beta2.IBMVPCMachine{
-		Spec: infrav1beta2.IBMVPCMachineSpec{
-			SSHKeys: []*infrav1beta2.IBMVPCResourceReference{
+	vpcMachine := infrav1.IBMVPCMachine{
+		Spec: infrav1.IBMVPCMachineSpec{
+			SSHKeys: []*infrav1.IBMVPCResourceReference{
 				{
 					ID: core.StringPtr("foo-ssh-key-id"),
 				},
 			},
-			Image: &infrav1beta2.IBMVPCResourceReference{
+			Image: &infrav1.IBMVPCResourceReference{
 				ID: core.StringPtr("foo-image-id"),
 			},
 			Profile: "machine-profile",
@@ -197,7 +195,7 @@ func TestCreateMachine(t *testing.T) {
 			mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-name")}, nil)
 			mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
-			out, err := scope.CreateMachine()
+			out, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(BeNil())
 			require.Equal(t, expectedOutput, out)
 		})
@@ -218,7 +216,7 @@ func TestCreateMachine(t *testing.T) {
 				},
 			}
 			mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(instanceCollection, &core.DetailedResponse{}, nil)
-			out, err := scope.CreateMachine()
+			out, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(BeNil())
 			require.Equal(t, expectedOutput, out)
 		})
@@ -229,7 +227,7 @@ func TestCreateMachine(t *testing.T) {
 			t.Cleanup(mockController.Finish)
 			scope := setupMachineScope(clusterName, machineName, mockvpc)
 			mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, errors.New("Error when listing instances"))
-			_, err := scope.CreateMachine()
+			_, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 
@@ -240,7 +238,7 @@ func TestCreateMachine(t *testing.T) {
 			scope := setupMachineScope(clusterName, machineName, mockvpc)
 			scope.Machine.Spec.Bootstrap.DataSecretName = nil
 			mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
-			_, err := scope.CreateMachine()
+			_, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 
@@ -251,7 +249,7 @@ func TestCreateMachine(t *testing.T) {
 			scope := setupMachineScope(clusterName, machineName, mockvpc)
 			scope.Machine.Spec.Bootstrap.DataSecretName = core.StringPtr("foo-secret-temp")
 			mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
-			_, err := scope.CreateMachine()
+			_, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 
@@ -263,7 +261,7 @@ func TestCreateMachine(t *testing.T) {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						capiv1beta1.ClusterNameLabel: clusterName,
+						clusterv1.ClusterNameLabel: clusterName,
 					},
 					Name:      machineName,
 					Namespace: "default",
@@ -273,7 +271,7 @@ func TestCreateMachine(t *testing.T) {
 				}}
 			g.Expect(scope.Client.Update(context.Background(), secret)).To(Succeed())
 			mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
-			_, err := scope.CreateMachine()
+			_, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 
@@ -286,7 +284,7 @@ func TestCreateMachine(t *testing.T) {
 			mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-id")}, nil)
 			mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(nil, &core.DetailedResponse{}, errors.New("Failed when creating instance"))
-			_, err := scope.CreateMachine()
+			_, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 
@@ -299,12 +297,12 @@ func TestCreateMachine(t *testing.T) {
 				Name: core.StringPtr("foo-machine"),
 			}
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
-			scope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1beta2.NetworkInterface{
+			scope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1.NetworkInterface{
 				Subnet: "subnet-name-1",
 			}
-			scope.IBMVPCCluster.Status = infrav1beta2.IBMVPCClusterStatus{
-				Network: &infrav1beta2.VPCNetworkStatus{
-					ControlPlaneSubnets: map[string]*infrav1beta2.ResourceStatus{
+			scope.IBMVPCCluster.Status = infrav1.IBMVPCClusterStatus{
+				Network: &infrav1.VPCNetworkStatus{
+					ControlPlaneSubnets: map[string]*infrav1.ResourceStatus{
 						"subnet-name-1": {
 							ID: "subnet-id",
 						},
@@ -319,7 +317,7 @@ func TestCreateMachine(t *testing.T) {
 			// TODO(cjschaef): Enhance the mock Options parameter to validate the Network Status ControlPlaneSubnets ID was used.
 			mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
 
-			out, err := scope.CreateMachine()
+			out, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(BeNil())
 			require.Equal(t, expectedOutput, out)
 		})
@@ -333,22 +331,22 @@ func TestCreateMachine(t *testing.T) {
 				Name: core.StringPtr("foo-machine"),
 			}
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
-			scope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1beta2.NetworkInterface{
-				SecurityGroups: []infrav1beta2.VPCResource{
+			scope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1.NetworkInterface{
+				SecurityGroups: []infrav1.VPCResource{
 					{
 						Name: core.StringPtr("security-group-1"),
 					},
 				},
 				Subnet: "subnet-name",
 			}
-			scope.IBMVPCCluster.Status = infrav1beta2.IBMVPCClusterStatus{
-				Network: &infrav1beta2.VPCNetworkStatus{
-					ControlPlaneSubnets: map[string]*infrav1beta2.ResourceStatus{
+			scope.IBMVPCCluster.Status = infrav1.IBMVPCClusterStatus{
+				Network: &infrav1.VPCNetworkStatus{
+					ControlPlaneSubnets: map[string]*infrav1.ResourceStatus{
 						"subnet-name": {
 							ID: "subnet-id",
 						},
 					},
-					SecurityGroups: map[string]*infrav1beta2.ResourceStatus{
+					SecurityGroups: map[string]*infrav1.ResourceStatus{
 						"security-group-1": {
 							ID: "security-group-id-1",
 						},
@@ -363,7 +361,7 @@ func TestCreateMachine(t *testing.T) {
 			// TODO(cjschaef): Enhance the mock Options parameter to validate the Network Status Security Group ID was used.
 			mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
 
-			out, err := scope.CreateMachine()
+			out, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(BeNil())
 			require.Equal(t, expectedOutput, out)
 		})
@@ -377,8 +375,8 @@ func TestCreateMachine(t *testing.T) {
 				Name: core.StringPtr("foo-machine"),
 			}
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
-			scope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1beta2.NetworkInterface{
-				SecurityGroups: []infrav1beta2.VPCResource{
+			scope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1.NetworkInterface{
+				SecurityGroups: []infrav1.VPCResource{
 					{
 						Name: core.StringPtr("security-group-1"),
 					},
@@ -394,7 +392,7 @@ func TestCreateMachine(t *testing.T) {
 			mockvpc.EXPECT().GetSecurityGroupByName("security-group-1").Return(&vpcv1.SecurityGroup{ID: core.StringPtr("security-group-id-1")}, nil)
 			mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
 
-			out, err := scope.CreateMachine()
+			out, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(BeNil())
 			require.Equal(t, expectedOutput, out)
 		})
@@ -408,8 +406,8 @@ func TestCreateMachine(t *testing.T) {
 				Name: core.StringPtr("foo-machine"),
 			}
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
-			scope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1beta2.NetworkInterface{
-				SecurityGroups: []infrav1beta2.VPCResource{
+			scope.IBMVPCMachine.Spec.PrimaryNetworkInterface = infrav1.NetworkInterface{
+				SecurityGroups: []infrav1.VPCResource{
 					{
 						ID: core.StringPtr("security-group-id-1"),
 					},
@@ -425,7 +423,7 @@ func TestCreateMachine(t *testing.T) {
 			mockvpc.EXPECT().GetSecurityGroup(gomock.AssignableToTypeOf(&vpcv1.GetSecurityGroupOptions{})).Return(&vpcv1.SecurityGroup{ID: core.StringPtr("security-group-id-1")}, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
 
-			out, err := scope.CreateMachine()
+			out, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(BeNil())
 			require.Equal(t, expectedOutput, out)
 		})
@@ -439,9 +437,9 @@ func TestCreateMachine(t *testing.T) {
 				Name: core.StringPtr("foo-machine"),
 			}
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
-			scope.IBMVPCCluster.Status = infrav1beta2.IBMVPCClusterStatus{
-				Network: &infrav1beta2.VPCNetworkStatus{
-					VPC: &infrav1beta2.ResourceStatus{
+			scope.IBMVPCCluster.Status = infrav1.IBMVPCClusterStatus{
+				Network: &infrav1.VPCNetworkStatus{
+					VPC: &infrav1.ResourceStatus{
 						ID: "network-vpc-id",
 					},
 				},
@@ -455,7 +453,7 @@ func TestCreateMachine(t *testing.T) {
 			// TODO(cjschaef): Enhance the mock Options parameter to validate the Network Status VPC ID was used.
 			mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
 
-			out, err := scope.CreateMachine()
+			out, err := scope.CreateMachine(ctx)
 			g.Expect(err).To(BeNil())
 			require.Equal(t, expectedOutput, out)
 		})
@@ -466,12 +464,12 @@ func TestCreateMachine(t *testing.T) {
 		mockController, mockvpc := setup(t)
 		t.Cleanup(mockController.Finish)
 		scope := setupMachineScope(clusterName, machineName, mockvpc)
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{},
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{},
 		}
 		scope.IBMVPCMachine.Spec = vpcMachine.Spec
 		mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
-		_, err := scope.CreateMachine()
+		_, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -480,15 +478,15 @@ func TestCreateMachine(t *testing.T) {
 		mockController, mockvpc := setup(t)
 		t.Cleanup(mockController.Finish)
 		scope := setupMachineScope(clusterName, machineName, mockvpc)
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{
-				SSHKeys: []*infrav1beta2.IBMVPCResourceReference{
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{
+				SSHKeys: []*infrav1.IBMVPCResourceReference{
 					{},
 				},
-				Image: &infrav1beta2.IBMVPCResourceReference{
+				Image: &infrav1.IBMVPCResourceReference{
 					ID: core.StringPtr("foo-image-id"),
 				},
-				PrimaryNetworkInterface: infrav1beta2.NetworkInterface{
+				PrimaryNetworkInterface: infrav1.NetworkInterface{
 					Subnet: "subnet-name",
 				},
 				Profile: "machine-profile",
@@ -497,7 +495,7 @@ func TestCreateMachine(t *testing.T) {
 		scope.IBMVPCMachine.Spec = vpcMachine.Spec
 		mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-id")}, nil)
-		_, err := scope.CreateMachine()
+		_, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -506,17 +504,17 @@ func TestCreateMachine(t *testing.T) {
 		mockController, mockvpc := setup(t)
 		t.Cleanup(mockController.Finish)
 		scope := setupMachineScope(clusterName, machineName, mockvpc)
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{
-				SSHKeys: []*infrav1beta2.IBMVPCResourceReference{
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{
+				SSHKeys: []*infrav1.IBMVPCResourceReference{
 					{
 						Name: core.StringPtr("foo-ssh-key"),
 					},
 				},
-				Image: &infrav1beta2.IBMVPCResourceReference{
+				Image: &infrav1.IBMVPCResourceReference{
 					ID: core.StringPtr("foo-image-id"),
 				},
-				PrimaryNetworkInterface: infrav1beta2.NetworkInterface{
+				PrimaryNetworkInterface: infrav1.NetworkInterface{
 					Subnet: "subnet-name",
 				},
 				Profile: "machine-profile",
@@ -526,7 +524,7 @@ func TestCreateMachine(t *testing.T) {
 		mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-id")}, nil)
 		mockvpc.EXPECT().ListKeys(gomock.AssignableToTypeOf(&vpcv1.ListKeysOptions{})).Return(nil, &core.DetailedResponse{}, errors.New("Failed when creating instance"))
-		_, err := scope.CreateMachine()
+		_, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -543,17 +541,17 @@ func TestCreateMachine(t *testing.T) {
 				},
 			},
 		}
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{
-				SSHKeys: []*infrav1beta2.IBMVPCResourceReference{
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{
+				SSHKeys: []*infrav1.IBMVPCResourceReference{
 					{
 						Name: core.StringPtr("foo-ssh-key"),
 					},
 				},
-				Image: &infrav1beta2.IBMVPCResourceReference{
+				Image: &infrav1.IBMVPCResourceReference{
 					ID: core.StringPtr("foo-image-id"),
 				},
-				PrimaryNetworkInterface: infrav1beta2.NetworkInterface{
+				PrimaryNetworkInterface: infrav1.NetworkInterface{
 					Subnet: "subnet-name",
 				},
 				Profile: "machine-profile",
@@ -563,7 +561,7 @@ func TestCreateMachine(t *testing.T) {
 		mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-id")}, nil)
 		mockvpc.EXPECT().ListKeys(gomock.AssignableToTypeOf(&vpcv1.ListKeysOptions{})).Return(keyCollection, &core.DetailedResponse{}, nil)
-		_, err := scope.CreateMachine()
+		_, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -591,17 +589,17 @@ func TestCreateMachine(t *testing.T) {
 				},
 			},
 		}
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{
-				SSHKeys: []*infrav1beta2.IBMVPCResourceReference{
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{
+				SSHKeys: []*infrav1.IBMVPCResourceReference{
 					{
 						Name: core.StringPtr("foo-ssh-key"),
 					},
 				},
-				Image: &infrav1beta2.IBMVPCResourceReference{
+				Image: &infrav1.IBMVPCResourceReference{
 					Name: core.StringPtr("foo-image"),
 				},
-				PrimaryNetworkInterface: infrav1beta2.NetworkInterface{
+				PrimaryNetworkInterface: infrav1.NetworkInterface{
 					Subnet: "subnet-name",
 				},
 				Profile: "machine-profile",
@@ -616,7 +614,7 @@ func TestCreateMachine(t *testing.T) {
 		mockvpc.EXPECT().ListImages(gomock.AssignableToTypeOf(&vpcv1.ListImagesOptions{})).Return(imageCollection, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().ListKeys(gomock.AssignableToTypeOf(&vpcv1.ListKeysOptions{})).Return(keyCollection, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
-		out, err := scope.CreateMachine()
+		out, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(BeNil())
 		require.Equal(t, expectedOutput, out)
 	})
@@ -626,10 +624,10 @@ func TestCreateMachine(t *testing.T) {
 		mockController, mockvpc := setup(t)
 		t.Cleanup(mockController.Finish)
 		scope := setupMachineScope(clusterName, machineName, mockvpc)
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{
-				Image: &infrav1beta2.IBMVPCResourceReference{},
-				PrimaryNetworkInterface: infrav1beta2.NetworkInterface{
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{
+				Image: &infrav1.IBMVPCResourceReference{},
+				PrimaryNetworkInterface: infrav1.NetworkInterface{
 					Subnet: "subnet-name",
 				},
 				Profile: "machine-profile",
@@ -638,7 +636,7 @@ func TestCreateMachine(t *testing.T) {
 		scope.IBMVPCMachine.Spec = vpcMachine.Spec
 		mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-id")}, nil)
-		_, err := scope.CreateMachine()
+		_, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -647,12 +645,12 @@ func TestCreateMachine(t *testing.T) {
 		mockController, mockvpc := setup(t)
 		t.Cleanup(mockController.Finish)
 		scope := setupMachineScope(clusterName, machineName, mockvpc)
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{
-				Image: &infrav1beta2.IBMVPCResourceReference{
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{
+				Image: &infrav1.IBMVPCResourceReference{
 					Name: core.StringPtr("foo-image"),
 				},
-				PrimaryNetworkInterface: infrav1beta2.NetworkInterface{
+				PrimaryNetworkInterface: infrav1.NetworkInterface{
 					Subnet: "subnet-name",
 				},
 				Profile: "machine-profile",
@@ -662,7 +660,7 @@ func TestCreateMachine(t *testing.T) {
 		mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-id")}, nil)
 		mockvpc.EXPECT().ListImages(gomock.AssignableToTypeOf(&vpcv1.ListImagesOptions{})).Return(nil, &core.DetailedResponse{}, errors.New("Failed when listing Images"))
-		_, err := scope.CreateMachine()
+		_, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -679,12 +677,12 @@ func TestCreateMachine(t *testing.T) {
 				},
 			},
 		}
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{
-				Image: &infrav1beta2.IBMVPCResourceReference{
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{
+				Image: &infrav1.IBMVPCResourceReference{
 					Name: core.StringPtr("foo-image"),
 				},
-				PrimaryNetworkInterface: infrav1beta2.NetworkInterface{
+				PrimaryNetworkInterface: infrav1.NetworkInterface{
 					Subnet: "subnet-name",
 				},
 				Profile: "machine-profile",
@@ -694,7 +692,7 @@ func TestCreateMachine(t *testing.T) {
 		mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-id")}, nil)
 		mockvpc.EXPECT().ListImages(gomock.AssignableToTypeOf(&vpcv1.ListImagesOptions{})).Return(imageCollection, &core.DetailedResponse{}, nil)
-		_, err := scope.CreateMachine()
+		_, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(Not(BeNil()))
 	})
 
@@ -706,19 +704,19 @@ func TestCreateMachine(t *testing.T) {
 		expectedOutput := &vpcv1.Instance{
 			Name: core.StringPtr("foo-machine"),
 		}
-		vpcMachine := infrav1beta2.IBMVPCMachine{
-			Spec: infrav1beta2.IBMVPCMachineSpec{
-				SSHKeys: []*infrav1beta2.IBMVPCResourceReference{
+		vpcMachine := infrav1.IBMVPCMachine{
+			Spec: infrav1.IBMVPCMachineSpec{
+				SSHKeys: []*infrav1.IBMVPCResourceReference{
 					{
 						Name: core.StringPtr("foo-ssh-key"),
 						ID:   core.StringPtr("foo-ssh-key-id"),
 					},
 				},
-				Image: &infrav1beta2.IBMVPCResourceReference{
+				Image: &infrav1.IBMVPCResourceReference{
 					Name: core.StringPtr("foo-image"),
 					ID:   core.StringPtr("foo-image-id"),
 				},
-				PrimaryNetworkInterface: infrav1beta2.NetworkInterface{
+				PrimaryNetworkInterface: infrav1.NetworkInterface{
 					Subnet: "subnet-name",
 				},
 				Profile: "machine-profile",
@@ -731,7 +729,7 @@ func TestCreateMachine(t *testing.T) {
 		mockvpc.EXPECT().ListInstances(gomock.AssignableToTypeOf(&vpcv1.ListInstancesOptions{})).Return(&vpcv1.InstanceCollection{}, &core.DetailedResponse{}, nil)
 		mockvpc.EXPECT().GetVPCSubnetByName(vpcMachine.Spec.PrimaryNetworkInterface.Subnet).Return(&vpcv1.Subnet{ID: core.StringPtr("subnet-id")}, nil)
 		mockvpc.EXPECT().CreateInstance(gomock.AssignableToTypeOf(&vpcv1.CreateInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
-		out, err := scope.CreateMachine()
+		out, err := scope.CreateMachine(ctx)
 		g.Expect(err).To(BeNil())
 		require.Equal(t, expectedOutput, out)
 	})
@@ -743,11 +741,11 @@ func TestDeleteMachine(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcMachine := infrav1beta2.IBMVPCMachine{
-		Spec: infrav1beta2.IBMVPCMachineSpec{
+	vpcMachine := infrav1.IBMVPCMachine{
+		Spec: infrav1.IBMVPCMachineSpec{
 			Name: "foo-machine",
 		},
-		Status: infrav1beta2.IBMVPCMachineStatus{
+		Status: infrav1.IBMVPCMachineStatus{
 			InstanceID: "foo-instance-id",
 		},
 	}
@@ -795,11 +793,11 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcMachine := infrav1beta2.IBMVPCMachine{
-		Spec: infrav1beta2.IBMVPCMachineSpec{
+	vpcMachine := infrav1.IBMVPCMachine{
+		Spec: infrav1.IBMVPCMachineSpec{
 			Name: "foo-machine",
 		},
-		Status: infrav1beta2.IBMVPCMachineStatus{
+		Status: infrav1.IBMVPCMachineStatus{
 			Addresses: []corev1.NodeAddress{
 				{
 					Type:    corev1.NodeInternalIP,
@@ -828,7 +826,7 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
 			scope.IBMVPCMachine.Status = vpcMachine.Status
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(&vpcv1.LoadBalancer{}, &core.DetailedResponse{}, errors.New("Could not fetch LoadBalancer"))
-			_, err := scope.CreateVPCLoadBalancerPoolMember(&scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1beta2.DefaultAPIServerPort))
+			_, err := scope.CreateVPCLoadBalancerPoolMember(ctx, &scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1.DefaultAPIServerPort))
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("Error when LoadBalancer is not active", func(t *testing.T) {
@@ -843,7 +841,7 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 				ProvisioningStatus: core.StringPtr("pending"),
 			}
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
-			_, err := scope.CreateVPCLoadBalancerPoolMember(&scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1beta2.DefaultAPIServerPort))
+			_, err := scope.CreateVPCLoadBalancerPoolMember(ctx, &scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1.DefaultAPIServerPort))
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("Error when no pool exist", func(t *testing.T) {
@@ -859,7 +857,7 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 				Pools:              []vpcv1.LoadBalancerPoolReference{},
 			}
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
-			_, err := scope.CreateVPCLoadBalancerPoolMember(&scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1beta2.DefaultAPIServerPort))
+			_, err := scope.CreateVPCLoadBalancerPoolMember(ctx, &scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1.DefaultAPIServerPort))
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("Error when listing LoadBalancerPoolMembers", func(t *testing.T) {
@@ -871,7 +869,7 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 			scope.IBMVPCMachine.Status = vpcMachine.Status
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(&vpcv1.LoadBalancerPoolMemberCollection{}, &core.DetailedResponse{}, errors.New("Failed to list LoadBalancerPoolMembers"))
-			_, err := scope.CreateVPCLoadBalancerPoolMember(&scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1beta2.DefaultAPIServerPort))
+			_, err := scope.CreateVPCLoadBalancerPoolMember(ctx, &scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1.DefaultAPIServerPort))
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("PoolMember already exist", func(t *testing.T) {
@@ -884,7 +882,7 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 			loadBalancerPoolMemberCollection := &vpcv1.LoadBalancerPoolMemberCollection{
 				Members: []vpcv1.LoadBalancerPoolMember{
 					{
-						Port: core.Int64Ptr(int64(infrav1beta2.DefaultAPIServerPort)),
+						Port: core.Int64Ptr(int64(infrav1.DefaultAPIServerPort)),
 						Target: &vpcv1.LoadBalancerPoolMemberTarget{
 							Address: core.StringPtr("192.168.1.1"),
 						},
@@ -893,7 +891,7 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 			}
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(loadBalancerPoolMemberCollection, &core.DetailedResponse{}, nil)
-			_, err := scope.CreateVPCLoadBalancerPoolMember(&scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1beta2.DefaultAPIServerPort))
+			_, err := scope.CreateVPCLoadBalancerPoolMember(ctx, &scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1.DefaultAPIServerPort))
 			g.Expect(err).To(BeNil())
 		})
 		t.Run("Error when creating LoadBalancerPoolMember", func(t *testing.T) {
@@ -906,7 +904,7 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(&vpcv1.LoadBalancerPoolMemberCollection{}, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().CreateLoadBalancerPoolMember(gomock.AssignableToTypeOf(&vpcv1.CreateLoadBalancerPoolMemberOptions{})).Return(&vpcv1.LoadBalancerPoolMember{}, &core.DetailedResponse{}, errors.New("Failed to create LoadBalancerPoolMember"))
-			_, err := scope.CreateVPCLoadBalancerPoolMember(&scope.IBMVPCMachine.Status.Addresses[0].Address, int64(64))
+			_, err := scope.CreateVPCLoadBalancerPoolMember(ctx, &scope.IBMVPCMachine.Status.Addresses[0].Address, int64(64))
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("Should create VPCLoadBalancerPoolMember", func(t *testing.T) {
@@ -916,18 +914,18 @@ func TestCreateVPCLoadBalancerPoolMember(t *testing.T) {
 			scope := setupMachineScope(clusterName, machineName, mockvpc)
 			expectedOutput := &vpcv1.LoadBalancerPoolMember{
 				ID:   core.StringPtr("foo-load-balancer-pool-member-id"),
-				Port: core.Int64Ptr(int64(infrav1beta2.DefaultAPIServerPort)),
+				Port: core.Int64Ptr(int64(infrav1.DefaultAPIServerPort)),
 			}
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
 			scope.IBMVPCMachine.Status = vpcMachine.Status
 			loadBalancerPoolMember := &vpcv1.LoadBalancerPoolMember{
 				ID:   core.StringPtr("foo-load-balancer-pool-member-id"),
-				Port: core.Int64Ptr(int64(infrav1beta2.DefaultAPIServerPort)),
+				Port: core.Int64Ptr(int64(infrav1.DefaultAPIServerPort)),
 			}
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(&vpcv1.LoadBalancerPoolMemberCollection{}, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().CreateLoadBalancerPoolMember(gomock.AssignableToTypeOf(&vpcv1.CreateLoadBalancerPoolMemberOptions{})).Return(loadBalancerPoolMember, &core.DetailedResponse{}, nil)
-			out, err := scope.CreateVPCLoadBalancerPoolMember(&scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1beta2.DefaultAPIServerPort))
+			out, err := scope.CreateVPCLoadBalancerPoolMember(ctx, &scope.IBMVPCMachine.Status.Addresses[0].Address, int64(infrav1.DefaultAPIServerPort))
 			g.Expect(err).To(BeNil())
 			require.Equal(t, expectedOutput, out)
 		})
@@ -940,11 +938,11 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 		return gomock.NewController(t), mock.NewMockVpc(gomock.NewController(t))
 	}
 
-	vpcMachine := infrav1beta2.IBMVPCMachine{
-		Spec: infrav1beta2.IBMVPCMachineSpec{
+	vpcMachine := infrav1.IBMVPCMachine{
+		Spec: infrav1.IBMVPCMachineSpec{
 			Name: "foo-machine",
 		},
-		Status: infrav1beta2.IBMVPCMachineStatus{
+		Status: infrav1.IBMVPCMachineStatus{
 			InstanceID: "foo-instance-id",
 			Addresses: []corev1.NodeAddress{
 				{
@@ -976,7 +974,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			Members: []vpcv1.LoadBalancerPoolMember{
 				{
 					ID:   core.StringPtr("foo-lb-pool-member-id"),
-					Port: core.Int64Ptr(int64(infrav1beta2.DefaultAPIServerPort)),
+					Port: core.Int64Ptr(int64(infrav1.DefaultAPIServerPort)),
 					Target: &vpcv1.LoadBalancerPoolMemberTarget{
 						Address: core.StringPtr("192.168.1.1"),
 					},
@@ -992,7 +990,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
 			scope.IBMVPCMachine.Status = vpcMachine.Status
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(&vpcv1.LoadBalancer{}, &core.DetailedResponse{}, errors.New("Could not fetch LoadBalancer"))
-			err := scope.DeleteVPCLoadBalancerPoolMember()
+			err := scope.DeleteVPCLoadBalancerPoolMember(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("No pools associated with load balancer", func(t *testing.T) {
@@ -1003,7 +1001,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			scope.IBMVPCMachine.Spec = vpcMachine.Spec
 			scope.IBMVPCMachine.Status = vpcMachine.Status
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(&vpcv1.LoadBalancer{}, &core.DetailedResponse{}, nil)
-			err := scope.DeleteVPCLoadBalancerPoolMember()
+			err := scope.DeleteVPCLoadBalancerPoolMember(ctx)
 			g.Expect(err).To(BeNil())
 		})
 		t.Run("Error when fetching Instance", func(t *testing.T) {
@@ -1015,7 +1013,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			scope.IBMVPCMachine.Status = vpcMachine.Status
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().GetInstance(gomock.AssignableToTypeOf(&vpcv1.GetInstanceOptions{})).Return(&vpcv1.Instance{}, &core.DetailedResponse{}, errors.New("Failed to fetch Instance"))
-			err := scope.DeleteVPCLoadBalancerPoolMember()
+			err := scope.DeleteVPCLoadBalancerPoolMember(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("Error when listing LoadBalancerPoolMembers", func(t *testing.T) {
@@ -1028,7 +1026,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().GetInstance(gomock.AssignableToTypeOf(&vpcv1.GetInstanceOptions{})).Return(&vpcv1.Instance{}, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(&vpcv1.LoadBalancerPoolMemberCollection{}, &core.DetailedResponse{}, errors.New("Failed to list LoadBalancerPoolMembers"))
-			err := scope.DeleteVPCLoadBalancerPoolMember()
+			err := scope.DeleteVPCLoadBalancerPoolMember(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("No members in load balancer pool", func(t *testing.T) {
@@ -1041,7 +1039,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().GetInstance(gomock.AssignableToTypeOf(&vpcv1.GetInstanceOptions{})).Return(&vpcv1.Instance{}, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(&vpcv1.LoadBalancerPoolMemberCollection{}, &core.DetailedResponse{}, nil)
-			err := scope.DeleteVPCLoadBalancerPoolMember()
+			err := scope.DeleteVPCLoadBalancerPoolMember(ctx)
 			g.Expect(err).To(BeNil())
 		})
 		t.Run("Error when load balancer is not in active state", func(t *testing.T) {
@@ -1063,7 +1061,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			mockvpc.EXPECT().GetLoadBalancer(gomock.AssignableToTypeOf(&vpcv1.GetLoadBalancerOptions{})).Return(loadBalancer, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().GetInstance(gomock.AssignableToTypeOf(&vpcv1.GetInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(loadBalancerPoolMemberCollection, &core.DetailedResponse{}, nil)
-			err := scope.DeleteVPCLoadBalancerPoolMember()
+			err := scope.DeleteVPCLoadBalancerPoolMember(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("Error when deleting load balancer pool member", func(t *testing.T) {
@@ -1077,7 +1075,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			mockvpc.EXPECT().GetInstance(gomock.AssignableToTypeOf(&vpcv1.GetInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(loadBalancerPoolMemberCollection, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().DeleteLoadBalancerPoolMember(gomock.AssignableToTypeOf(&vpcv1.DeleteLoadBalancerPoolMemberOptions{})).Return(&core.DetailedResponse{}, errors.New("Failed to delete LoadBalancerPoolMember"))
-			err := scope.DeleteVPCLoadBalancerPoolMember()
+			err := scope.DeleteVPCLoadBalancerPoolMember(ctx)
 			g.Expect(err).To(Not(BeNil()))
 		})
 		t.Run("Should delete load balancer pool", func(t *testing.T) {
@@ -1091,7 +1089,7 @@ func TestDeleteVPCLoadBalancerPoolMember(t *testing.T) {
 			mockvpc.EXPECT().GetInstance(gomock.AssignableToTypeOf(&vpcv1.GetInstanceOptions{})).Return(instance, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().ListLoadBalancerPoolMembers(gomock.AssignableToTypeOf(&vpcv1.ListLoadBalancerPoolMembersOptions{})).Return(loadBalancerPoolMemberCollection, &core.DetailedResponse{}, nil)
 			mockvpc.EXPECT().DeleteLoadBalancerPoolMember(gomock.AssignableToTypeOf(&vpcv1.DeleteLoadBalancerPoolMemberOptions{})).Return(&core.DetailedResponse{}, nil)
-			err := scope.DeleteVPCLoadBalancerPoolMember()
+			err := scope.DeleteVPCLoadBalancerPoolMember(ctx)
 			g.Expect(err).To(BeNil())
 		})
 	})

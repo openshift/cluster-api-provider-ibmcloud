@@ -239,7 +239,7 @@ stringData:
       ibmcloud_api_key: ${BASE64_API_KEY}
 type: addons.cluster.x-k8s.io/resource-set
 ---
-apiVersion: addons.cluster.x-k8s.io/v1beta1
+apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
 metadata:
   name: crs-cloud-conf
@@ -256,7 +256,7 @@ spec:
     name: cloud-controller-manager-addon
   strategy: ApplyOnce
 ---
-apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
 metadata:
   name: ${CLUSTER_NAME}-md-0
@@ -266,10 +266,12 @@ spec:
       joinConfiguration:
         nodeRegistration:
           kubeletExtraArgs:
-            cloud-provider: external
-            eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+          - name: cloud-provider
+            value: external
+          - name: eviction-hard
+            value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:
   labels:
@@ -287,17 +289,15 @@ spec:
       cidrBlocks:
       - ${SERVICE_CIDR:="10.128.0.0/12"}
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    apiGroup: controlplane.cluster.x-k8s.io
     kind: KubeadmControlPlane
     name: ${CLUSTER_NAME}-control-plane
-    namespace: ${NAMESPACE}
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+    apiGroup: infrastructure.cluster.x-k8s.io
     kind: IBMVPCCluster
     name: ${CLUSTER_NAME}
-    namespace: ${NAMESPACE}
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
 metadata:
   name: ${CLUSTER_NAME}-md-0
@@ -308,17 +308,17 @@ spec:
     spec:
       bootstrap:
         configRef:
-          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          apiGroup: bootstrap.cluster.x-k8s.io
           kind: KubeadmConfigTemplate
           name: ${CLUSTER_NAME}-md-0
       clusterName: ${CLUSTER_NAME}
       infrastructureRef:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+        apiGroup: infrastructure.cluster.x-k8s.io
         kind: IBMVPCMachineTemplate
         name: ${CLUSTER_NAME}-md-0
       version: ${KUBERNETES_VERSION}
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlane
 metadata:
   name: ${CLUSTER_NAME}-control-plane
@@ -330,36 +330,32 @@ spec:
         certSANs:
         - localhost
         - 127.0.0.1
-        extraArgs:
-          cloud-provider: external
       controllerManager:
         extraArgs:
-          cloud-provider: external
-          enable-hostpath-provisioner: "true"
-      dns: {}
-      etcd: {}
-      kubernetesVersion: ${KUBERNETES_VERSION}
-      networking: {}
-      scheduler: {}
+        - name: cloud-provider
+          value: external
     initConfiguration:
       nodeRegistration:
         criSocket: /var/run/containerd/containerd.sock
         kubeletExtraArgs:
-          cloud-provider: external
-          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+        - name: cloud-provider
+          value: external
+        - name: eviction-hard
+          value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
     joinConfiguration:
-      discovery: {}
       nodeRegistration:
         criSocket: /var/run/containerd/containerd.sock
         kubeletExtraArgs:
-          cloud-provider: external
-          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+        - name: cloud-provider
+          value: external
+        - name: eviction-hard
+          value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
   machineTemplate:
-    infrastructureRef:
-      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
-      kind: IBMVPCMachineTemplate
-      name: ${CLUSTER_NAME}-control-plane
-      namespace: ${NAMESPACE}
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: IBMVPCMachineTemplate
+        name: ${CLUSTER_NAME}-control-plane
   replicas: ${CONTROL_PLANE_MACHINE_COUNT}
   version: ${KUBERNETES_VERSION}
 ---

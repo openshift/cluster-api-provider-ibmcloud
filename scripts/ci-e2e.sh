@@ -96,7 +96,7 @@ create_powervs_network_instance(){
     ibmcloud pi workspace target ${CRN}
 
     # Create the network instance
-    ${capibmadm} powervs network create --name ${IBMPOWERVS_NETWORK_NAME} --dns-servers 1.1.1.1,8.8.8.8,9.9.9.9 --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE}
+    ${capibmadm} powervs network create --name ${IBMPOWERVS_NETWORK_NAME} --dns-servers 1.1.1.1,8.8.8.8,9.9.9.9 --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${IBMPOWERVS_ZONE}
 
 }
 
@@ -107,10 +107,10 @@ init_network_powervs(){
     create_powervs_network_instance
 
     # Creating PowerVS network port 
-    ${capibmadm} powervs port create --network ${IBMPOWERVS_NETWORK_NAME} --description "capi-e2e" --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE}
+    ${capibmadm} powervs port create --network ${IBMPOWERVS_NETWORK_NAME} --description "capi-e2e" --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${IBMPOWERVS_ZONE}
 
     # Get and assign the IPs to the required variables
-    NEW_PORT=$(${capibmadm} powervs port list --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${ZONE} --network ${IBMPOWERVS_NETWORK_NAME} -o json)
+    NEW_PORT=$(${capibmadm} powervs port list --service-instance-id ${IBMPOWERVS_SERVICE_INSTANCE_ID} --zone ${IBMPOWERVS_ZONE} --network ${IBMPOWERVS_NETWORK_NAME} -o json)
     no_of_ports=$(echo ${NEW_PORT} | jq '.items | length')
     if [[ ${no_of_ports} != 1 ]]; then
         echo "Failed to get the required number or ports, got - ${no_of_ports}"
@@ -124,10 +124,9 @@ init_network_powervs(){
 prerequisites_powervs(){
     # Assigning PowerVS variables
     export IBMPOWERVS_SSHKEY_NAME=${IBMPOWERVS_SSHKEY_NAME:-"powercloud-bot-key"}
-    export IBMPOWERVS_IMAGE_NAME=${IBMPOWERVS_IMAGE_NAME:-"capibm-powervs-centos-streams9-1-31-0"}
-    export IBMPOWERVS_SERVICE_INSTANCE_ID=${BOSKOS_RESOURCE_ID:-"d53da3bf-1f4a-42fa-9735-acf16b1a05cd"}
+    export IBMPOWERVS_IMAGE_NAME=${IBMPOWERVS_IMAGE_NAME:-"capibm-powervs-centos-streams9-1-33-1"}
+    export IBMPOWERVS_SERVICE_INSTANCE_ID=${BOSKOS_SERVICE_INSTANCE_ID:-"d53da3bf-1f4a-42fa-9735-acf16b1a05cd"}
     export IBMPOWERVS_NETWORK_NAME="capi-net-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head --bytes 5)"
-    export ZONE=${BOSKOS_ZONE:-"osa21"}
     export IBMPOWERVS_REGION=${BOSKOS_REGION:-"osa"}
     export IBMPOWERVS_ZONE=${BOSKOS_ZONE:-"osa21"}
     init_network_powervs
@@ -139,7 +138,7 @@ prerequisites_vpc(){
     export IBMVPC_ZONE="${IBMVPC_REGION}-1"
     export IBMVPC_RESOURCEGROUP=${BOSKOS_RESOURCE_GROUP:-"fa5405a58226402f9a5818cb9b8a5a8a"}
     export IBMVPC_NAME=${BOSKOS_RESOURCE_NAME:-"capi-vpc-e2e"}
-    export IBMVPC_IMAGE_NAME=${IBMVPC_IMAGE_NAME:-"capibm-vpc-ubuntu-2204-kube-v1-31-4"}
+    export IBMVPC_IMAGE_NAME=${IBMVPC_IMAGE_NAME:-"capibm-vpc-ubuntu-2404-kube-v1-33-0"}
     export IBMVPC_PROFILE=${IBMVPC_PROFILE:-"bx2-4x16"}
     export IBMVPC_SSHKEY_NAME=${IBMVPC_SSHKEY_NAME:-"vpc-cloud-bot-key"}
 }
@@ -181,6 +180,7 @@ main(){
     export EXP_CLUSTER_RESOURCE_SET=true
     export IBMACCOUNT_ID=${IBMACCOUNT_ID:-"7cfbd5381a434af7a09289e795840d4e"}
     export BASE64_API_KEY=$(tr -d '\n' <<<"$IBMCLOUD_API_KEY" | base64)
+    export CUSTOM_KIND_NODE_IMAGE=${CUSTOM_KIND_NODE_IMAGE:-}
     # Setting controller loglevel to allow debug logs from the VPC/PowerVS client
     export LOGLEVEL=5
 

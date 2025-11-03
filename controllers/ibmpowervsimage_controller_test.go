@@ -28,16 +28,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/conditions"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint:staticcheck
+	"sigs.k8s.io/cluster-api/util"
+	v1beta1conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"         //nolint:staticcheck
+	v1beta2conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions/v1beta2" //nolint:staticcheck
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cloud/scope"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs/mock"
 
@@ -47,8 +49,8 @@ import (
 func TestIBMPowerVSImageReconciler_Reconcile(t *testing.T) {
 	testCases := []struct {
 		name           string
-		powervsCluster *infrav1beta2.IBMPowerVSCluster
-		powervsImage   *infrav1beta2.IBMPowerVSImage
+		powervsCluster *infrav1.IBMPowerVSCluster
+		powervsImage   *infrav1.IBMPowerVSImage
 		expectError    bool
 	}{
 		{
@@ -57,11 +59,12 @@ func TestIBMPowerVSImageReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "Should not Reconcile if failed to find IBMPowerVSCluster",
-			powervsImage: &infrav1beta2.IBMPowerVSImage{
+			powervsImage: &infrav1.IBMPowerVSImage{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "capi-image",
+					Name:       "capi-image",
+					Finalizers: []string{infrav1.IBMPowerVSImageFinalizer},
 				},
-				Spec: infrav1beta2.IBMPowerVSImageSpec{
+				Spec: infrav1.IBMPowerVSImageSpec{
 					ClusterName: "capi-powervs-cluster",
 					Object:      ptr.To("capi-image.ova.gz"),
 					Region:      ptr.To("us-south"),
@@ -87,12 +90,12 @@ func TestIBMPowerVSImageReconciler_Reconcile(t *testing.T) {
 
 			if tc.powervsImage != nil {
 				g.Eventually(func() bool {
-					machine := &infrav1beta2.IBMPowerVSImage{}
+					image := &infrav1.IBMPowerVSImage{}
 					key := client.ObjectKey{
 						Name:      tc.powervsImage.Name,
 						Namespace: ns.Name,
 					}
-					err = testEnv.Get(ctx, key, machine)
+					err = testEnv.Get(ctx, key, image)
 					return err == nil
 				}, 10*time.Second).Should(Equal(true))
 
@@ -146,17 +149,16 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 			g := NewWithT(t)
 			setup(t)
 			t.Cleanup(teardown)
-			powervsCluster := &infrav1beta2.IBMPowerVSCluster{
+			powervsCluster := &infrav1.IBMPowerVSCluster{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "capi-powervs-cluster"},
 			}
 			imageScope := &scope.PowerVSImageScope{
-				Logger: klog.Background(),
-				IBMPowerVSImage: &infrav1beta2.IBMPowerVSImage{
+				IBMPowerVSImage: &infrav1.IBMPowerVSImage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "capi-image",
 					},
-					Spec: infrav1beta2.IBMPowerVSImageSpec{
+					Spec: infrav1.IBMPowerVSImageSpec{
 						ClusterName: "capi-powervs-cluster",
 						Object:      ptr.To("capi-image.ova.gz"),
 						Region:      ptr.To("us-south"),
@@ -164,7 +166,7 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 					},
 				},
 			}
-			_, err := reconciler.reconcile(powervsCluster, imageScope)
+			_, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 			g.Expect(err).To(BeNil())
 		})
 		t.Run("Reconciling an image import job", func(t *testing.T) {
@@ -172,29 +174,29 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 			setup(t)
 			t.Cleanup(teardown)
 			const jobID = "job-1"
-			powervsCluster := &infrav1beta2.IBMPowerVSCluster{
+			powervsCluster := &infrav1.IBMPowerVSCluster{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "capi-powervs-cluster",
 					UID:  "1",
 				},
-				Spec: infrav1beta2.IBMPowerVSClusterSpec{
+				Spec: infrav1.IBMPowerVSClusterSpec{
 					ServiceInstanceID: "service-instance-1",
 				},
 			}
-			powervsImage := &infrav1beta2.IBMPowerVSImage{
+			powervsImage := &infrav1.IBMPowerVSImage{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "capi-image",
 					OwnerReferences: []metav1.OwnerReference{
 						{
-							APIVersion: infrav1beta2.GroupVersion.String(),
+							APIVersion: infrav1.GroupVersion.String(),
 							Kind:       "IBMPowerVSCluster",
 							Name:       "capi-powervs-cluster",
 							UID:        "1",
 						},
 					},
-					Finalizers: []string{infrav1beta2.IBMPowerVSImageFinalizer},
+					Finalizers: []string{infrav1.IBMPowerVSImageFinalizer},
 				},
-				Spec: infrav1beta2.IBMPowerVSImageSpec{
+				Spec: infrav1.IBMPowerVSImageSpec{
 					ClusterName: "capi-powervs-cluster",
 					Object:      ptr.To("capi-image.ova.gz"),
 					Region:      ptr.To("us-south"),
@@ -204,7 +206,6 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 
 			mockclient := fake.NewClientBuilder().WithObjects([]client.Object{powervsCluster, powervsImage}...).Build()
 			imageScope := &scope.PowerVSImageScope{
-				Logger:           klog.Background(),
 				Client:           mockclient,
 				IBMPowerVSImage:  powervsImage,
 				IBMPowerVSClient: mockpowervs,
@@ -213,10 +214,10 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 			imageScope.IBMPowerVSImage.Status.JobID = jobID
 			t.Run("When failed to get the import job using jobID", func(_ *testing.T) {
 				mockpowervs.EXPECT().GetJob(gomock.AssignableToTypeOf(jobID)).Return(nil, errors.New("Error finding the job"))
-				result, err := reconciler.reconcile(powervsCluster, imageScope)
+				result, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 				g.Expect(err).To(Not(BeNil()))
 				g.Expect(result.RequeueAfter).To(Not(BeZero()))
-				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 			})
 			job := &models.Job{
 				ID: ptr.To(jobID),
@@ -226,34 +227,34 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 			}
 			t.Run("When import job status is queued", func(_ *testing.T) {
 				mockpowervs.EXPECT().GetJob(gomock.AssignableToTypeOf(jobID)).Return(job, nil)
-				result, err := reconciler.reconcile(powervsCluster, imageScope)
+				result, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 				g.Expect(err).To(BeNil())
-				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 				g.Expect(imageScope.IBMPowerVSImage.Status.Ready).To(Equal(false))
-				g.Expect(imageScope.IBMPowerVSImage.Status.ImageState).To(BeEquivalentTo(infrav1beta2.PowerVSImageStateQue))
-				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1beta2.ImageImportedCondition, corev1.ConditionFalse, capiv1beta1.ConditionSeverityInfo, string(infrav1beta2.PowerVSImageStateQue)}})
+				g.Expect(imageScope.IBMPowerVSImage.Status.ImageState).To(BeEquivalentTo(infrav1.PowerVSImageStateQueued))
+				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1.ImageImportedCondition, corev1.ConditionFalse, clusterv1beta1.ConditionSeverityInfo, string(infrav1.PowerVSImageStateQueued)}})
 				g.Expect(result.RequeueAfter).To(Not(BeZero()))
 			})
 			t.Run("When importing image is still in progress", func(_ *testing.T) {
 				job.Status.State = ptr.To("")
 				mockpowervs.EXPECT().GetJob(gomock.AssignableToTypeOf("job-1")).Return(job, nil)
-				result, err := reconciler.reconcile(powervsCluster, imageScope)
+				result, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 				g.Expect(err).To(BeNil())
-				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 				g.Expect(imageScope.IBMPowerVSImage.Status.Ready).To(Equal(false))
-				g.Expect(imageScope.IBMPowerVSImage.Status.ImageState).To(BeEquivalentTo(infrav1beta2.PowerVSImageStateImporting))
-				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1beta2.ImageImportedCondition, corev1.ConditionFalse, capiv1beta1.ConditionSeverityInfo, *job.Status.State}})
+				g.Expect(imageScope.IBMPowerVSImage.Status.ImageState).To(BeEquivalentTo(infrav1.PowerVSImageStateImporting))
+				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1.ImageImportedCondition, corev1.ConditionFalse, clusterv1beta1.ConditionSeverityInfo, *job.Status.State}})
 				g.Expect(result.RequeueAfter).To(Not(BeZero()))
 			})
 			t.Run("When import job status is failed", func(_ *testing.T) {
 				job.Status.State = ptr.To("failed")
 				mockpowervs.EXPECT().GetJob(gomock.AssignableToTypeOf("job-1")).Return(job, nil)
-				result, err := reconciler.reconcile(powervsCluster, imageScope)
+				result, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 				g.Expect(err).To(Not(BeNil()))
-				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 				g.Expect(imageScope.IBMPowerVSImage.Status.Ready).To(Equal(false))
-				g.Expect(imageScope.IBMPowerVSImage.Status.ImageState).To(BeEquivalentTo(infrav1beta2.PowerVSImageStateFailed))
-				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1beta2.ImageImportedCondition, corev1.ConditionFalse, capiv1beta1.ConditionSeverityError, infrav1beta2.ImageImportFailedReason}})
+				g.Expect(imageScope.IBMPowerVSImage.Status.ImageState).To(BeEquivalentTo(infrav1.PowerVSImageStateFailed))
+				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1.ImageImportedCondition, corev1.ConditionFalse, clusterv1beta1.ConditionSeverityError, infrav1.ImageImportFailedReason}})
 				g.Expect(result.RequeueAfter).To(Not(BeZero()))
 			})
 			job.Status.State = ptr.To("completed")
@@ -269,11 +270,11 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 				mockpowervs.EXPECT().GetJob(gomock.AssignableToTypeOf("job-1")).Return(job, nil)
 				mockpowervs.EXPECT().GetAllImage().Return(images, nil)
 				mockpowervs.EXPECT().GetImage(gomock.AssignableToTypeOf("capi-image-id")).Return(nil, errors.New("Failed to the image details"))
-				result, err := reconciler.reconcile(powervsCluster, imageScope)
+				result, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 				g.Expect(err).To(Not(BeNil()))
 				g.Expect(result.RequeueAfter).To(BeZero())
-				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{conditionType: infrav1beta2.ImageImportedCondition, status: corev1.ConditionTrue}})
-				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{conditionType: infrav1.ImageImportedCondition, status: corev1.ConditionTrue}})
+				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 			})
 			image := &models.Image{
 				Name:    ptr.To("capi-image"),
@@ -284,11 +285,11 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 				mockpowervs.EXPECT().GetJob(gomock.AssignableToTypeOf("job-1")).Return(job, nil)
 				mockpowervs.EXPECT().GetAllImage().Return(images, nil)
 				mockpowervs.EXPECT().GetImage(gomock.AssignableToTypeOf("capi-image-id")).Return(image, nil)
-				result, err := reconciler.reconcile(powervsCluster, imageScope)
+				result, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 				g.Expect(err).To(BeNil())
-				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 				g.Expect(imageScope.IBMPowerVSImage.Status.Ready).To(Equal(false))
-				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1beta2.ImageReadyCondition, corev1.ConditionFalse, capiv1beta1.ConditionSeverityWarning, infrav1beta2.ImageNotReadyReason}})
+				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1.ImageReadyCondition, corev1.ConditionFalse, clusterv1beta1.ConditionSeverityWarning, infrav1.ImageNotReadyReason}})
 				g.Expect(result.RequeueAfter).To(Not(BeZero()))
 			})
 			t.Run("When import job status is completed and image state is undefined", func(_ *testing.T) {
@@ -296,10 +297,10 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 				mockpowervs.EXPECT().GetJob(gomock.AssignableToTypeOf("job-1")).Return(job, nil)
 				mockpowervs.EXPECT().GetAllImage().Return(images, nil)
 				mockpowervs.EXPECT().GetImage(gomock.AssignableToTypeOf("capi-image-id")).Return(image, nil)
-				result, err := reconciler.reconcile(powervsCluster, imageScope)
+				result, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 				g.Expect(err).To(BeNil())
-				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
-				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1beta2.ImageReadyCondition, corev1.ConditionUnknown, "", ""}})
+				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
+				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{infrav1.ImageReadyCondition, corev1.ConditionUnknown, "", ""}})
 				g.Expect(imageScope.IBMPowerVSImage.Status.Ready).To(Equal(false))
 				g.Expect(result.RequeueAfter).To(Not(BeZero()))
 			})
@@ -308,10 +309,10 @@ func TestIBMPowerVSImageReconciler_reconcile(t *testing.T) {
 				mockpowervs.EXPECT().GetJob(gomock.AssignableToTypeOf("job-1")).Return(job, nil)
 				mockpowervs.EXPECT().GetAllImage().Return(images, nil)
 				mockpowervs.EXPECT().GetImage(gomock.AssignableToTypeOf("capi-image-id")).Return(image, nil)
-				result, err := reconciler.reconcile(powervsCluster, imageScope)
+				result, err := reconciler.reconcile(ctx, powervsCluster, imageScope)
 				g.Expect(err).To(BeNil())
-				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{conditionType: infrav1beta2.ImageReadyCondition, status: corev1.ConditionTrue}})
-				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+				expectConditionsImage(g, imageScope.IBMPowerVSImage, []conditionAssertion{{conditionType: infrav1.ImageReadyCondition, status: corev1.ConditionTrue}})
+				g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 				g.Expect(imageScope.IBMPowerVSImage.Status.Ready).To(Equal(true))
 				g.Expect(result.RequeueAfter).To(BeZero())
 			})
@@ -337,8 +338,7 @@ func TestIBMPowerVSImageReconciler_delete(t *testing.T) {
 			Recorder: recorder,
 		}
 		imageScope = &scope.PowerVSImageScope{
-			Logger:           klog.Background(),
-			IBMPowerVSImage:  &infrav1beta2.IBMPowerVSImage{},
+			IBMPowerVSImage:  &infrav1.IBMPowerVSImage{},
 			IBMPowerVSClient: mockpowervs,
 		}
 	}
@@ -351,66 +351,157 @@ func TestIBMPowerVSImageReconciler_delete(t *testing.T) {
 			g := NewWithT(t)
 			setup(t)
 			t.Cleanup(teardown)
-			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1beta2.IBMPowerVSImageFinalizer}
-			_, err := reconciler.reconcileDelete(imageScope)
+			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1.IBMPowerVSImageFinalizer}
+			_, err := reconciler.reconcileDelete(ctx, imageScope)
 			g.Expect(err).To(BeNil())
-			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(Not(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer)))
+			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(Not(ContainElement(infrav1.IBMPowerVSImageFinalizer)))
 		})
 		t.Run("Should fail to delete the import image job", func(t *testing.T) {
 			g := NewWithT(t)
 			setup(t)
 			t.Cleanup(teardown)
 			imageScope.IBMPowerVSImage.Status.JobID = "job-1"
-			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1beta2.IBMPowerVSImageFinalizer}
+			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1.IBMPowerVSImageFinalizer}
 			mockpowervs.EXPECT().DeleteJob(gomock.AssignableToTypeOf("job-1")).Return(errors.New("Failed to deleted the import job"))
-			_, err := reconciler.reconcileDelete(imageScope)
+			_, err := reconciler.reconcileDelete(ctx, imageScope)
 			g.Expect(err).To(Not(BeNil()))
-			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 		})
 		t.Run("Should delete the import image job", func(t *testing.T) {
 			g := NewWithT(t)
 			setup(t)
 			t.Cleanup(teardown)
 			imageScope.IBMPowerVSImage.Status.JobID = "job-1"
-			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1beta2.IBMPowerVSImageFinalizer}
+			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1.IBMPowerVSImageFinalizer}
 			mockpowervs.EXPECT().DeleteJob(gomock.AssignableToTypeOf("job-1")).Return(nil)
-			_, err := reconciler.reconcileDelete(imageScope)
+			_, err := reconciler.reconcileDelete(ctx, imageScope)
 			g.Expect(err).To(BeNil())
-			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(Not(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer)))
+			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(Not(ContainElement(infrav1.IBMPowerVSImageFinalizer)))
 		})
 		t.Run("Should fail to delete the image using ID when delete policy is not to retain it", func(t *testing.T) {
 			g := NewWithT(t)
 			setup(t)
 			t.Cleanup(teardown)
 			imageScope.IBMPowerVSImage.Status.ImageID = "capi-image-id"
-			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1beta2.IBMPowerVSImageFinalizer}
+			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1.IBMPowerVSImageFinalizer}
 			mockpowervs.EXPECT().DeleteImage(gomock.AssignableToTypeOf("capi-image-id")).Return(errors.New("Failed to delete the image"))
-			_, err := reconciler.reconcileDelete(imageScope)
+			_, err := reconciler.reconcileDelete(ctx, imageScope)
 			g.Expect(err).To(Not(BeNil()))
-			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer))
+			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(ContainElement(infrav1.IBMPowerVSImageFinalizer))
 		})
 		t.Run("Should not delete the image using ID when delete policy is to retain it", func(t *testing.T) {
 			g := NewWithT(t)
 			setup(t)
 			t.Cleanup(teardown)
 			imageScope.IBMPowerVSImage.Status.ImageID = "capi-image-id"
-			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1beta2.IBMPowerVSImageFinalizer}
+			imageScope.IBMPowerVSImage.Finalizers = []string{infrav1.IBMPowerVSImageFinalizer}
 			imageScope.IBMPowerVSImage.Spec.DeletePolicy = "retain"
-			_, err := reconciler.reconcileDelete(imageScope)
+			_, err := reconciler.reconcileDelete(ctx, imageScope)
 			g.Expect(err).To(BeNil())
-			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(Not(ContainElement(infrav1beta2.IBMPowerVSImageFinalizer)))
+			g.Expect(imageScope.IBMPowerVSImage.Finalizers).To(Not(ContainElement(infrav1.IBMPowerVSImageFinalizer)))
 		})
 	})
 }
 
-func expectConditionsImage(g *WithT, m *infrav1beta2.IBMPowerVSImage, expected []conditionAssertion) {
+func expectConditionsImage(g *WithT, m *infrav1.IBMPowerVSImage, expected []conditionAssertion) {
 	g.Expect(len(m.Status.Conditions)).To(BeNumerically(">=", len(expected)))
 	for _, c := range expected {
-		actual := conditions.Get(m, c.conditionType)
+		actual := v1beta1conditions.Get(m, c.conditionType)
 		g.Expect(actual).To(Not(BeNil()))
 		g.Expect(actual.Type).To(Equal(c.conditionType))
 		g.Expect(actual.Status).To(Equal(c.status))
 		g.Expect(actual.Severity).To(Equal(c.severity))
 		g.Expect(actual.Reason).To(Equal(c.reason))
+	}
+}
+
+func TestIBMPowerVSImageReconciler_Reconcile_Conditions(t *testing.T) {
+	testCases := []struct {
+		name           string
+		powervsCluster *infrav1.IBMPowerVSCluster
+		powervsImage   *infrav1.IBMPowerVSImage
+		expectError    bool
+	}{
+
+		{
+			name: "Conditions should be set after first reconcile",
+			powervsCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "capi-powervs-cluster"},
+			},
+			powervsImage: &infrav1.IBMPowerVSImage{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "capi-image",
+					Finalizers: []string{infrav1.IBMPowerVSImageFinalizer},
+				},
+				Spec: infrav1.IBMPowerVSImageSpec{
+					ClusterName: "capi-powervs-cluster",
+					Object:      ptr.To("capi-image.ova.gz"),
+					Region:      ptr.To("us-south"),
+					Bucket:      ptr.To("capi-bucket"),
+				},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			reconciler := &IBMPowerVSImageReconciler{
+				Client: testEnv.Client,
+			}
+
+			ns, err := testEnv.CreateNamespace(ctx, fmt.Sprintf("namespace-%s", util.RandomString(5)))
+			g.Expect(err).To(BeNil())
+
+			createObject(g, tc.powervsImage, ns.Name)
+			createCluster(g, tc.powervsCluster, ns.Name)
+			defer cleanupObject(g, tc.powervsImage)
+			defer cleanupCluster(g, tc.powervsCluster, ns)
+
+			if tc.powervsImage != nil {
+				g.Eventually(func() bool {
+					image := &infrav1.IBMPowerVSImage{}
+					key := client.ObjectKey{
+						Name:      tc.powervsImage.Name,
+						Namespace: ns.Name,
+					}
+					err = testEnv.Get(ctx, key, image)
+					return err == nil
+				}, 10*time.Second).Should(Equal(true))
+
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{
+					NamespacedName: client.ObjectKey{
+						Namespace: tc.powervsImage.Namespace,
+						Name:      tc.powervsImage.Name,
+					},
+				})
+				if tc.expectError {
+					g.Expect(err).ToNot(BeNil())
+					image := &infrav1.IBMPowerVSImage{}
+					key := client.ObjectKey{
+						Namespace: tc.powervsImage.Namespace,
+						Name:      tc.powervsImage.Name,
+					}
+					err = testEnv.Get(ctx, key, image)
+					g.Expect(err).To(BeNil())
+					expectConditionsImagev1beta2(g, image, []metav1.Condition{{Type: infrav1.IBMPowerVSImageReadyV1Beta2Condition, Status: metav1.ConditionFalse, Reason: infrav1.IBMPowerVSImageNotReadyV1Beta2Reason}})
+				} else {
+					g.Expect(err).To(BeNil())
+				}
+			}
+		})
+	}
+}
+
+func expectConditionsImagev1beta2(g *WithT, m *infrav1.IBMPowerVSImage, expected []metav1.Condition) {
+	g.Expect(len(m.Status.V1Beta2.Conditions)).To(BeNumerically(">=", len(expected)))
+	for _, c := range expected {
+		actual := v1beta2conditions.Get(m, infrav1.IBMPowerVSImageReadyV1Beta2Condition)
+		g.Expect(actual).To(Not(BeNil()))
+		g.Expect(actual.Type).To(Equal(c.Type))
+		g.Expect(actual.Status).To(Equal(c.Status))
+		g.Expect(actual.Reason).To(Equal(c.Reason))
 	}
 }

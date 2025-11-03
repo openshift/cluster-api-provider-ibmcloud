@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"iter"
 
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types/typeutil"
@@ -270,7 +271,7 @@ func (g *vtaGraph) numNodes() int {
 	return len(g.idx)
 }
 
-func (g *vtaGraph) successors(x idx) func(yield func(y idx) bool) {
+func (g *vtaGraph) successors(x idx) iter.Seq[idx] {
 	return func(yield func(y idx) bool) {
 		for y := range g.m[x] {
 			if !yield(y) {
@@ -657,7 +658,7 @@ func (b *builder) call(c ssa.CallInstruction) {
 }
 
 func addArgumentFlows(b *builder, c ssa.CallInstruction, f *ssa.Function) {
-	// When f has no paremeters (including receiver), there is no type
+	// When f has no parameters (including receiver), there is no type
 	// flow here. Also, f's body and parameters might be missing, such
 	// as when vta is used within the golang.org/x/tools/go/analysis
 	// framework (see github.com/golang/go/issues/50670).
@@ -802,7 +803,7 @@ func (b *builder) nodeFromVal(val ssa.Value) node {
 		return function{f: v}
 	case *ssa.Parameter, *ssa.FreeVar, ssa.Instruction:
 		// ssa.Param, ssa.FreeVar, and a specific set of "register" instructions,
-		// satisifying the ssa.Value interface, can serve as local variables.
+		// satisfying the ssa.Value interface, can serve as local variables.
 		return local{val: v}
 	default:
 		panic(fmt.Errorf("unsupported value %v in node creation", val))

@@ -1,15 +1,16 @@
 kind: KubeadmControlPlane
-apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 metadata:
   name: "${CLUSTER_NAME}-control-plane"
 spec:
   version: "${KUBERNETES_VERSION}"
   replicas: ${CONTROL_PLANE_MACHINE_COUNT}
   machineTemplate:
-    infrastructureRef:
-      kind: IBMPowerVSMachineTemplate
-      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
-      name: "${CLUSTER_NAME}-control-plane"
+    spec:
+      infrastructureRef:
+        kind: IBMPowerVSMachineTemplate
+        apiGroup: infrastructure.cluster.x-k8s.io
+        name: "${CLUSTER_NAME}-control-plane"
   kubeadmConfigSpec:
     clusterConfiguration:
       apiServer:
@@ -19,28 +20,30 @@ spec:
       controlPlaneEndpoint: ${IBMPOWERVS_VIP}:${API_SERVER_PORT:=6443}
       controllerManager:
         extraArgs:
-          enable-hostpath-provisioner: "true"
+        - name: enable-hostpath-provisioner
+          value: "true"
     initConfiguration:
       nodeRegistration:
         criSocket: /var/run/containerd/containerd.sock
         kubeletExtraArgs:
-          cloud-provider: external
-          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+        - name: cloud-provider
+          value: external
+        - name: eviction-hard
+          value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
         name: '{{ v1.local_hostname }}'
     joinConfiguration:
       discovery:
         bootstrapToken:
           apiServerEndpoint: ${IBMPOWERVS_VIP}:${API_SERVER_PORT:=6443}
-          token: ""
-          caCertHashes: [ ]
           unsafeSkipCAVerification: false
       nodeRegistration:
         criSocket: /var/run/containerd/containerd.sock
         kubeletExtraArgs:
-          cloud-provider: external
-          eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
+        - name: cloud-provider
+          value: external
+        - name: eviction-hard
+          value: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
         name: '{{ v1.local_hostname }}'
-    useExperimentalRetryJoin: true
     preKubeadmCommands:
       - hostname "{{ v1.local_hostname }}"
       - echo "::1         ipv6-localhost ipv6-loopback" >/etc/hosts

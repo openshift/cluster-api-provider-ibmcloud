@@ -36,17 +36,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint:staticcheck
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
-	v1beta2conditions "sigs.k8s.io/cluster-api/util/conditions/v1beta2"
+	v1beta1conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"         //nolint:staticcheck
+	v1beta2conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions/v1beta2" //nolint:staticcheck
+	v1beta1patch "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"                   //nolint:staticcheck                   //nolint:staticcheck
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/paused"
 	"sigs.k8s.io/cluster-api/util/finalizers"
 	clog "sigs.k8s.io/cluster-api/util/log"
-	"sigs.k8s.io/cluster-api/util/patch"
-	"sigs.k8s.io/cluster-api/util/paused"
 	"sigs.k8s.io/cluster-api/util/predicates"
 
-	infrav1beta2 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
+	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cloud/scope"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
@@ -82,7 +84,7 @@ func (r *IBMPowerVSMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	defer log.Info("Finished reconciling IBMPowerVSMachine")
 
 	// Fetch the IBMPowerVSMachine instance.
-	ibmPowerVSMachine := &infrav1beta2.IBMPowerVSMachine{}
+	ibmPowerVSMachine := &infrav1.IBMPowerVSMachine{}
 	err := r.Client.Get(ctx, req.NamespacedName, ibmPowerVSMachine)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -93,7 +95,7 @@ func (r *IBMPowerVSMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Add finalizer first if not set to avoid the race condition between init and delete.
-	if finalizerAdded, err := finalizers.EnsureFinalizer(ctx, r.Client, ibmPowerVSMachine, infrav1beta2.IBMPowerVSMachineFinalizer); err != nil || finalizerAdded {
+	if finalizerAdded, err := finalizers.EnsureFinalizer(ctx, r.Client, ibmPowerVSMachine, infrav1.IBMPowerVSMachineFinalizer); err != nil || finalizerAdded {
 		return ctrl.Result{}, err
 	}
 
@@ -122,7 +124,7 @@ func (r *IBMPowerVSMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 	if cluster == nil {
-		log.Info(fmt.Sprintf("Please associate this machine with a cluster using the label %s: <name of cluster>", capiv1beta1.ClusterNameLabel))
+		log.Info(fmt.Sprintf("Please associate this machine with a cluster using the label %s: <name of cluster>", clusterv1.ClusterNameLabel))
 		return ctrl.Result{}, nil
 	}
 
@@ -130,7 +132,7 @@ func (r *IBMPowerVSMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	// Fetch the IBMPowerVSCluster.
-	ibmPowerVSCluster := &infrav1beta2.IBMPowerVSCluster{}
+	ibmPowerVSCluster := &infrav1.IBMPowerVSCluster{}
 	ibmPowerVSClusterName := client.ObjectKey{
 		Namespace: ibmPowerVSMachine.Namespace,
 		Name:      cluster.Spec.InfrastructureRef.Name,
@@ -144,9 +146,9 @@ func (r *IBMPowerVSMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	// Fetch the IBMPowerVSImage.
-	var ibmPowerVSImage *infrav1beta2.IBMPowerVSImage
+	var ibmPowerVSImage *infrav1.IBMPowerVSImage
 	if ibmPowerVSMachine.Spec.ImageRef != nil {
-		ibmPowerVSImage = &infrav1beta2.IBMPowerVSImage{}
+		ibmPowerVSImage = &infrav1.IBMPowerVSImage{}
 		ibmPowerVSImageName := client.ObjectKey{
 			Namespace: ibmPowerVSMachine.Namespace,
 			Name:      ibmPowerVSMachine.Spec.ImageRef.Name,
@@ -161,7 +163,7 @@ func (r *IBMPowerVSMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	if cluster.Spec.InfrastructureRef == nil {
+	if !cluster.Spec.InfrastructureRef.IsDefined() {
 		log.Info("Cluster infrastructureRef is not available yet")
 		return ctrl.Result{}, nil
 	}
@@ -183,7 +185,7 @@ func (r *IBMPowerVSMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Initialize the patch helper
-	patchHelper, err := patch.NewHelper(ibmPowerVSMachine, r.Client)
+	patchHelper, err := v1beta1patch.NewHelper(ibmPowerVSMachine, r.Client)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to init patch helper: %w", err)
 	}
@@ -207,17 +209,17 @@ func (r *IBMPowerVSMachineReconciler) Reconcile(ctx context.Context, req ctrl.Re
 func (r *IBMPowerVSMachineReconciler) reconcileDelete(ctx context.Context, scope *scope.PowerVSMachineScope) (_ ctrl.Result, reterr error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	conditions.MarkFalse(scope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, capiv1beta1.DeletingReason, capiv1beta1.ConditionSeverityInfo, "")
+	v1beta1conditions.MarkFalse(scope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, clusterv1.DeletingReason, clusterv1beta1.ConditionSeverityInfo, "")
 	v1beta2conditions.Set(scope.IBMPowerVSMachine, metav1.Condition{
-		Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+		Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 		Status: metav1.ConditionFalse,
-		Reason: infrav1beta2.IBMPowerVSMachineInstanceDeletingV1Beta2Reason,
+		Reason: infrav1.IBMPowerVSMachineInstanceDeletingV1Beta2Reason,
 	})
 
 	defer func() {
 		if reterr == nil {
 			// PowerVS machine is deleted so remove the finalizer.
-			controllerutil.RemoveFinalizer(scope.IBMPowerVSMachine, infrav1beta2.IBMPowerVSMachineFinalizer)
+			controllerutil.RemoveFinalizer(scope.IBMPowerVSMachine, infrav1.IBMPowerVSMachineFinalizer)
 		}
 	}()
 
@@ -227,11 +229,11 @@ func (r *IBMPowerVSMachineReconciler) reconcileDelete(ctx context.Context, scope
 	}
 	if err := scope.DeleteMachine(); err != nil {
 		log.Error(err, "error deleting IBMPowerVSMachine")
-		conditions.MarkFalse(scope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, capiv1beta1.DeletionFailedReason, capiv1beta1.ConditionSeverityWarning, "")
+		v1beta1conditions.MarkFalse(scope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, clusterv1beta1.DeletionFailedReason, clusterv1beta1.ConditionSeverityWarning, "")
 		v1beta2conditions.Set(scope.IBMPowerVSMachine, metav1.Condition{
-			Type:    infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:    infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status:  metav1.ConditionFalse,
-			Reason:  infrav1beta2.IBMPowerVSMachineInstanceDeletingV1Beta2Reason,
+			Reason:  infrav1.IBMPowerVSMachineInstanceDeletingV1Beta2Reason,
 			Message: fmt.Sprintf("failed to delete IBMPowerVSMachine: %v", err),
 		})
 		return ctrl.Result{}, fmt.Errorf("error deleting IBMPowerVSMachine %v: %w", klog.KObj(scope.IBMPowerVSMachine), err)
@@ -254,7 +256,7 @@ func (r *IBMPowerVSMachineReconciler) handleLoadBalancerPoolMemberConfiguration(
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create VPC load balancer pool member: %w", err)
 	}
-	if poolMember != nil && *poolMember.ProvisioningStatus != string(infrav1beta2.VPCLoadBalancerStateActive) {
+	if poolMember != nil && *poolMember.ProvisioningStatus != string(infrav1.VPCLoadBalancerStateActive) {
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	return ctrl.Result{}, nil
@@ -263,13 +265,13 @@ func (r *IBMPowerVSMachineReconciler) handleLoadBalancerPoolMemberConfiguration(
 func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machineScope *scope.PowerVSMachineScope) (ctrl.Result, error) { //nolint:gocyclo
 	log := ctrl.LoggerFrom(ctx)
 
-	if !machineScope.Cluster.Status.InfrastructureReady {
+	if machineScope.Cluster.Status.Initialization.InfrastructureProvisioned == nil || !*machineScope.Cluster.Status.Initialization.InfrastructureProvisioned {
 		log.Info("Cluster infrastructure is not ready yet, skipping reconciliation")
-		conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.WaitingForClusterInfrastructureReason, capiv1beta1.ConditionSeverityInfo, "")
+		v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.WaitingForClusterInfrastructureReason, clusterv1beta1.ConditionSeverityInfo, "")
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status: metav1.ConditionFalse,
-			Reason: infrav1beta2.IBMPowerVSMachineInstanceWaitingForClusterInfrastructureReadyV1Beta2Reason,
+			Reason: infrav1.IBMPowerVSMachineInstanceWaitingForClusterInfrastructureReadyV1Beta2Reason,
 		})
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
@@ -277,11 +279,11 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 	if machineScope.IBMPowerVSImage != nil {
 		if !machineScope.IBMPowerVSImage.Status.Ready {
 			log.Info("IBMPowerVSImage is not ready yet, skipping reconciliation")
-			conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.WaitingForIBMPowerVSImageReason, capiv1beta1.ConditionSeverityInfo, "")
+			v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.WaitingForIBMPowerVSImageReason, clusterv1beta1.ConditionSeverityInfo, "")
 			v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-				Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+				Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 				Status: metav1.ConditionFalse,
-				Reason: infrav1beta2.WaitingForIBMPowerVSImageReason,
+				Reason: infrav1.WaitingForIBMPowerVSImageReason,
 			})
 			return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 		}
@@ -289,23 +291,23 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 
 	// Make sure bootstrap data is available and populated.
 	if machineScope.Machine.Spec.Bootstrap.DataSecretName == nil {
-		if !util.IsControlPlaneMachine(machineScope.Machine) && !conditions.IsTrue(machineScope.Cluster, capiv1beta1.ControlPlaneInitializedCondition) {
+		if !util.IsControlPlaneMachine(machineScope.Machine) && !conditions.IsTrue(machineScope.Cluster, clusterv1.ClusterControlPlaneInitializedCondition) {
 			log.Info("Waiting for the control plane to be initialized, skipping reconciliation")
-			conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, capiv1beta1.WaitingForControlPlaneAvailableReason, capiv1beta1.ConditionSeverityInfo, "")
+			v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, clusterv1beta1.WaitingForControlPlaneAvailableReason, clusterv1beta1.ConditionSeverityInfo, "")
 			v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-				Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+				Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 				Status: metav1.ConditionFalse,
-				Reason: infrav1beta2.IBMPowerVSMachineInstanceWaitingForControlPlaneInitializedV1Beta2Reason,
+				Reason: infrav1.IBMPowerVSMachineInstanceWaitingForControlPlaneInitializedV1Beta2Reason,
 			})
 			return ctrl.Result{}, nil
 		}
 
 		log.Info("Waiting for bootstrap data to be ready, skipping reconciliation")
-		conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.WaitingForBootstrapDataReason, capiv1beta1.ConditionSeverityInfo, "")
+		v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.WaitingForBootstrapDataReason, clusterv1beta1.ConditionSeverityInfo, "")
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status: metav1.ConditionFalse,
-			Reason: infrav1beta2.IBMPowerVSMachineInstanceWaitingForBootstrapDataV1Beta2Reason,
+			Reason: infrav1.IBMPowerVSMachineInstanceWaitingForBootstrapDataV1Beta2Reason,
 		})
 		return reconcile.Result{}, nil
 	}
@@ -313,11 +315,11 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 	machine, err := machineScope.CreateMachine(ctx)
 	if err != nil {
 		log.Error(err, "Unable to create PowerVS machine")
-		conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.InstanceProvisionFailedReason, capiv1beta1.ConditionSeverityError, "%s", err.Error())
+		v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.InstanceProvisionFailedReason, clusterv1beta1.ConditionSeverityError, "%s", err.Error())
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:    infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:    infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status:  metav1.ConditionFalse,
-			Reason:  infrav1beta2.InstanceProvisionFailedReason,
+			Reason:  infrav1.InstanceProvisionFailedReason,
 			Message: err.Error(),
 		})
 		return ctrl.Result{}, fmt.Errorf("failed to create IBMPowerVSMachine: %w", err)
@@ -325,11 +327,11 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 
 	if machine == nil {
 		machineScope.SetNotReady()
-		conditions.MarkUnknown(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.InstanceStateUnknownReason, "")
+		v1beta1conditions.MarkUnknown(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.InstanceStateUnknownReason, "")
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status: metav1.ConditionUnknown,
-			Reason: infrav1beta2.InstanceStateUnknownReason,
+			Reason: infrav1.InstanceStateUnknownReason,
 		})
 		return ctrl.Result{}, nil
 	}
@@ -347,38 +349,38 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 	machineScope.SetInstanceState(instance.Status)
 
 	switch machineScope.GetInstanceState() {
-	case infrav1beta2.PowerVSInstanceStateBUILD:
+	case infrav1.PowerVSInstanceStateBUILD:
 		machineScope.SetNotReady()
-		conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.InstanceNotReadyReason, capiv1beta1.ConditionSeverityWarning, "")
+		v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.InstanceNotReadyReason, clusterv1beta1.ConditionSeverityWarning, "")
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status: metav1.ConditionFalse,
-			Reason: infrav1beta2.InstanceNotReadyReason,
+			Reason: infrav1.InstanceNotReadyReason,
 		})
-	case infrav1beta2.PowerVSInstanceStateSHUTOFF:
+	case infrav1.PowerVSInstanceStateSHUTOFF:
 		machineScope.SetNotReady()
-		conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.InstanceStoppedReason, capiv1beta1.ConditionSeverityError, "")
+		v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.InstanceStoppedReason, clusterv1beta1.ConditionSeverityError, "")
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status: metav1.ConditionFalse,
-			Reason: infrav1beta2.InstanceStoppedReason,
+			Reason: infrav1.InstanceStoppedReason,
 		})
 		return ctrl.Result{}, nil
-	case infrav1beta2.PowerVSInstanceStateACTIVE:
+	case infrav1.PowerVSInstanceStateACTIVE:
 		machineScope.SetReady()
-	case infrav1beta2.PowerVSInstanceStateERROR:
+	case infrav1.PowerVSInstanceStateERROR:
 		msg := ""
 		if instance.Fault != nil {
 			msg = instance.Fault.Details
 		}
 		machineScope.SetNotReady()
-		machineScope.SetFailureReason(infrav1beta2.UpdateMachineError)
+		machineScope.SetFailureReason(infrav1.UpdateMachineError)
 		machineScope.SetFailureMessage(msg)
-		conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.InstanceErroredReason, capiv1beta1.ConditionSeverityError, "%s", msg)
+		v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.InstanceErroredReason, clusterv1beta1.ConditionSeverityError, "%s", msg)
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:    infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:    infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status:  metav1.ConditionFalse,
-			Reason:  infrav1beta2.InstanceErroredReason,
+			Reason:  infrav1.InstanceErroredReason,
 			Message: msg,
 		})
 		capibmrecord.Warnf(machineScope.IBMPowerVSMachine, "FailedBuildInstance", "Failed to build the instance %s", msg)
@@ -386,11 +388,11 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 	default:
 		machineScope.SetNotReady()
 		log.Info("PowerVS instance state is undefined", "state", *instance.Status, "instance-id", machineScope.GetInstanceID())
-		conditions.MarkUnknown(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, "", "")
+		v1beta1conditions.MarkUnknown(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, "", "")
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status: metav1.ConditionUnknown,
-			Reason: infrav1beta2.InstanceStateUnknownReason,
+			Reason: infrav1.InstanceStateUnknownReason,
 		})
 	}
 
@@ -400,25 +402,13 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 		return ctrl.Result{RequeueAfter: 2 * time.Minute}, nil
 	}
 
-	// We configure load balancer for only control-plane machines
-	if !util.IsControlPlaneMachine(machineScope.Machine) {
-		log.Info("Skipping load balancer configuration for worker machine")
-		conditions.MarkTrue(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition)
-		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
-			Status: metav1.ConditionTrue,
-			Reason: infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Reason,
-		})
-		return ctrl.Result{}, nil
-	}
-
 	if machineScope.IBMPowerVSCluster.Spec.VPC == nil || machineScope.IBMPowerVSCluster.Spec.VPC.Region == nil {
 		log.Info("Skipping configuring machine to load balancer as VPC is not set")
-		conditions.MarkTrue(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition)
+		v1beta1conditions.MarkTrue(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition)
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status: metav1.ConditionTrue,
-			Reason: infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Reason,
+			Reason: infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Reason,
 		})
 		return ctrl.Result{}, nil
 	}
@@ -428,11 +418,11 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 	internalIP := machineScope.GetMachineInternalIP()
 	if internalIP == "" {
 		log.Info("Unable to update the load balancer, Machine internal IP not yet set")
-		conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.IBMPowerVSMachineInstanceWaitingForNetworkAddressV1Beta2Reason, capiv1beta1.ConditionSeverityWarning, "")
+		v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.IBMPowerVSMachineInstanceWaitingForNetworkAddressV1Beta2Reason, clusterv1beta1.ConditionSeverityWarning, "")
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:    infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:    infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status:  metav1.ConditionFalse,
-			Reason:  infrav1beta2.IBMPowerVSMachineInstanceWaitingForNetworkAddressV1Beta2Reason,
+			Reason:  infrav1.IBMPowerVSMachineInstanceWaitingForNetworkAddressV1Beta2Reason,
 			Message: "Internal IP not yet set",
 		})
 		return ctrl.Result{}, nil
@@ -440,20 +430,20 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 	log.Info("Configuring load balancer for machine", "IP", internalIP)
 	result, err := r.handleLoadBalancerPoolMemberConfiguration(ctx, machineScope)
 	if err != nil {
-		conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition, infrav1beta2.IBMPowerVSMachineInstanceLoadBalancerConfigurationFailedV1Beta2Reason, capiv1beta1.ConditionSeverityWarning, "")
+		v1beta1conditions.MarkFalse(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition, infrav1.IBMPowerVSMachineInstanceLoadBalancerConfigurationFailedV1Beta2Reason, clusterv1beta1.ConditionSeverityWarning, "")
 		v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-			Type:    infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			Type:    infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 			Status:  metav1.ConditionFalse,
-			Reason:  infrav1beta2.IBMPowerVSMachineInstanceLoadBalancerConfigurationFailedV1Beta2Reason,
+			Reason:  infrav1.IBMPowerVSMachineInstanceLoadBalancerConfigurationFailedV1Beta2Reason,
 			Message: fmt.Sprintf("Failed to configure load balancer: %v", err),
 		})
 		return result, fmt.Errorf("failed to configure load balancer: %w", err)
 	}
-	conditions.MarkTrue(machineScope.IBMPowerVSMachine, infrav1beta2.InstanceReadyCondition)
+	v1beta1conditions.MarkTrue(machineScope.IBMPowerVSMachine, infrav1.InstanceReadyCondition)
 	v1beta2conditions.Set(machineScope.IBMPowerVSMachine, metav1.Condition{
-		Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+		Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 		Status: metav1.ConditionTrue,
-		Reason: infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Reason,
+		Reason: infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Reason,
 	})
 	return result, nil
 }
@@ -463,7 +453,7 @@ func (r *IBMPowerVSMachineReconciler) reconcileNormal(ctx context.Context, machi
 func (r *IBMPowerVSMachineReconciler) ibmPowerVSClusterToIBMPowerVSMachines(ctx context.Context, o client.Object) []ctrl.Request {
 	log := ctrl.LoggerFrom(ctx)
 	result := []ctrl.Request{}
-	c, ok := o.(*infrav1beta2.IBMPowerVSCluster)
+	c, ok := o.(*infrav1.IBMPowerVSCluster)
 	if !ok {
 		log.Error(fmt.Errorf("expected a IBMPowerVSCluster but got a %T", o), "failed to get IBMPowerVSMachines for IBMPowerVSCluster")
 		return nil
@@ -478,8 +468,8 @@ func (r *IBMPowerVSMachineReconciler) ibmPowerVSClusterToIBMPowerVSMachines(ctx 
 		return result
 	}
 
-	labels := map[string]string{capiv1beta1.ClusterNameLabel: cluster.Name}
-	machineList := &capiv1beta1.MachineList{}
+	labels := map[string]string{clusterv1.ClusterNameLabel: cluster.Name}
+	machineList := &clusterv1.MachineList{}
 	if err := r.List(ctx, machineList, client.InNamespace(c.Namespace), client.MatchingLabels(labels)); err != nil {
 		log.Error(err, "failed to list Machines")
 		return nil
@@ -498,30 +488,30 @@ func (r *IBMPowerVSMachineReconciler) ibmPowerVSClusterToIBMPowerVSMachines(ctx 
 // SetupWithManager creates a new IBMVPCMachine controller for a manager.
 func (r *IBMPowerVSMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "ibmpowervsmachine")
-	clusterToIBMPowerVSMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1beta2.IBMPowerVSMachineList{}, mgr.GetScheme())
+	clusterToIBMPowerVSMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.IBMPowerVSMachineList{}, mgr.GetScheme())
 	if err != nil {
 		return err
 	}
 
 	err = ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1beta2.IBMPowerVSMachine{}).
+		For(&infrav1.IBMPowerVSMachine{}).
 		WithEventFilter(predicates.ResourceHasFilterLabel(r.Scheme, predicateLog, r.WatchFilterValue)).
 		Watches(
-			&capiv1beta1.Machine{},
-			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1beta2.GroupVersion.WithKind("IBMPowerVSMachine"))),
+			&clusterv1.Machine{},
+			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("IBMPowerVSMachine"))),
 			builder.WithPredicates(predicates.ResourceIsChanged(r.Scheme, predicateLog)),
 		).
 		Watches(
-			&infrav1beta2.IBMPowerVSCluster{},
+			&infrav1.IBMPowerVSCluster{},
 			handler.EnqueueRequestsFromMapFunc(r.ibmPowerVSClusterToIBMPowerVSMachines),
 			builder.WithPredicates(predicates.ResourceIsChanged(r.Scheme, predicateLog)),
 		).
 		Watches(
-			&capiv1beta1.Cluster{},
+			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToIBMPowerVSMachines),
 			builder.WithPredicates(predicates.All(r.Scheme, predicateLog,
 				predicates.ResourceIsChanged(r.Scheme, predicateLog),
-				predicates.ClusterPausedTransitionsOrInfrastructureReady(r.Scheme, predicateLog),
+				predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(r.Scheme, predicateLog),
 			)),
 		).
 		Complete(r)
@@ -532,56 +522,56 @@ func (r *IBMPowerVSMachineReconciler) SetupWithManager(ctx context.Context, mgr 
 	return nil
 }
 
-func patchIBMPowerVSMachine(ctx context.Context, patchHelper *patch.Helper, ibmPowerVSMachine *infrav1beta2.IBMPowerVSMachine) error {
+func patchIBMPowerVSMachine(ctx context.Context, patchHelper *v1beta1patch.Helper, ibmPowerVSMachine *infrav1.IBMPowerVSMachine) error {
 	// Before computing ready condition, make sure that InstanceReady is always set.
 	// NOTE: This is required because v1beta2 conditions comply to guideline requiring conditions to be set at the
 	// first reconcile.
-	if c := v1beta2conditions.Get(ibmPowerVSMachine, infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition); c == nil {
+	if c := v1beta2conditions.Get(ibmPowerVSMachine, infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition); c == nil {
 		if ibmPowerVSMachine.Status.Ready {
 			v1beta2conditions.Set(ibmPowerVSMachine, metav1.Condition{
-				Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+				Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 				Status: metav1.ConditionTrue,
-				Reason: infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Reason,
+				Reason: infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Reason,
 			})
 		} else {
 			v1beta2conditions.Set(ibmPowerVSMachine, metav1.Condition{
-				Type:   infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+				Type:   infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 				Status: metav1.ConditionFalse,
-				Reason: infrav1beta2.IBMPowerVSMachineInstanceNotReadyV1Beta2Reason,
+				Reason: infrav1.IBMPowerVSMachineInstanceNotReadyV1Beta2Reason,
 			})
 		}
 	}
 
 	// always update the readyCondition.
-	conditions.SetSummary(ibmPowerVSMachine,
-		conditions.WithConditions(
-			infrav1beta2.InstanceReadyCondition,
+	v1beta1conditions.SetSummary(ibmPowerVSMachine,
+		v1beta1conditions.WithConditions(
+			infrav1.InstanceReadyCondition,
 		),
 	)
 
-	if err := v1beta2conditions.SetSummaryCondition(ibmPowerVSMachine, ibmPowerVSMachine, infrav1beta2.IBMPowerVSMachineReadyV1Beta2Condition,
+	if err := v1beta2conditions.SetSummaryCondition(ibmPowerVSMachine, ibmPowerVSMachine, infrav1.IBMPowerVSMachineReadyV1Beta2Condition,
 		v1beta2conditions.ForConditionTypes{
-			infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+			infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
 		},
 		// Using a custom merge strategy to override reasons applied during merge.
 		v1beta2conditions.CustomMergeStrategy{
 			MergeStrategy: v1beta2conditions.DefaultMergeStrategy(
 				// Use custom reasons.
 				v1beta2conditions.ComputeReasonFunc(v1beta2conditions.GetDefaultComputeMergeReasonFunc(
-					infrav1beta2.IBMPowerVSMachineNotReadyV1Beta2Reason,
-					infrav1beta2.IBMPowerVSMachineReadyUnknownV1Beta2Reason,
-					infrav1beta2.IBMPowerVSMachineReadyV1Beta2Reason,
+					infrav1.IBMPowerVSMachineNotReadyV1Beta2Reason,
+					infrav1.IBMPowerVSMachineReadyUnknownV1Beta2Reason,
+					infrav1.IBMPowerVSMachineReadyV1Beta2Reason,
 				)),
 			),
 		},
 	); err != nil {
-		return fmt.Errorf("failed to set %s condition: %w", infrav1beta2.IBMPowerVSMachineReadyV1Beta2Condition, err)
+		return fmt.Errorf("failed to set %s condition: %w", infrav1.IBMPowerVSMachineReadyV1Beta2Condition, err)
 	}
 
 	// Patch the IBMPowerVSMachine resource.
-	return patchHelper.Patch(ctx, ibmPowerVSMachine, patch.WithOwnedV1Beta2Conditions{Conditions: []string{
-		infrav1beta2.IBMPowerVSMachineReadyV1Beta2Condition,
-		infrav1beta2.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
-		capiv1beta1.PausedV1Beta2Condition,
+	return patchHelper.Patch(ctx, ibmPowerVSMachine, v1beta1patch.WithOwnedV1Beta2Conditions{Conditions: []string{
+		infrav1.IBMPowerVSMachineReadyV1Beta2Condition,
+		infrav1.IBMPowerVSMachineInstanceReadyV1Beta2Condition,
+		clusterv1beta1.PausedV1Beta2Condition,
 	}})
 }

@@ -5,12 +5,11 @@
 package telemetry
 
 import (
+	"go/version"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
-
-	"golang.org/x/mod/module"
 )
 
 // IsToolchainProgram reports whether a program with the given path is a Go
@@ -28,7 +27,7 @@ func IsToolchainProgram(progPath string) bool {
 // special characters.
 func ProgramInfo(info *debug.BuildInfo) (goVers, progPath, progVers string) {
 	goVers = info.GoVersion
-	if strings.Contains(goVers, "devel") || strings.Contains(goVers, "-") {
+	if strings.Contains(goVers, "devel") || strings.Contains(goVers, "-") || !version.IsValid(goVers) {
 		goVers = "devel"
 	}
 
@@ -43,8 +42,13 @@ func ProgramInfo(info *debug.BuildInfo) (goVers, progPath, progVers string) {
 		progVers = goVers
 	} else {
 		progVers = info.Main.Version
-		if strings.Contains(progVers, "devel") || module.IsPseudoVersion(progVers) {
-			// We don't want to track pseudo versions, but may want to track prereleases.
+		if strings.Contains(progVers, "devel") || strings.Count(progVers, "-") > 1 {
+			// Heuristically mark all pseudo-version-like version strings as "devel"
+			// to avoid creating too many counter files.
+			// We should not use regexp that pulls in large dependencies.
+			// Pseudo-versions have at least three parts (https://go.dev/ref/mod#pseudo-versions).
+			// This heuristic still allows use to track prerelease
+			// versions (e.g. gopls@v0.16.0-pre.1, vscgo@v0.42.0-rc.1).
 			progVers = "devel"
 		}
 	}

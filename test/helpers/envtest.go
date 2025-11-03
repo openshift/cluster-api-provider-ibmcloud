@@ -46,7 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	utilyaml "sigs.k8s.io/cluster-api/util/yaml"
 )
 
@@ -69,7 +69,7 @@ func init() {
 
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(admissionv1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(capiv1beta1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(clusterv1.AddToScheme(scheme.Scheme))
 
 	// Get the root of the current file to use in CRD paths.
 	_, filename, _, _ := goruntime.Caller(0) //nolint:dogsled
@@ -240,9 +240,10 @@ func (t *TestEnvironment) WaitForWebhooks() {
 	port := t.env.WebhookInstallOptions.LocalServingPort
 	klog.V(2).Infof("Waiting for webhook port %d to be open prior to running tests", port)
 	timeout := 1 * time.Second
+	d := net.Dialer{Timeout: timeout}
 	for {
 		time.Sleep(timeout)
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), timeout)
+		conn, err := d.DialContext(context.Background(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			klog.V(2).Infof("Webhook port is not ready, will retry in %v: %s", timeout, err)
 			continue

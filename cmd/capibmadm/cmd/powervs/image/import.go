@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/clients/iam"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/clients/powervs"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/options"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/utils"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/accounts"
 )
 
 type imageImportOptions struct {
@@ -80,7 +80,7 @@ capibmadm powervs image import --service-instance-id <service-instance-id> -b <b
 	cmd.Flags().StringVar(&imageImportOption.ImageName, "name", "", "Name to PowerVS imported image.")
 	cmd.Flags().BoolVarP(&imageImportOption.Public, "public-bucket", "", false, "Cloud Object Storage public bucket.")
 	cmd.Flags().DurationVar(&imageImportOption.WatchTimeout, "watch-timeout", 1*time.Hour, "watch timeout")
-	cmd.Flags().StringVar(&imageImportOption.StorageType, "pvs-storagetype", "tier3", "PowerVS Storage type, accepted values are [tier1, tier3].")
+	cmd.Flags().StringVar(&imageImportOption.StorageType, "pvs-storagetype", "tier1", "PowerVS Storage type, accepted values are [tier0, tier1, tier3].")
 	_ = cmd.MarkFlagRequired("bucket")
 	_ = cmd.MarkFlagRequired("bucket-region")
 	_ = cmd.MarkFlagRequired("name")
@@ -107,7 +107,7 @@ func importimage(ctx context.Context, imageImportOption imageImportOptions) erro
 	log := logf.Log
 	log.Info("Importing PowerVS images: ", "service-instance-id", options.GlobalOptions.ServiceInstanceID)
 
-	accountID, err := utils.GetAccount(iam.GetIAMAuth())
+	accountID, err := accounts.GetAccount(iam.GetIAMAuth())
 	if err != nil {
 		return err
 	}

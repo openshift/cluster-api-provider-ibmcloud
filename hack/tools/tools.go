@@ -22,7 +22,7 @@ package tools
 
 import (
 	_ "github.com/drone/envsubst/v2/cmd/envsubst"
-	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
+	_ "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
 	_ "github.com/itchyny/gojq/cmd/gojq"
 	_ "github.com/joelanford/go-apidiff"
 	_ "github.com/onsi/ginkgo/v2/ginkgo"
@@ -34,6 +34,7 @@ import (
 	_ "sigs.k8s.io/cluster-api/hack/tools/conversion-verifier"
 	_ "sigs.k8s.io/cluster-api/hack/tools/mdbook/embed"
 	_ "sigs.k8s.io/cluster-api/hack/tools/mdbook/releaselink"
+	_ "sigs.k8s.io/cluster-api/hack/tools/mdbook/tabulate"
 	_ "sigs.k8s.io/controller-runtime/tools/setup-envtest"
 	_ "sigs.k8s.io/controller-tools/cmd/controller-gen"
 	_ "sigs.k8s.io/kustomize/kustomize/v5"

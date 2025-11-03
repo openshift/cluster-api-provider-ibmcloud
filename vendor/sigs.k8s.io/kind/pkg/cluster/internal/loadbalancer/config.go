@@ -36,9 +36,11 @@ global
   log /dev/log local0
   log /dev/log local1 notice
   daemon
+  # limit memory usage to approximately 18 MB
+  maxconn 100000
 
 resolvers docker
-  nameserver dns 127.0.0.11:53
+  parse-resolv-conf
 
 defaults
   log global

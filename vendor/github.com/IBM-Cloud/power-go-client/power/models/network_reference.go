@@ -20,6 +20,20 @@ import (
 // swagger:model NetworkReference
 type NetworkReference struct {
 
+	// access config
+	AccessConfig AccessConfig `json:"accessConfig,omitempty"`
+
+	// Indicates if the network is advertised externally of the workspace to PER and\or peer networks
+	// Enum: ["enable","disable"]
+	Advertise string `json:"advertise,omitempty"`
+
+	// Indicates if the ARP broadcast is enabled
+	// Enum: ["enable","disable"]
+	ArpBroadcast string `json:"arpBroadcast,omitempty"`
+
+	// crn
+	Crn CRN `json:"crn,omitempty"`
+
 	// DHCP Managed Network
 	DhcpManaged bool `json:"dhcpManaged,omitempty"`
 
@@ -27,9 +41,13 @@ type NetworkReference struct {
 	// Required: true
 	Href *string `json:"href"`
 
-	// MTU Jumbo Network enabled
-	// Required: true
-	Jumbo *bool `json:"jumbo"`
+	// (deprecated - replaced by mtu) Enable MTU Jumbo Network (for multi-zone locations only)
+	Jumbo bool `json:"jumbo,omitempty"`
+
+	// Maximum transmission unit
+	// Maximum: 9000
+	// Minimum: 1450
+	Mtu *int64 `json:"mtu,omitempty"`
 
 	// Network Name
 	// Required: true
@@ -39,9 +57,12 @@ type NetworkReference struct {
 	// Required: true
 	NetworkID *string `json:"networkID"`
 
-	// Type of Network {vlan, pub-vlan}
+	// Network Peer ID
+	PeerID string `json:"peerID,omitempty"`
+
+	// Type of Network - 'vlan' (private network) 'pub-vlan' (public network) 'dhcp-vlan' (for satellite locations only)
 	// Required: true
-	// Enum: [vlan pub-vlan]
+	// Enum: ["vlan","pub-vlan","dhcp-vlan"]
 	Type *string `json:"type"`
 
 	// VLAN ID
@@ -53,11 +74,27 @@ type NetworkReference struct {
 func (m *NetworkReference) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAccessConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateAdvertise(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateArpBroadcast(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateCrn(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateHref(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateJumbo(formats); err != nil {
+	if err := m.validateMtu(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -83,6 +120,124 @@ func (m *NetworkReference) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *NetworkReference) validateAccessConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.AccessConfig) { // not required
+		return nil
+	}
+
+	if err := m.AccessConfig.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("accessConfig")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("accessConfig")
+		}
+		return err
+	}
+
+	return nil
+}
+
+var networkReferenceTypeAdvertisePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["enable","disable"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		networkReferenceTypeAdvertisePropEnum = append(networkReferenceTypeAdvertisePropEnum, v)
+	}
+}
+
+const (
+
+	// NetworkReferenceAdvertiseEnable captures enum value "enable"
+	NetworkReferenceAdvertiseEnable string = "enable"
+
+	// NetworkReferenceAdvertiseDisable captures enum value "disable"
+	NetworkReferenceAdvertiseDisable string = "disable"
+)
+
+// prop value enum
+func (m *NetworkReference) validateAdvertiseEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, networkReferenceTypeAdvertisePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *NetworkReference) validateAdvertise(formats strfmt.Registry) error {
+	if swag.IsZero(m.Advertise) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateAdvertiseEnum("advertise", "body", m.Advertise); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var networkReferenceTypeArpBroadcastPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["enable","disable"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		networkReferenceTypeArpBroadcastPropEnum = append(networkReferenceTypeArpBroadcastPropEnum, v)
+	}
+}
+
+const (
+
+	// NetworkReferenceArpBroadcastEnable captures enum value "enable"
+	NetworkReferenceArpBroadcastEnable string = "enable"
+
+	// NetworkReferenceArpBroadcastDisable captures enum value "disable"
+	NetworkReferenceArpBroadcastDisable string = "disable"
+)
+
+// prop value enum
+func (m *NetworkReference) validateArpBroadcastEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, networkReferenceTypeArpBroadcastPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *NetworkReference) validateArpBroadcast(formats strfmt.Registry) error {
+	if swag.IsZero(m.ArpBroadcast) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateArpBroadcastEnum("arpBroadcast", "body", m.ArpBroadcast); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *NetworkReference) validateCrn(formats strfmt.Registry) error {
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("crn")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("crn")
+		}
+		return err
+	}
+
+	return nil
+}
+
 func (m *NetworkReference) validateHref(formats strfmt.Registry) error {
 
 	if err := validate.Required("href", "body", m.Href); err != nil {
@@ -92,9 +247,16 @@ func (m *NetworkReference) validateHref(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *NetworkReference) validateJumbo(formats strfmt.Registry) error {
+func (m *NetworkReference) validateMtu(formats strfmt.Registry) error {
+	if swag.IsZero(m.Mtu) { // not required
+		return nil
+	}
 
-	if err := validate.Required("jumbo", "body", m.Jumbo); err != nil {
+	if err := validate.MinimumInt("mtu", "body", *m.Mtu, 1450, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("mtu", "body", *m.Mtu, 9000, false); err != nil {
 		return err
 	}
 
@@ -123,7 +285,7 @@ var networkReferenceTypeTypePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["vlan","pub-vlan"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["vlan","pub-vlan","dhcp-vlan"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -138,6 +300,9 @@ const (
 
 	// NetworkReferenceTypePubDashVlan captures enum value "pub-vlan"
 	NetworkReferenceTypePubDashVlan string = "pub-vlan"
+
+	// NetworkReferenceTypeDhcpDashVlan captures enum value "dhcp-vlan"
+	NetworkReferenceTypeDhcpDashVlan string = "dhcp-vlan"
 )
 
 // prop value enum
@@ -171,8 +336,57 @@ func (m *NetworkReference) validateVlanID(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this network reference based on context it is used
+// ContextValidate validate this network reference based on the context it is used
 func (m *NetworkReference) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateAccessConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateCrn(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *NetworkReference) contextValidateAccessConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if swag.IsZero(m.AccessConfig) { // not required
+		return nil
+	}
+
+	if err := m.AccessConfig.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("accessConfig")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("accessConfig")
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (m *NetworkReference) contextValidateCrn(ctx context.Context, formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("crn")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("crn")
+		}
+		return err
+	}
+
 	return nil
 }
 

@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud p vm instances API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud p vm instances API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud p vm instances API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -72,11 +98,15 @@ type ClientService interface {
 
 	PcloudV2PvminstancesCapturePost(params *PcloudV2PvminstancesCapturePostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2PvminstancesCapturePostAccepted, error)
 
+	PcloudV2PvminstancesGetall(params *PcloudV2PvminstancesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2PvminstancesGetallOK, error)
+
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
-  PcloudPvminstancesActionPost performs an action start stop reboot immediate shutdown reset on a p VM instance
+PcloudPvminstancesActionPost performs an action on a p VM instance
+
+Corresponding actions are 'start', 'stop', 'reboot', 'immediate-shutdown', 'reset'
 */
 func (a *Client) PcloudPvminstancesActionPost(params *PcloudPvminstancesActionPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesActionPostOK, error) {
 	// TODO: Validate the params before sending
@@ -115,7 +145,11 @@ func (a *Client) PcloudPvminstancesActionPost(params *PcloudPvminstancesActionPo
 }
 
 /*
-  PcloudPvminstancesCapturePost captures a p VM instance and create a deployable image
+	PcloudPvminstancesCapturePost captures a p VM instance and create a deployable image
+
+	This API is deprecated for /pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture.
+
+>*Note*: Support for this API is available till Oct 2022.
 */
 func (a *Client) PcloudPvminstancesCapturePost(params *PcloudPvminstancesCapturePostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesCapturePostOK, *PcloudPvminstancesCapturePostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -155,7 +189,7 @@ func (a *Client) PcloudPvminstancesCapturePost(params *PcloudPvminstancesCapture
 }
 
 /*
-  PcloudPvminstancesClonePost clones a p VM instance
+PcloudPvminstancesClonePost clones a p VM instance
 */
 func (a *Client) PcloudPvminstancesClonePost(params *PcloudPvminstancesClonePostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesClonePostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -194,7 +228,7 @@ func (a *Client) PcloudPvminstancesClonePost(params *PcloudPvminstancesClonePost
 }
 
 /*
-  PcloudPvminstancesConsoleGet lists all console languages
+PcloudPvminstancesConsoleGet lists all console languages
 */
 func (a *Client) PcloudPvminstancesConsoleGet(params *PcloudPvminstancesConsoleGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesConsoleGetOK, error) {
 	// TODO: Validate the params before sending
@@ -233,7 +267,7 @@ func (a *Client) PcloudPvminstancesConsoleGet(params *PcloudPvminstancesConsoleG
 }
 
 /*
-  PcloudPvminstancesConsolePost generates the no v n c console URL
+PcloudPvminstancesConsolePost generates the no v n c console URL
 */
 func (a *Client) PcloudPvminstancesConsolePost(params *PcloudPvminstancesConsolePostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesConsolePostCreated, error) {
 	// TODO: Validate the params before sending
@@ -272,7 +306,7 @@ func (a *Client) PcloudPvminstancesConsolePost(params *PcloudPvminstancesConsole
 }
 
 /*
-  PcloudPvminstancesConsolePut updates p VM instance console laguage code
+PcloudPvminstancesConsolePut updates p VM instance console language code
 */
 func (a *Client) PcloudPvminstancesConsolePut(params *PcloudPvminstancesConsolePutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesConsolePutOK, error) {
 	// TODO: Validate the params before sending
@@ -311,7 +345,7 @@ func (a *Client) PcloudPvminstancesConsolePut(params *PcloudPvminstancesConsoleP
 }
 
 /*
-  PcloudPvminstancesDelete deletes a p cloud p VM instance
+PcloudPvminstancesDelete deletes a p cloud p VM instance
 */
 func (a *Client) PcloudPvminstancesDelete(params *PcloudPvminstancesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -350,7 +384,7 @@ func (a *Client) PcloudPvminstancesDelete(params *PcloudPvminstancesDeleteParams
 }
 
 /*
-  PcloudPvminstancesGet gets a p VM instance s current state or information
+PcloudPvminstancesGet gets a p VM instance s current state or information
 */
 func (a *Client) PcloudPvminstancesGet(params *PcloudPvminstancesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -389,7 +423,7 @@ func (a *Client) PcloudPvminstancesGet(params *PcloudPvminstancesGetParams, auth
 }
 
 /*
-  PcloudPvminstancesGetall gets all the pvm instances for this cloud instance
+PcloudPvminstancesGetall gets all the pvm instances for this cloud instance
 */
 func (a *Client) PcloudPvminstancesGetall(params *PcloudPvminstancesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -428,7 +462,7 @@ func (a *Client) PcloudPvminstancesGetall(params *PcloudPvminstancesGetallParams
 }
 
 /*
-  PcloudPvminstancesNetworksDelete removes all address of network from a p VM instance
+PcloudPvminstancesNetworksDelete removes all address of network from a p VM instance
 */
 func (a *Client) PcloudPvminstancesNetworksDelete(params *PcloudPvminstancesNetworksDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesNetworksDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -467,7 +501,7 @@ func (a *Client) PcloudPvminstancesNetworksDelete(params *PcloudPvminstancesNetw
 }
 
 /*
-  PcloudPvminstancesNetworksGet gets a p VM instance s network information
+PcloudPvminstancesNetworksGet gets a p VM instance s network information
 */
 func (a *Client) PcloudPvminstancesNetworksGet(params *PcloudPvminstancesNetworksGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesNetworksGetOK, error) {
 	// TODO: Validate the params before sending
@@ -506,7 +540,7 @@ func (a *Client) PcloudPvminstancesNetworksGet(params *PcloudPvminstancesNetwork
 }
 
 /*
-  PcloudPvminstancesNetworksGetall gets all networks for this p VM instance
+PcloudPvminstancesNetworksGetall gets all networks for this p VM instance
 */
 func (a *Client) PcloudPvminstancesNetworksGetall(params *PcloudPvminstancesNetworksGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesNetworksGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -545,7 +579,7 @@ func (a *Client) PcloudPvminstancesNetworksGetall(params *PcloudPvminstancesNetw
 }
 
 /*
-  PcloudPvminstancesNetworksPost performs network addition
+PcloudPvminstancesNetworksPost performs network addition
 */
 func (a *Client) PcloudPvminstancesNetworksPost(params *PcloudPvminstancesNetworksPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesNetworksPostCreated, error) {
 	// TODO: Validate the params before sending
@@ -584,7 +618,7 @@ func (a *Client) PcloudPvminstancesNetworksPost(params *PcloudPvminstancesNetwor
 }
 
 /*
-  PcloudPvminstancesOperationsPost performs an operation on a p VM instance
+PcloudPvminstancesOperationsPost performs an operation on a p VM instance
 */
 func (a *Client) PcloudPvminstancesOperationsPost(params *PcloudPvminstancesOperationsPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesOperationsPostOK, error) {
 	// TODO: Validate the params before sending
@@ -623,7 +657,7 @@ func (a *Client) PcloudPvminstancesOperationsPost(params *PcloudPvminstancesOper
 }
 
 /*
-  PcloudPvminstancesPost creates a new power VM instance
+PcloudPvminstancesPost creates a new power VM instance
 */
 func (a *Client) PcloudPvminstancesPost(params *PcloudPvminstancesPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesPostOK, *PcloudPvminstancesPostCreated, *PcloudPvminstancesPostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -665,7 +699,7 @@ func (a *Client) PcloudPvminstancesPost(params *PcloudPvminstancesPostParams, au
 }
 
 /*
-  PcloudPvminstancesPut updates a p cloud p VM instance
+PcloudPvminstancesPut updates a p cloud p VM instance
 */
 func (a *Client) PcloudPvminstancesPut(params *PcloudPvminstancesPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesPutAccepted, error) {
 	// TODO: Validate the params before sending
@@ -704,7 +738,7 @@ func (a *Client) PcloudPvminstancesPut(params *PcloudPvminstancesPutParams, auth
 }
 
 /*
-  PcloudPvminstancesSnapshotsGetall gets all snapshots for this p VM instance
+PcloudPvminstancesSnapshotsGetall gets all snapshots for this p VM instance
 */
 func (a *Client) PcloudPvminstancesSnapshotsGetall(params *PcloudPvminstancesSnapshotsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesSnapshotsGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -743,7 +777,7 @@ func (a *Client) PcloudPvminstancesSnapshotsGetall(params *PcloudPvminstancesSna
 }
 
 /*
-  PcloudPvminstancesSnapshotsPost creates a p VM instance snapshot
+PcloudPvminstancesSnapshotsPost creates a p VM instance snapshot
 */
 func (a *Client) PcloudPvminstancesSnapshotsPost(params *PcloudPvminstancesSnapshotsPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesSnapshotsPostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -782,7 +816,7 @@ func (a *Client) PcloudPvminstancesSnapshotsPost(params *PcloudPvminstancesSnaps
 }
 
 /*
-  PcloudPvminstancesSnapshotsRestorePost restores a p VM instance snapshot
+PcloudPvminstancesSnapshotsRestorePost restores a p VM instance snapshot
 */
 func (a *Client) PcloudPvminstancesSnapshotsRestorePost(params *PcloudPvminstancesSnapshotsRestorePostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudPvminstancesSnapshotsRestorePostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -821,7 +855,7 @@ func (a *Client) PcloudPvminstancesSnapshotsRestorePost(params *PcloudPvminstanc
 }
 
 /*
-  PcloudV2PvminstancesCaptureGet gets detail of last capture job
+PcloudV2PvminstancesCaptureGet gets detail of last capture job
 */
 func (a *Client) PcloudV2PvminstancesCaptureGet(params *PcloudV2PvminstancesCaptureGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2PvminstancesCaptureGetOK, error) {
 	// TODO: Validate the params before sending
@@ -860,7 +894,7 @@ func (a *Client) PcloudV2PvminstancesCaptureGet(params *PcloudV2PvminstancesCapt
 }
 
 /*
-  PcloudV2PvminstancesCapturePost adds a capture pvm instance to the jobs queue
+PcloudV2PvminstancesCapturePost adds a capture pvm instance to the jobs queue
 */
 func (a *Client) PcloudV2PvminstancesCapturePost(params *PcloudV2PvminstancesCapturePostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2PvminstancesCapturePostAccepted, error) {
 	// TODO: Validate the params before sending
@@ -895,6 +929,45 @@ func (a *Client) PcloudV2PvminstancesCapturePost(params *PcloudV2PvminstancesCap
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.v2.pvminstances.capture.post: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+PcloudV2PvminstancesGetall gets all the pvm instances for this cloud instance
+*/
+func (a *Client) PcloudV2PvminstancesGetall(params *PcloudV2PvminstancesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2PvminstancesGetallOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPcloudV2PvminstancesGetallParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "pcloud.v2.pvminstances.getall",
+		Method:             "GET",
+		PathPattern:        "/pcloud/v2/cloud-instances/{cloud_instance_id}/pvm-instances",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &PcloudV2PvminstancesGetallReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*PcloudV2PvminstancesGetallOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for pcloud.v2.pvminstances.getall: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -18,20 +18,44 @@ package framework
 
 import (
 	"context"
-	"fmt"
 
-	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	. "sigs.k8s.io/cluster-api/test/framework/ginkgoextensions"
 	"sigs.k8s.io/cluster-api/test/framework/internal/log"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 )
+
+// GetMachinesByClusterInput is the input for GetMachinesByCluster.
+type GetMachinesByClusterInput struct {
+	Lister      Lister
+	ClusterName string
+	Namespace   string
+}
+
+// GetMachinesByCluster returns Machine objects for a cluster.
+func GetMachinesByCluster(ctx context.Context, input GetMachinesByClusterInput) []clusterv1.Machine {
+	Expect(ctx).NotTo(BeNil(), "ctx is required for GetMachinesByCluster")
+	Expect(input.Lister).ToNot(BeNil(), "Invalid argument. input.Lister can't be nil when calling GetMachinesByCluster")
+	Expect(input.ClusterName).ToNot(BeEmpty(), "Invalid argument. input.ClusterName can't be empty when calling GetMachinesByCluster")
+	Expect(input.Namespace).ToNot(BeEmpty(), "Invalid argument. input.Namespace can't be empty when calling GetMachinesByCluster")
+
+	opts := byClusterOptions(input.ClusterName, input.Namespace)
+
+	machineList := &clusterv1.MachineList{}
+	Eventually(func() error {
+		return input.Lister.List(ctx, machineList, opts...)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list Machines for Cluster %s", klog.KRef(input.ClusterName, input.Namespace))
+
+	return machineList.Items
+}
 
 // GetMachinesByMachineDeploymentsInput is the input for GetMachinesByMachineDeployments.
 type GetMachinesByMachineDeploymentsInput struct {
@@ -57,7 +81,7 @@ func GetMachinesByMachineDeployments(ctx context.Context, input GetMachinesByMac
 	machineList := &clusterv1.MachineList{}
 	Eventually(func() error {
 		return input.Lister.List(ctx, machineList, opts...)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list MachineList object for Cluster %s/%s", input.Namespace, input.ClusterName)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list Machines for MachineDeployment %s of Cluster %s", klog.KObj(&input.MachineDeployment), klog.KRef(input.Namespace, input.ClusterName))
 
 	return machineList.Items
 }
@@ -82,7 +106,7 @@ func GetMachinesByMachineHealthCheck(ctx context.Context, input GetMachinesByMac
 	machineList := &clusterv1.MachineList{}
 	Eventually(func() error {
 		return input.Lister.List(ctx, machineList, opts...)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list MachineList object for Cluster %s/%s", input.MachineHealthCheck.Namespace, input.ClusterName)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list MachineList object for Cluster %s", klog.KRef(input.MachineHealthCheck.Namespace, input.ClusterName))
 
 	return machineList.Items
 }
@@ -103,12 +127,18 @@ func GetControlPlaneMachinesByCluster(ctx context.Context, input GetControlPlane
 	Expect(input.ClusterName).ToNot(BeEmpty(), "Invalid argument. input.ClusterName can't be empty when calling GetControlPlaneMachinesByCluster")
 	Expect(input.Namespace).ToNot(BeEmpty(), "Invalid argument. input.Namespace can't be empty when calling GetControlPlaneMachinesByCluster")
 
-	options := append(byClusterOptions(input.ClusterName, input.Namespace), controlPlaneMachineOptions()...)
+	options := []client.ListOption{
+		client.InNamespace(input.Namespace),
+		client.MatchingLabels{
+			clusterv1.ClusterNameLabel:         input.ClusterName,
+			clusterv1.MachineControlPlaneLabel: "",
+		},
+	}
 
 	machineList := &clusterv1.MachineList{}
 	Eventually(func() error {
 		return input.Lister.List(ctx, machineList, options...)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list MachineList object for Cluster %s/%s", input.Namespace, input.ClusterName)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to list MachineList object for Cluster %s", klog.KRef(input.Namespace, input.ClusterName))
 
 	return machineList.Items
 }
@@ -128,7 +158,7 @@ func WaitForControlPlaneMachinesToBeUpgraded(ctx context.Context, input WaitForC
 	Expect(input.KubernetesUpgradeVersion).ToNot(BeEmpty(), "Invalid argument. input.KubernetesUpgradeVersion can't be empty when calling WaitForControlPlaneMachinesToBeUpgraded")
 	Expect(input.MachineCount).To(BeNumerically(">", 0), "Invalid argument. input.MachineCount can't be smaller than 1 when calling WaitForControlPlaneMachinesToBeUpgraded")
 
-	By(fmt.Sprintf("Ensuring all control-plane machines have upgraded kubernetes version %s", input.KubernetesUpgradeVersion))
+	Byf("Ensuring all control-plane machines have upgraded kubernetes version %s", input.KubernetesUpgradeVersion)
 
 	Eventually(func() (int, error) {
 		machines := GetControlPlaneMachinesByCluster(ctx, GetControlPlaneMachinesByClusterInput{
@@ -140,15 +170,15 @@ func WaitForControlPlaneMachinesToBeUpgraded(ctx context.Context, input WaitForC
 		upgraded := 0
 		for _, machine := range machines {
 			m := machine
-			if *m.Spec.Version == input.KubernetesUpgradeVersion && conditions.IsTrue(&m, clusterv1.MachineNodeHealthyCondition) {
+			if m.Spec.Version == input.KubernetesUpgradeVersion && conditions.IsTrue(&m, clusterv1.MachineNodeHealthyCondition) {
 				upgraded++
 			}
 		}
 		if len(machines) > upgraded {
-			return 0, errors.New("old nodes remain")
+			return 0, errors.New("old Machines remain")
 		}
 		return upgraded, nil
-	}, intervals...).Should(Equal(input.MachineCount))
+	}, intervals...).Should(Equal(input.MachineCount), "Timed out waiting for all control-plane machines in Cluster %s to be upgraded to kubernetes version %s", klog.KObj(input.Cluster), input.KubernetesUpgradeVersion)
 }
 
 // WaitForMachineDeploymentMachinesToBeUpgradedInput is the input for WaitForMachineDeploymentMachinesToBeUpgraded.
@@ -180,15 +210,15 @@ func WaitForMachineDeploymentMachinesToBeUpgraded(ctx context.Context, input Wai
 
 		upgraded := 0
 		for _, machine := range machines {
-			if *machine.Spec.Version == input.KubernetesUpgradeVersion {
+			if machine.Spec.Version == input.KubernetesUpgradeVersion {
 				upgraded++
 			}
 		}
 		if len(machines) > upgraded {
-			return 0, errors.New("old nodes remain")
+			return 0, errors.New("old Machines remain")
 		}
 		return upgraded, nil
-	}, intervals...).Should(Equal(input.MachineCount))
+	}, intervals...).Should(Equal(input.MachineCount), "Timed out waiting for all MachineDeployment %s Machines to be upgraded to kubernetes version %s", klog.KObj(&input.MachineDeployment), input.KubernetesUpgradeVersion)
 }
 
 // PatchNodeConditionInput is the input for PatchNodeCondition.
@@ -208,17 +238,17 @@ func PatchNodeCondition(ctx context.Context, input PatchNodeConditionInput) {
 	Expect(input.Machine).ToNot(BeNil(), "Invalid argument. input.Machine can't be nil when calling PatchNodeConditions")
 
 	log.Logf("Patching the node condition to the node")
-	Expect(input.Machine.Status.NodeRef).ToNot(BeNil())
+	Expect(input.Machine.Status.NodeRef.IsDefined()).To(BeTrue())
 	node := &corev1.Node{}
 	Eventually(func() error {
-		return input.ClusterProxy.GetWorkloadCluster(ctx, input.Cluster.Namespace, input.Cluster.Name).GetClient().Get(ctx, types.NamespacedName{Name: input.Machine.Status.NodeRef.Name, Namespace: input.Machine.Status.NodeRef.Namespace}, node)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed())
+		return input.ClusterProxy.GetWorkloadCluster(ctx, input.Cluster.Namespace, input.Cluster.Name).GetClient().Get(ctx, types.NamespacedName{Name: input.Machine.Status.NodeRef.Name}, node)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to get node %s", input.Machine.Status.NodeRef.Name)
 	patchHelper, err := patch.NewHelper(node, input.ClusterProxy.GetWorkloadCluster(ctx, input.Cluster.Namespace, input.Cluster.Name).GetClient())
 	Expect(err).ToNot(HaveOccurred())
 	node.Status.Conditions = append(node.Status.Conditions, input.NodeCondition)
 	Eventually(func() error {
 		return patchHelper.Patch(ctx, node)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed())
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to patch node %s", input.Machine.Status.NodeRef.Name)
 }
 
 // MachineStatusCheck is a type that operates a status check on a Machine.
@@ -244,7 +274,7 @@ func WaitForMachineStatusCheck(ctx context.Context, input WaitForMachineStatusCh
 			Name:      input.Machine.Name,
 		}
 		err := input.Getter.Get(ctx, key, machine)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).ToNot(HaveOccurred())
 
 		for _, statusCheck := range input.StatusChecks {
 			err := statusCheck(machine)
@@ -259,8 +289,8 @@ func WaitForMachineStatusCheck(ctx context.Context, input WaitForMachineStatusCh
 // MachineNodeRefCheck is a MachineStatusCheck ensuring that a NodeRef is assigned to the machine.
 func MachineNodeRefCheck() MachineStatusCheck {
 	return func(machine *clusterv1.Machine) error {
-		if machine.Status.NodeRef == nil {
-			return errors.Errorf("NodeRef is not assigned to the machine %s/%s", machine.Namespace, machine.Name)
+		if !machine.Status.NodeRef.IsDefined() {
+			return errors.Errorf("NodeRef is not assigned to the machine %s", klog.KObj(machine))
 		}
 		return nil
 	}
@@ -270,7 +300,7 @@ func MachineNodeRefCheck() MachineStatusCheck {
 func MachinePhaseCheck(expectedPhase string) MachineStatusCheck {
 	return func(machine *clusterv1.Machine) error {
 		if machine.Status.Phase != expectedPhase {
-			return errors.Errorf("Machine %s/%s is not in phase %s", machine.Namespace, machine.Name, expectedPhase)
+			return errors.Errorf("Machine %s is not in phase %s", klog.KObj(machine), expectedPhase)
 		}
 		return nil
 	}

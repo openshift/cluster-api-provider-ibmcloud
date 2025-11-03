@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud storage capacity API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud storage capacity API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud storage capacity API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -42,7 +68,7 @@ type ClientService interface {
 }
 
 /*
-  PcloudStoragecapacityPoolsGet storages capacity for a storage pool in a region
+PcloudStoragecapacityPoolsGet storages capacity for a storage pool in a region
 */
 func (a *Client) PcloudStoragecapacityPoolsGet(params *PcloudStoragecapacityPoolsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudStoragecapacityPoolsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -81,7 +107,7 @@ func (a *Client) PcloudStoragecapacityPoolsGet(params *PcloudStoragecapacityPool
 }
 
 /*
-  PcloudStoragecapacityPoolsGetall storages capacity for all available storage pools in a region
+PcloudStoragecapacityPoolsGetall storages capacity for all available storage pools in a region
 */
 func (a *Client) PcloudStoragecapacityPoolsGetall(params *PcloudStoragecapacityPoolsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudStoragecapacityPoolsGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -120,7 +146,7 @@ func (a *Client) PcloudStoragecapacityPoolsGetall(params *PcloudStoragecapacityP
 }
 
 /*
-  PcloudStoragecapacityTypesGet storages capacity for a storage type in a region
+PcloudStoragecapacityTypesGet storages capacity for a storage type in a region
 */
 func (a *Client) PcloudStoragecapacityTypesGet(params *PcloudStoragecapacityTypesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudStoragecapacityTypesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -159,7 +185,7 @@ func (a *Client) PcloudStoragecapacityTypesGet(params *PcloudStoragecapacityType
 }
 
 /*
-  PcloudStoragecapacityTypesGetall storages capacity for all available storage types in a region
+PcloudStoragecapacityTypesGetall storages capacity for all available storage types in a region
 */
 func (a *Client) PcloudStoragecapacityTypesGetall(params *PcloudStoragecapacityTypesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudStoragecapacityTypesGetallOK, error) {
 	// TODO: Validate the params before sending

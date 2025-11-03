@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new authentication API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new authentication API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new authentication API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -54,7 +80,7 @@ type ClientService interface {
 }
 
 /*
-  ServiceBrokerAuthCallback returns an access token and set cookie
+ServiceBrokerAuthCallback returns an access token and set cookie
 */
 func (a *Client) ServiceBrokerAuthCallback(params *ServiceBrokerAuthCallbackParams, opts ...ClientOption) (*ServiceBrokerAuthCallbackOK, error) {
 	// TODO: Validate the params before sending
@@ -92,7 +118,7 @@ func (a *Client) ServiceBrokerAuthCallback(params *ServiceBrokerAuthCallbackPara
 }
 
 /*
-  ServiceBrokerAuthDeviceCodePost requests a authorization device code
+ServiceBrokerAuthDeviceCodePost requests a authorization device code
 */
 func (a *Client) ServiceBrokerAuthDeviceCodePost(params *ServiceBrokerAuthDeviceCodePostParams, opts ...ClientOption) (*ServiceBrokerAuthDeviceCodePostOK, error) {
 	// TODO: Validate the params before sending
@@ -130,7 +156,7 @@ func (a *Client) ServiceBrokerAuthDeviceCodePost(params *ServiceBrokerAuthDevice
 }
 
 /*
-  ServiceBrokerAuthDeviceTokenPost polls for authorization device token
+ServiceBrokerAuthDeviceTokenPost polls for authorization device token
 */
 func (a *Client) ServiceBrokerAuthDeviceTokenPost(params *ServiceBrokerAuthDeviceTokenPostParams, opts ...ClientOption) (*ServiceBrokerAuthDeviceTokenPostOK, error) {
 	// TODO: Validate the params before sending
@@ -168,7 +194,7 @@ func (a *Client) ServiceBrokerAuthDeviceTokenPost(params *ServiceBrokerAuthDevic
 }
 
 /*
-  ServiceBrokerAuthInfoToken information about current access token
+ServiceBrokerAuthInfoToken information about current access token
 */
 func (a *Client) ServiceBrokerAuthInfoToken(params *ServiceBrokerAuthInfoTokenParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ServiceBrokerAuthInfoTokenOK, error) {
 	// TODO: Validate the params before sending
@@ -207,7 +233,7 @@ func (a *Client) ServiceBrokerAuthInfoToken(params *ServiceBrokerAuthInfoTokenPa
 }
 
 /*
-  ServiceBrokerAuthInfoUser information about current user
+ServiceBrokerAuthInfoUser information about current user
 */
 func (a *Client) ServiceBrokerAuthInfoUser(params *ServiceBrokerAuthInfoUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ServiceBrokerAuthInfoUserOK, error) {
 	// TODO: Validate the params before sending
@@ -246,7 +272,7 @@ func (a *Client) ServiceBrokerAuthInfoUser(params *ServiceBrokerAuthInfoUserPara
 }
 
 /*
-  ServiceBrokerAuthLogin logins
+ServiceBrokerAuthLogin logins
 */
 func (a *Client) ServiceBrokerAuthLogin(params *ServiceBrokerAuthLoginParams, opts ...ClientOption) (*ServiceBrokerAuthLoginOK, error) {
 	// TODO: Validate the params before sending
@@ -284,7 +310,7 @@ func (a *Client) ServiceBrokerAuthLogin(params *ServiceBrokerAuthLoginParams, op
 }
 
 /*
-  ServiceBrokerAuthLogout logouts
+ServiceBrokerAuthLogout logouts
 */
 func (a *Client) ServiceBrokerAuthLogout(params *ServiceBrokerAuthLogoutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ServiceBrokerAuthLogoutOK, error) {
 	// TODO: Validate the params before sending
@@ -323,7 +349,7 @@ func (a *Client) ServiceBrokerAuthLogout(params *ServiceBrokerAuthLogoutParams, 
 }
 
 /*
-  ServiceBrokerAuthRegistration registrations of a new tenant and login
+ServiceBrokerAuthRegistration registrations of a new tenant and login
 */
 func (a *Client) ServiceBrokerAuthRegistration(params *ServiceBrokerAuthRegistrationParams, opts ...ClientOption) (*ServiceBrokerAuthRegistrationOK, error) {
 	// TODO: Validate the params before sending
@@ -361,7 +387,7 @@ func (a *Client) ServiceBrokerAuthRegistration(params *ServiceBrokerAuthRegistra
 }
 
 /*
-  ServiceBrokerAuthRegistrationCallback associates the user with a tenant and returns an access token
+ServiceBrokerAuthRegistrationCallback associates the user with a tenant and returns an access token
 */
 func (a *Client) ServiceBrokerAuthRegistrationCallback(params *ServiceBrokerAuthRegistrationCallbackParams, opts ...ClientOption) (*ServiceBrokerAuthRegistrationCallbackOK, error) {
 	// TODO: Validate the params before sending
@@ -399,7 +425,7 @@ func (a *Client) ServiceBrokerAuthRegistrationCallback(params *ServiceBrokerAuth
 }
 
 /*
-  ServiceBrokerAuthTokenPost requests a new token from a refresh token
+ServiceBrokerAuthTokenPost requests a new token from a refresh token
 */
 func (a *Client) ServiceBrokerAuthTokenPost(params *ServiceBrokerAuthTokenPostParams, opts ...ClientOption) (*ServiceBrokerAuthTokenPostOK, error) {
 	// TODO: Validate the params before sending

@@ -17,12 +17,17 @@ limitations under the License.
 package client
 
 import (
+	"context"
+
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/alpha"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/cluster"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/repository"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/tree"
+	"sigs.k8s.io/cluster-api/internal/contract"
 )
 
 // Client is exposes the clusterctl high-level client library.
@@ -31,49 +36,44 @@ type Client interface {
 	GetProvidersConfig() ([]Provider, error)
 
 	// GetProviderComponents returns the provider components for a given provider with options including targetNamespace.
-	GetProviderComponents(provider string, providerType clusterctlv1.ProviderType, options ComponentsOptions) (Components, error)
+	GetProviderComponents(ctx context.Context, provider string, providerType clusterctlv1.ProviderType, options ComponentsOptions) (Components, error)
+
+	// GenerateProvider returns the provider components for a given provider with options including targetNamespace.
+	GenerateProvider(ctx context.Context, provider string, providerType clusterctlv1.ProviderType, options ComponentsOptions) (Components, error)
 
 	// Init initializes a management cluster by adding the requested list of providers.
-	Init(options InitOptions) ([]Components, error)
+	Init(ctx context.Context, options InitOptions) ([]Components, error)
 
 	// InitImages returns the list of images required for executing the init command.
-	InitImages(options InitOptions) ([]string, error)
+	InitImages(ctx context.Context, options InitOptions) ([]string, error)
 
 	// GetClusterTemplate returns a workload cluster template.
-	GetClusterTemplate(options GetClusterTemplateOptions) (Template, error)
+	GetClusterTemplate(ctx context.Context, options GetClusterTemplateOptions) (Template, error)
 
 	// GetKubeconfig returns the kubeconfig of the workload cluster.
-	GetKubeconfig(options GetKubeconfigOptions) (string, error)
+	GetKubeconfig(ctx context.Context, options GetKubeconfigOptions) (string, error)
 
 	// Delete deletes providers from a management cluster.
-	Delete(options DeleteOptions) error
+	Delete(ctx context.Context, options DeleteOptions) error
 
 	// Move moves all the Cluster API objects existing in a namespace (or from all the namespaces if empty) to a target management cluster.
-	Move(options MoveOptions) error
+	Move(ctx context.Context, options MoveOptions) error
 
-	// Backup saves all the Cluster API objects existing in a namespace (or from all the namespaces if empty) to a target management cluster.
-	Backup(options BackupOptions) error
-
-	// Restore restores all the Cluster API objects existing in a configured directory based on a glob to a target management cluster.
-	Restore(options RestoreOptions) error
-
-	// PlanUpgrade returns a set of suggested Upgrade plans for the cluster, and more specifically:
-	// - Upgrade to the latest version in the the v1alpha3 series: ....
-	// - Upgrade to the latest version in the the v1alpha4 series: ....
-	PlanUpgrade(options PlanUpgradeOptions) ([]UpgradePlan, error)
+	// PlanUpgrade returns a set of suggested Upgrade plans for the cluster.
+	PlanUpgrade(ctx context.Context, options PlanUpgradeOptions) ([]UpgradePlan, error)
 
 	// PlanCertManagerUpgrade returns a CertManagerUpgradePlan.
-	PlanCertManagerUpgrade(options PlanUpgradeOptions) (CertManagerUpgradePlan, error)
+	PlanCertManagerUpgrade(ctx context.Context, options PlanUpgradeOptions) (CertManagerUpgradePlan, error)
 
 	// ApplyUpgrade executes an upgrade plan.
-	ApplyUpgrade(options ApplyUpgradeOptions) error
+	ApplyUpgrade(ctx context.Context, options ApplyUpgradeOptions) error
 
 	// ProcessYAML provides a direct way to process a yaml and inspect its
 	// variables.
-	ProcessYAML(options ProcessYAMLOptions) (YamlPrinter, error)
+	ProcessYAML(ctx context.Context, options ProcessYAMLOptions) (YamlPrinter, error)
 
 	// DescribeCluster returns the object tree representing the status of a Cluster API cluster.
-	DescribeCluster(options DescribeClusterOptions) (*tree.ObjectTree, error)
+	DescribeCluster(ctx context.Context, options DescribeClusterOptions) (*tree.ObjectTree, error)
 
 	// AlphaClient is an Interface for alpha features in clusterctl
 	AlphaClient
@@ -82,15 +82,11 @@ type Client interface {
 // AlphaClient exposes the alpha features in clusterctl high-level client library.
 type AlphaClient interface {
 	// RolloutRestart provides rollout restart of cluster-api resources
-	RolloutRestart(options RolloutOptions) error
+	RolloutRestart(ctx context.Context, options RolloutRestartOptions) error
 	// RolloutPause provides rollout pause of cluster-api resources
-	RolloutPause(options RolloutOptions) error
+	RolloutPause(ctx context.Context, options RolloutPauseOptions) error
 	// RolloutResume provides rollout resume of paused cluster-api resources
-	RolloutResume(options RolloutOptions) error
-	// RolloutUndo provides rollout rollback of cluster-api resources
-	RolloutUndo(options RolloutOptions) error
-	// TopologyPlan dry runs the topology reconciler
-	TopologyPlan(options TopologyPlanOptions) (*TopologyPlanOutput, error)
+	RolloutResume(ctx context.Context, options RolloutResumeOptions) error
 }
 
 // YamlPrinter exposes methods that prints the processed template and
@@ -105,10 +101,12 @@ type YamlPrinter interface {
 
 // clusterctlClient implements Client.
 type clusterctlClient struct {
-	configClient            config.Client
-	repositoryClientFactory RepositoryClientFactory
-	clusterClientFactory    ClusterClientFactory
-	alphaClient             alpha.Client
+	configClient                  config.Client
+	repositoryClientFactory       RepositoryClientFactory
+	clusterClientFactory          ClusterClientFactory
+	alphaClient                   alpha.Client
+	currentContractVersion        string
+	getCompatibleContractVersions func(string) sets.Set[string]
 }
 
 // RepositoryClientFactoryInput represents the inputs required by the factory.
@@ -118,9 +116,9 @@ type RepositoryClientFactoryInput struct {
 }
 
 // RepositoryClientFactory is a factory of repository.Client from a given input.
-type RepositoryClientFactory func(RepositoryClientFactoryInput) (repository.Client, error)
+type RepositoryClientFactory func(context.Context, RepositoryClientFactoryInput) (repository.Client, error)
 
-// ClusterClientFactoryInput reporesents the inputs required by the factory.
+// ClusterClientFactoryInput represents the inputs required by the factory.
 type ClusterClientFactoryInput struct {
 	Kubeconfig Kubeconfig
 	Processor  Processor
@@ -158,13 +156,24 @@ func InjectClusterClientFactory(factory ClusterClientFactory) Option {
 	}
 }
 
-// New returns a configClient.
-func New(path string, options ...Option) (Client, error) {
-	return newClusterctlClient(path, options...)
+// InjectCurrentContractVersion allows you to override the currentContractVersion that
+// cluster client uses. This option is intended for internal tests only.
+func InjectCurrentContractVersion(currentContractVersion string) Option {
+	return func(c *clusterctlClient) {
+		c.currentContractVersion = currentContractVersion
+	}
 }
 
-func newClusterctlClient(path string, options ...Option) (*clusterctlClient, error) {
-	client := &clusterctlClient{}
+// New returns a configClient.
+func New(ctx context.Context, path string, options ...Option) (Client, error) {
+	return newClusterctlClient(ctx, path, options...)
+}
+
+func newClusterctlClient(ctx context.Context, path string, options ...Option) (*clusterctlClient, error) {
+	client := &clusterctlClient{
+		currentContractVersion:        contract.Version,
+		getCompatibleContractVersions: contract.GetCompatibleVersions,
+	}
 	for _, o := range options {
 		o(client)
 	}
@@ -172,7 +181,7 @@ func newClusterctlClient(path string, options ...Option) (*clusterctlClient, err
 	// if there is an injected config, use it, otherwise use the default one
 	// provided by the config low level library.
 	if client.configClient == nil {
-		c, err := config.New(path)
+		c, err := config.New(ctx, path)
 		if err != nil {
 			return nil, err
 		}
@@ -186,7 +195,7 @@ func newClusterctlClient(path string, options ...Option) (*clusterctlClient, err
 
 	// if there is an injected ClusterFactory, use it, otherwise use a default one.
 	if client.clusterClientFactory == nil {
-		client.clusterClientFactory = defaultClusterFactory(client.configClient)
+		client.clusterClientFactory = defaultClusterFactory(client.configClient, client.currentContractVersion, client.getCompatibleContractVersions)
 	}
 
 	// if there is an injected alphaClient, use it, otherwise use a default one.
@@ -200,8 +209,9 @@ func newClusterctlClient(path string, options ...Option) (*clusterctlClient, err
 
 // defaultRepositoryFactory is a RepositoryClientFactory func the uses the default client provided by the repository low level library.
 func defaultRepositoryFactory(configClient config.Client) RepositoryClientFactory {
-	return func(input RepositoryClientFactoryInput) (repository.Client, error) {
+	return func(ctx context.Context, input RepositoryClientFactoryInput) (repository.Client, error) {
 		return repository.New(
+			ctx,
 			input.Provider,
 			configClient,
 			repository.InjectYamlProcessor(input.Processor),
@@ -210,13 +220,15 @@ func defaultRepositoryFactory(configClient config.Client) RepositoryClientFactor
 }
 
 // defaultClusterFactory is a ClusterClientFactory func the uses the default client provided by the cluster low level library.
-func defaultClusterFactory(configClient config.Client) ClusterClientFactory {
+func defaultClusterFactory(configClient config.Client, currentContractVersion string, getCompatibleContractVersions func(string) sets.Set[string]) ClusterClientFactory {
 	return func(input ClusterClientFactoryInput) (cluster.Client, error) {
 		return cluster.New(
 			// Kubeconfig is a type alias to cluster.Kubeconfig
 			cluster.Kubeconfig(input.Kubeconfig),
 			configClient,
 			cluster.InjectYamlProcessor(input.Processor),
+			cluster.InjectCurrentContractVersion(currentContractVersion),
+			cluster.InjectGetCompatibleContractVersionsFunc(getCompatibleContractVersions),
 		), nil
 	}
 }

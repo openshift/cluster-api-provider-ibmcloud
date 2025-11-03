@@ -6,6 +6,7 @@ package p_cloud_p_vm_instances
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -41,8 +42,20 @@ func (o *PcloudPvminstancesDeleteReader) ReadResponse(response runtime.ClientRes
 			return nil, err
 		}
 		return nil, result
+	case 403:
+		result := NewPcloudPvminstancesDeleteForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 404:
 		result := NewPcloudPvminstancesDeleteNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 409:
+		result := NewPcloudPvminstancesDeleteConflict()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -60,7 +73,7 @@ func (o *PcloudPvminstancesDeleteReader) ReadResponse(response runtime.ClientRes
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}] pcloud.pvminstances.delete", response, response.Code())
 	}
 }
 
@@ -69,7 +82,8 @@ func NewPcloudPvminstancesDeleteOK() *PcloudPvminstancesDeleteOK {
 	return &PcloudPvminstancesDeleteOK{}
 }
 
-/* PcloudPvminstancesDeleteOK describes a response with status code 200, with default header values.
+/*
+PcloudPvminstancesDeleteOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -77,9 +91,46 @@ type PcloudPvminstancesDeleteOK struct {
 	Payload models.Object
 }
 
-func (o *PcloudPvminstancesDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteOK  %+v", 200, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances delete o k response has a 2xx status code
+func (o *PcloudPvminstancesDeleteOK) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud pvminstances delete o k response has a 3xx status code
+func (o *PcloudPvminstancesDeleteOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances delete o k response has a 4xx status code
+func (o *PcloudPvminstancesDeleteOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud pvminstances delete o k response has a 5xx status code
+func (o *PcloudPvminstancesDeleteOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances delete o k response a status code equal to that given
+func (o *PcloudPvminstancesDeleteOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the pcloud pvminstances delete o k response
+func (o *PcloudPvminstancesDeleteOK) Code() int {
+	return 200
+}
+
+func (o *PcloudPvminstancesDeleteOK) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteOK %s", 200, payload)
+}
+
+func (o *PcloudPvminstancesDeleteOK) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteOK %s", 200, payload)
+}
+
 func (o *PcloudPvminstancesDeleteOK) GetPayload() models.Object {
 	return o.Payload
 }
@@ -99,7 +150,8 @@ func NewPcloudPvminstancesDeleteBadRequest() *PcloudPvminstancesDeleteBadRequest
 	return &PcloudPvminstancesDeleteBadRequest{}
 }
 
-/* PcloudPvminstancesDeleteBadRequest describes a response with status code 400, with default header values.
+/*
+PcloudPvminstancesDeleteBadRequest describes a response with status code 400, with default header values.
 
 Bad Request
 */
@@ -107,9 +159,46 @@ type PcloudPvminstancesDeleteBadRequest struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteBadRequest  %+v", 400, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances delete bad request response has a 2xx status code
+func (o *PcloudPvminstancesDeleteBadRequest) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances delete bad request response has a 3xx status code
+func (o *PcloudPvminstancesDeleteBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances delete bad request response has a 4xx status code
+func (o *PcloudPvminstancesDeleteBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances delete bad request response has a 5xx status code
+func (o *PcloudPvminstancesDeleteBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances delete bad request response a status code equal to that given
+func (o *PcloudPvminstancesDeleteBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the pcloud pvminstances delete bad request response
+func (o *PcloudPvminstancesDeleteBadRequest) Code() int {
+	return 400
+}
+
+func (o *PcloudPvminstancesDeleteBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteBadRequest %s", 400, payload)
+}
+
+func (o *PcloudPvminstancesDeleteBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteBadRequest %s", 400, payload)
+}
+
 func (o *PcloudPvminstancesDeleteBadRequest) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -131,7 +220,8 @@ func NewPcloudPvminstancesDeleteUnauthorized() *PcloudPvminstancesDeleteUnauthor
 	return &PcloudPvminstancesDeleteUnauthorized{}
 }
 
-/* PcloudPvminstancesDeleteUnauthorized describes a response with status code 401, with default header values.
+/*
+PcloudPvminstancesDeleteUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized
 */
@@ -139,9 +229,46 @@ type PcloudPvminstancesDeleteUnauthorized struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteUnauthorized  %+v", 401, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances delete unauthorized response has a 2xx status code
+func (o *PcloudPvminstancesDeleteUnauthorized) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances delete unauthorized response has a 3xx status code
+func (o *PcloudPvminstancesDeleteUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances delete unauthorized response has a 4xx status code
+func (o *PcloudPvminstancesDeleteUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances delete unauthorized response has a 5xx status code
+func (o *PcloudPvminstancesDeleteUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances delete unauthorized response a status code equal to that given
+func (o *PcloudPvminstancesDeleteUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the pcloud pvminstances delete unauthorized response
+func (o *PcloudPvminstancesDeleteUnauthorized) Code() int {
+	return 401
+}
+
+func (o *PcloudPvminstancesDeleteUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteUnauthorized %s", 401, payload)
+}
+
+func (o *PcloudPvminstancesDeleteUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteUnauthorized %s", 401, payload)
+}
+
 func (o *PcloudPvminstancesDeleteUnauthorized) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -158,12 +285,83 @@ func (o *PcloudPvminstancesDeleteUnauthorized) readResponse(response runtime.Cli
 	return nil
 }
 
+// NewPcloudPvminstancesDeleteForbidden creates a PcloudPvminstancesDeleteForbidden with default headers values
+func NewPcloudPvminstancesDeleteForbidden() *PcloudPvminstancesDeleteForbidden {
+	return &PcloudPvminstancesDeleteForbidden{}
+}
+
+/*
+PcloudPvminstancesDeleteForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type PcloudPvminstancesDeleteForbidden struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud pvminstances delete forbidden response has a 2xx status code
+func (o *PcloudPvminstancesDeleteForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud pvminstances delete forbidden response has a 3xx status code
+func (o *PcloudPvminstancesDeleteForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances delete forbidden response has a 4xx status code
+func (o *PcloudPvminstancesDeleteForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances delete forbidden response has a 5xx status code
+func (o *PcloudPvminstancesDeleteForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances delete forbidden response a status code equal to that given
+func (o *PcloudPvminstancesDeleteForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the pcloud pvminstances delete forbidden response
+func (o *PcloudPvminstancesDeleteForbidden) Code() int {
+	return 403
+}
+
+func (o *PcloudPvminstancesDeleteForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteForbidden %s", 403, payload)
+}
+
+func (o *PcloudPvminstancesDeleteForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteForbidden %s", 403, payload)
+}
+
+func (o *PcloudPvminstancesDeleteForbidden) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudPvminstancesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewPcloudPvminstancesDeleteNotFound creates a PcloudPvminstancesDeleteNotFound with default headers values
 func NewPcloudPvminstancesDeleteNotFound() *PcloudPvminstancesDeleteNotFound {
 	return &PcloudPvminstancesDeleteNotFound{}
 }
 
-/* PcloudPvminstancesDeleteNotFound describes a response with status code 404, with default header values.
+/*
+PcloudPvminstancesDeleteNotFound describes a response with status code 404, with default header values.
 
 Not Found
 */
@@ -171,9 +369,46 @@ type PcloudPvminstancesDeleteNotFound struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteNotFound  %+v", 404, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances delete not found response has a 2xx status code
+func (o *PcloudPvminstancesDeleteNotFound) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances delete not found response has a 3xx status code
+func (o *PcloudPvminstancesDeleteNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances delete not found response has a 4xx status code
+func (o *PcloudPvminstancesDeleteNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances delete not found response has a 5xx status code
+func (o *PcloudPvminstancesDeleteNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances delete not found response a status code equal to that given
+func (o *PcloudPvminstancesDeleteNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the pcloud pvminstances delete not found response
+func (o *PcloudPvminstancesDeleteNotFound) Code() int {
+	return 404
+}
+
+func (o *PcloudPvminstancesDeleteNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteNotFound %s", 404, payload)
+}
+
+func (o *PcloudPvminstancesDeleteNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteNotFound %s", 404, payload)
+}
+
 func (o *PcloudPvminstancesDeleteNotFound) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -190,12 +425,83 @@ func (o *PcloudPvminstancesDeleteNotFound) readResponse(response runtime.ClientR
 	return nil
 }
 
+// NewPcloudPvminstancesDeleteConflict creates a PcloudPvminstancesDeleteConflict with default headers values
+func NewPcloudPvminstancesDeleteConflict() *PcloudPvminstancesDeleteConflict {
+	return &PcloudPvminstancesDeleteConflict{}
+}
+
+/*
+PcloudPvminstancesDeleteConflict describes a response with status code 409, with default header values.
+
+Conflict
+*/
+type PcloudPvminstancesDeleteConflict struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud pvminstances delete conflict response has a 2xx status code
+func (o *PcloudPvminstancesDeleteConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud pvminstances delete conflict response has a 3xx status code
+func (o *PcloudPvminstancesDeleteConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances delete conflict response has a 4xx status code
+func (o *PcloudPvminstancesDeleteConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances delete conflict response has a 5xx status code
+func (o *PcloudPvminstancesDeleteConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances delete conflict response a status code equal to that given
+func (o *PcloudPvminstancesDeleteConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the pcloud pvminstances delete conflict response
+func (o *PcloudPvminstancesDeleteConflict) Code() int {
+	return 409
+}
+
+func (o *PcloudPvminstancesDeleteConflict) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteConflict %s", 409, payload)
+}
+
+func (o *PcloudPvminstancesDeleteConflict) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteConflict %s", 409, payload)
+}
+
+func (o *PcloudPvminstancesDeleteConflict) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudPvminstancesDeleteConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewPcloudPvminstancesDeleteGone creates a PcloudPvminstancesDeleteGone with default headers values
 func NewPcloudPvminstancesDeleteGone() *PcloudPvminstancesDeleteGone {
 	return &PcloudPvminstancesDeleteGone{}
 }
 
-/* PcloudPvminstancesDeleteGone describes a response with status code 410, with default header values.
+/*
+PcloudPvminstancesDeleteGone describes a response with status code 410, with default header values.
 
 Gone
 */
@@ -203,9 +509,46 @@ type PcloudPvminstancesDeleteGone struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesDeleteGone) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteGone  %+v", 410, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances delete gone response has a 2xx status code
+func (o *PcloudPvminstancesDeleteGone) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances delete gone response has a 3xx status code
+func (o *PcloudPvminstancesDeleteGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances delete gone response has a 4xx status code
+func (o *PcloudPvminstancesDeleteGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances delete gone response has a 5xx status code
+func (o *PcloudPvminstancesDeleteGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances delete gone response a status code equal to that given
+func (o *PcloudPvminstancesDeleteGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the pcloud pvminstances delete gone response
+func (o *PcloudPvminstancesDeleteGone) Code() int {
+	return 410
+}
+
+func (o *PcloudPvminstancesDeleteGone) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteGone %s", 410, payload)
+}
+
+func (o *PcloudPvminstancesDeleteGone) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteGone %s", 410, payload)
+}
+
 func (o *PcloudPvminstancesDeleteGone) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -227,7 +570,8 @@ func NewPcloudPvminstancesDeleteInternalServerError() *PcloudPvminstancesDeleteI
 	return &PcloudPvminstancesDeleteInternalServerError{}
 }
 
-/* PcloudPvminstancesDeleteInternalServerError describes a response with status code 500, with default header values.
+/*
+PcloudPvminstancesDeleteInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -235,9 +579,46 @@ type PcloudPvminstancesDeleteInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances delete internal server error response has a 2xx status code
+func (o *PcloudPvminstancesDeleteInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances delete internal server error response has a 3xx status code
+func (o *PcloudPvminstancesDeleteInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances delete internal server error response has a 4xx status code
+func (o *PcloudPvminstancesDeleteInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud pvminstances delete internal server error response has a 5xx status code
+func (o *PcloudPvminstancesDeleteInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud pvminstances delete internal server error response a status code equal to that given
+func (o *PcloudPvminstancesDeleteInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the pcloud pvminstances delete internal server error response
+func (o *PcloudPvminstancesDeleteInternalServerError) Code() int {
+	return 500
+}
+
+func (o *PcloudPvminstancesDeleteInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteInternalServerError %s", 500, payload)
+}
+
+func (o *PcloudPvminstancesDeleteInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}][%d] pcloudPvminstancesDeleteInternalServerError %s", 500, payload)
+}
+
 func (o *PcloudPvminstancesDeleteInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }

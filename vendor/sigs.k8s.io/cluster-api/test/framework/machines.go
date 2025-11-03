@@ -19,12 +19,13 @@ package framework
 import (
 	"context"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 )
 
@@ -41,7 +42,7 @@ func WaitForClusterMachineNodeRefs(ctx context.Context, input WaitForClusterMach
 
 	Eventually(func() error {
 		return input.GetLister.List(ctx, machines, byClusterOptions(input.Cluster.Name, input.Cluster.Namespace)...)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to get Cluster machines %s/%s", input.Cluster.Namespace, input.Cluster.Name)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to get Cluster machines %s", klog.KObj(input.Cluster))
 	Eventually(func() (count int, err error) {
 		for _, m := range machines.Items {
 			machine := &clusterv1.Machine{}
@@ -49,12 +50,12 @@ func WaitForClusterMachineNodeRefs(ctx context.Context, input WaitForClusterMach
 			if err != nil {
 				return
 			}
-			if machine.Status.NodeRef != nil {
+			if machine.Status.NodeRef.IsDefined() {
 				count++
 			}
 		}
 		return
-	}, intervals...).Should(Equal(len(machines.Items)))
+	}, intervals...).Should(Equal(len(machines.Items)), "Timed out waiting for %d nodes to exist", len(machines.Items))
 }
 
 type WaitForClusterMachinesReadyInput struct {
@@ -69,7 +70,7 @@ func WaitForClusterMachinesReady(ctx context.Context, input WaitForClusterMachin
 
 	Eventually(func() error {
 		return input.GetLister.List(ctx, machines, byClusterOptions(input.Cluster.Name, input.Cluster.Namespace)...)
-	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to get Cluster machines %s/%s", input.Cluster.Namespace, input.Cluster.Name)
+	}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to get Cluster Machines %s", klog.KObj(input.Cluster))
 	Eventually(func() (count int, err error) {
 		for _, m := range machines.Items {
 			machine := &clusterv1.Machine{}
@@ -77,7 +78,7 @@ func WaitForClusterMachinesReady(ctx context.Context, input WaitForClusterMachin
 			if err != nil {
 				return
 			}
-			if machine.Status.NodeRef == nil {
+			if !machine.Status.NodeRef.IsDefined() {
 				continue
 			}
 			node := &corev1.Node{}
@@ -90,5 +91,5 @@ func WaitForClusterMachinesReady(ctx context.Context, input WaitForClusterMachin
 			}
 		}
 		return
-	}, intervals...).Should(Equal(len(machines.Items)))
+	}, intervals...).Should(Equal(len(machines.Items)), "Timed out waiting for %d nodes to be ready", len(machines.Items))
 }

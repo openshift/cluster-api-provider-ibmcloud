@@ -6,7 +6,6 @@ import (
 
 	"github.com/IBM-Cloud/power-go-client/errors"
 	"github.com/IBM-Cloud/power-go-client/helpers"
-
 	"github.com/IBM-Cloud/power-go-client/ibmpisession"
 	"github.com/IBM-Cloud/power-go-client/power/client/p_cloud_instances"
 	"github.com/IBM-Cloud/power-go-client/power/models"
@@ -31,7 +30,7 @@ func (f *IBMPICloudInstanceClient) Get(id string) (*models.CloudInstance, error)
 		WithCloudInstanceID(id)
 	resp, err := f.session.Power.PCloudInstances.PcloudCloudinstancesGet(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.GetCloudInstanceOperationFailed, id, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.GetCloudInstanceOperationFailed, id, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to Get Cloud Instance %s", id)
@@ -46,7 +45,7 @@ func (f *IBMPICloudInstanceClient) Update(id string, body *models.CloudInstanceU
 		WithCloudInstanceID(id).WithBody(body)
 	resp, err := f.session.Power.PCloudInstances.PcloudCloudinstancesPut(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.UpdateCloudInstanceOperationFailed, id, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.UpdateCloudInstanceOperationFailed, id, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to update the Cloud instance %s", id)

@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new internal storage regions API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new internal storage regions API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new internal storage regions API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -44,7 +70,7 @@ type ClientService interface {
 }
 
 /*
-  InternalV1StorageRegionsStoragePoolsGet gets the settings for given pool name
+InternalV1StorageRegionsStoragePoolsGet gets the settings for given pool name
 */
 func (a *Client) InternalV1StorageRegionsStoragePoolsGet(params *InternalV1StorageRegionsStoragePoolsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*InternalV1StorageRegionsStoragePoolsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -83,7 +109,7 @@ func (a *Client) InternalV1StorageRegionsStoragePoolsGet(params *InternalV1Stora
 }
 
 /*
-  InternalV1StorageRegionsStoragePoolsGetall gets the current storage pools settings for a region zone
+InternalV1StorageRegionsStoragePoolsGetall gets the current storage pools settings for a region zone
 */
 func (a *Client) InternalV1StorageRegionsStoragePoolsGetall(params *InternalV1StorageRegionsStoragePoolsGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*InternalV1StorageRegionsStoragePoolsGetallOK, error) {
 	// TODO: Validate the params before sending
@@ -122,7 +148,7 @@ func (a *Client) InternalV1StorageRegionsStoragePoolsGetall(params *InternalV1St
 }
 
 /*
-  InternalV1StorageRegionsStoragePoolsPut updates the settings for given pool name
+InternalV1StorageRegionsStoragePoolsPut updates the settings for given pool name
 */
 func (a *Client) InternalV1StorageRegionsStoragePoolsPut(params *InternalV1StorageRegionsStoragePoolsPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*InternalV1StorageRegionsStoragePoolsPutOK, error) {
 	// TODO: Validate the params before sending
@@ -161,7 +187,7 @@ func (a *Client) InternalV1StorageRegionsStoragePoolsPut(params *InternalV1Stora
 }
 
 /*
-  InternalV1StorageRegionsThresholdsGet gets the current default threshold settings for a region zone
+InternalV1StorageRegionsThresholdsGet gets the current default threshold settings for a region zone
 */
 func (a *Client) InternalV1StorageRegionsThresholdsGet(params *InternalV1StorageRegionsThresholdsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*InternalV1StorageRegionsThresholdsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -200,7 +226,7 @@ func (a *Client) InternalV1StorageRegionsThresholdsGet(params *InternalV1Storage
 }
 
 /*
-  InternalV1StorageRegionsThresholdsPut updates a default threshold setting for a region zone
+InternalV1StorageRegionsThresholdsPut updates a default threshold setting for a region zone
 */
 func (a *Client) InternalV1StorageRegionsThresholdsPut(params *InternalV1StorageRegionsThresholdsPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*InternalV1StorageRegionsThresholdsPutAccepted, error) {
 	// TODO: Validate the params before sending

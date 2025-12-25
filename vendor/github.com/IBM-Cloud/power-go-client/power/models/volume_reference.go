@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -26,7 +27,7 @@ type VolumeReference struct {
 	// true if volume is auxiliary otherwise false
 	Auxiliary *bool `json:"auxiliary,omitempty"`
 
-	// Indicates if the volume is the server's boot volume
+	// Indicates if the volume is the server's boot volume.  Only returned when querying a server's attached volumes
 	BootVolume *bool `json:"bootVolume,omitempty"`
 
 	// Indicates if the volume is boot capable
@@ -41,12 +42,19 @@ type VolumeReference struct {
 	// Format: date-time
 	CreationDate *strfmt.DateTime `json:"creationDate"`
 
-	// Indicates if the volume should be deleted when the server terminates
+	// crn
+	Crn CRN `json:"crn,omitempty"`
+
+	// Indicates if the volume should be deleted when the server terminates. Only returned when querying a server's attached volumes
 	DeleteOnTermination *bool `json:"deleteOnTermination,omitempty"`
 
 	// Type of Disk
 	// Required: true
 	DiskType *string `json:"diskType"`
+
+	// Freeze time of remote copy relationship
+	// Format: date-time
+	FreezeTime *strfmt.DateTime `json:"freezeTime,omitempty"`
 
 	// Volume Group ID
 	GroupID string `json:"groupID,omitempty"`
@@ -54,6 +62,9 @@ type VolumeReference struct {
 	// Link to Volume resource
 	// Required: true
 	Href *string `json:"href"`
+
+	// Amount of iops assigned to the volume
+	IoThrottleRate string `json:"ioThrottleRate,omitempty"`
 
 	// Last Update Date
 	// Required: true
@@ -70,18 +81,27 @@ type VolumeReference struct {
 	// Required: true
 	Name *string `json:"name"`
 
+	// true if volume does not exist on storage controller, as volume has been deleted by deleting its paired volume from the mapped replication site.
+	OutOfBandDeleted bool `json:"outOfBandDeleted,omitempty"`
+
 	// indicates whether master/aux volume is playing the primary role
-	// Enum: [master aux]
+	// Enum: ["master","aux"]
 	PrimaryRole string `json:"primaryRole,omitempty"`
 
 	// List of PCloud PVM Instance attached to the volume
 	PvmInstanceIDs []string `json:"pvmInstanceIDs"`
 
 	// True if volume is replication enabled otherwise false
-	ReplicationEnabled bool `json:"replicationEnabled,omitempty"`
+	ReplicationEnabled *bool `json:"replicationEnabled,omitempty"`
+
+	// List of replication site for volume replication
+	ReplicationSites []string `json:"replicationSites,omitempty"`
 
 	// shows the replication status of a volume
 	ReplicationStatus string `json:"replicationStatus,omitempty"`
+
+	// CRN of the replication targert workspace; for a primary replicated volume this is the target workspace that owns the auxiliary data; for an auxiliary replicated volume this is the target workspace that owns the primary data.
+	ReplicationTargetCRN string `json:"replicationTargetCRN,omitempty"`
 
 	// type of replication(metro, global)s
 	ReplicationType string `json:"replicationType,omitempty"`
@@ -97,6 +117,9 @@ type VolumeReference struct {
 	// Volume State
 	// Required: true
 	State *string `json:"state"`
+
+	// user tags
+	UserTags Tags `json:"userTags,omitempty"`
 
 	// Volume ID
 	// Required: true
@@ -125,7 +148,15 @@ func (m *VolumeReference) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateCrn(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateDiskType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateFreezeTime(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -154,6 +185,10 @@ func (m *VolumeReference) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateState(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUserTags(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -193,9 +228,42 @@ func (m *VolumeReference) validateCreationDate(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *VolumeReference) validateCrn(formats strfmt.Registry) error {
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("crn")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("crn")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 func (m *VolumeReference) validateDiskType(formats strfmt.Registry) error {
 
 	if err := validate.Required("diskType", "body", m.DiskType); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *VolumeReference) validateFreezeTime(formats strfmt.Registry) error {
+	if swag.IsZero(m.FreezeTime) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("freezeTime", "body", "date-time", m.FreezeTime.String(), formats); err != nil {
 		return err
 	}
 
@@ -233,7 +301,7 @@ func (m *VolumeReference) validateName(formats strfmt.Registry) error {
 	return nil
 }
 
-var volumeReferenceTypePrimaryRolePropEnum []interface{}
+var volumeReferenceTypePrimaryRolePropEnum []any
 
 func init() {
 	var res []string
@@ -302,6 +370,27 @@ func (m *VolumeReference) validateState(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *VolumeReference) validateUserTags(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserTags) { // not required
+		return nil
+	}
+
+	if err := m.UserTags.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 func (m *VolumeReference) validateVolumeID(formats strfmt.Registry) error {
 
 	if err := validate.Required("volumeID", "body", m.VolumeID); err != nil {
@@ -320,8 +409,61 @@ func (m *VolumeReference) validateWwn(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this volume reference based on context it is used
+// ContextValidate validate this volume reference based on the context it is used
 func (m *VolumeReference) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateCrn(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUserTags(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *VolumeReference) contextValidateCrn(ctx context.Context, formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("crn")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("crn")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+func (m *VolumeReference) contextValidateUserTags(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserTags.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
 	return nil
 }
 

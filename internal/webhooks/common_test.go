@@ -112,58 +112,72 @@ func TestValidateIBMPowerVSProcessorValues(t *testing.T) {
 	}
 }
 
-func Test_validateBootVolume(t *testing.T) {
+func Test_validateVolumes(t *testing.T) {
 	tests := []struct {
 		name      string
 		spec      infrav1.IBMVPCMachineSpec
 		wantError bool
 	}{
 		{
-			name: "Nil bootvolume",
+			name: "Nil bootvolume for Boot Volume",
 			spec: infrav1.IBMVPCMachineSpec{
 				BootVolume: nil,
 			},
 			wantError: false,
 		},
 		{
-			name: "valid sizeGiB",
+			name: "valid sizeGiB for Boot Volume",
 			spec: infrav1.IBMVPCMachineSpec{
 				BootVolume: &infrav1.VPCVolume{SizeGiB: 20},
 			},
 			wantError: false,
 		},
 		{
-			name: "Invalid sizeGiB",
+			name: "Invalid sizeGiB for Boot Volume",
 			spec: infrav1.IBMVPCMachineSpec{
 				BootVolume: &infrav1.VPCVolume{SizeGiB: 1},
 			},
 			wantError: true,
 		},
 		{
-			name: "Valid Iops",
+			name: "Missing Iops for custom profile for Additional Volume",
 			spec: infrav1.IBMVPCMachineSpec{
-				BootVolume: &infrav1.VPCVolume{Iops: 1000, Profile: "custom"},
+				AdditionalVolumes: []*infrav1.VPCVolume{{Profile: "custom", SizeGiB: 20}},
 			},
 			wantError: true,
 		},
 		{
-			name: "Invalid Iops",
+			name: "Missing SizeGiB for custom profile for Additional Volume",
 			spec: infrav1.IBMVPCMachineSpec{
-				BootVolume: &infrav1.VPCVolume{Iops: 1234, Profile: "general-purpose"},
+				AdditionalVolumes: []*infrav1.VPCVolume{{Profile: "custom", Iops: 4000}},
 			},
 			wantError: true,
 		},
 		{
-			name: "Missing Iops for custom profile",
+			name: "Valid iops and sizeGiB for custom profile",
 			spec: infrav1.IBMVPCMachineSpec{
-				BootVolume: &infrav1.VPCVolume{Profile: "general-purpose"},
+				AdditionalVolumes: []*infrav1.VPCVolume{{Profile: "custom", SizeGiB: 25, Iops: 4000}},
+			},
+			wantError: false,
+		},
+		{
+			name: "Valid encryptionKeyCRN",
+			spec: infrav1.IBMVPCMachineSpec{
+				BootVolume: &infrav1.VPCVolume{SizeGiB: 20, EncryptionKeyCRN: "crn:v1:bluemix:public:kms:us-south:a/aa2432b1fa4d4ace891e9b80fc104e34:e4a29d1a-2ef0-42a6-8fd2-350deb1c647e:key:5437653b-c4b1-447f-9646-b2a2a4cd6179"},
+			},
+			wantError: false,
+		},
+		{
+			name: "Invalid encryptionKeyCRN",
+			spec: infrav1.IBMVPCMachineSpec{
+				BootVolume: &infrav1.VPCVolume{EncryptionKeyCRN: "invalid-crn-format"},
 			},
 			wantError: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateBootVolume(tt.spec); (err != nil) != tt.wantError {
+			if err := validateVolumes(tt.spec); (err != nil) != tt.wantError {
 				t.Errorf("validateBootVolume() = %v, wantError %v", err, tt.wantError)
 			}
 		})

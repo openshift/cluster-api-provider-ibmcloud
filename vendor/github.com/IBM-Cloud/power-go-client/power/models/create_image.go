@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -26,7 +27,7 @@ type CreateImage struct {
 	// Cloud Storage bucket name; bucket-name[/optional/folder]; required for import image
 	BucketName string `json:"bucketName,omitempty"`
 
-	// Type of Disk; will be ignored if storagePool or affinityPolicy is provided; Used only when importing an image from cloud storage.
+	// Type of Disk; if diskType is not provided the disk type will default to 'tier3'. Used only when importing an image from cloud storage.
 	DiskType string `json:"diskType,omitempty"`
 
 	// Cloud Storage image filename; required for import image
@@ -42,7 +43,7 @@ type CreateImage struct {
 	ImagePath string `json:"imagePath,omitempty"`
 
 	// Image OS Type, required if importing a raw image; raw images can only be imported using the command line interface
-	// Enum: [aix ibmi rhel sles]
+	// Enum: ["aix","ibmi","rhel","sles"]
 	OsType string `json:"osType,omitempty"`
 
 	// Cloud Storage Region; only required to access IBM Cloud Storage
@@ -52,15 +53,20 @@ type CreateImage struct {
 	SecretKey string `json:"secretKey,omitempty"`
 
 	// Source of the image
+	// >*Note*: url option is deprecated, this option is supported till Oct 2022
+	//
 	// Required: true
-	// Enum: [root-project url]
+	// Enum: ["root-project","url"]
 	Source *string `json:"source"`
 
 	// The storage affinity data; ignored if storagePool is provided; Used only when importing an image from cloud storage.
 	StorageAffinity *StorageAffinity `json:"storageAffinity,omitempty"`
 
-	// Storage pool where the image will be loaded; if provided then storageAffinity and diskType will be ignored; Used only when importing an image from cloud storage.
+	// Storage pool where the image will be loaded; if provided then storageAffinity will be ignored; Used only when importing an image from cloud storage.
 	StoragePool string `json:"storagePool,omitempty"`
+
+	// user tags
+	UserTags Tags `json:"userTags,omitempty"`
 }
 
 // Validate validates this create image
@@ -79,13 +85,17 @@ func (m *CreateImage) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateUserTags(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
 }
 
-var createImageTypeOsTypePropEnum []interface{}
+var createImageTypeOsTypePropEnum []any
 
 func init() {
 	var res []string
@@ -133,7 +143,7 @@ func (m *CreateImage) validateOsType(formats strfmt.Registry) error {
 	return nil
 }
 
-var createImageTypeSourcePropEnum []interface{}
+var createImageTypeSourcePropEnum []any
 
 func init() {
 	var res []string
@@ -183,13 +193,38 @@ func (m *CreateImage) validateStorageAffinity(formats strfmt.Registry) error {
 
 	if m.StorageAffinity != nil {
 		if err := m.StorageAffinity.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("storageAffinity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("storageAffinity")
 			}
+
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *CreateImage) validateUserTags(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserTags) { // not required
+		return nil
+	}
+
+	if err := m.UserTags.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
 	}
 
 	return nil
@@ -203,6 +238,10 @@ func (m *CreateImage) ContextValidate(ctx context.Context, formats strfmt.Regist
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateUserTags(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -212,14 +251,41 @@ func (m *CreateImage) ContextValidate(ctx context.Context, formats strfmt.Regist
 func (m *CreateImage) contextValidateStorageAffinity(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.StorageAffinity != nil {
+
+		if swag.IsZero(m.StorageAffinity) { // not required
+			return nil
+		}
+
 		if err := m.StorageAffinity.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("storageAffinity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("storageAffinity")
 			}
+
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *CreateImage) contextValidateUserTags(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserTags.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
 	}
 
 	return nil

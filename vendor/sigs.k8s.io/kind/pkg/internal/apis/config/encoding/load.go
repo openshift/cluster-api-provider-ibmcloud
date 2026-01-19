@@ -18,9 +18,9 @@ package encoding
 
 import (
 	"bytes"
-	"io/ioutil"
+	"os"
 
-	yaml "gopkg.in/yaml.v3"
+	yaml "go.yaml.in/yaml/v3"
 
 	"sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
 	"sigs.k8s.io/kind/pkg/errors"
@@ -42,7 +42,7 @@ func Load(path string) (*config.Cluster, error) {
 	}
 
 	// read in file
-	raw, err := ioutil.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "error reading file")
 	}

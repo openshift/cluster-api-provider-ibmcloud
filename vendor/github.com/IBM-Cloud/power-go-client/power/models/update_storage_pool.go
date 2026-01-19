@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -30,7 +31,7 @@ type UpdateStoragePool struct {
 	OverrideThresholds *Thresholds `json:"overrideThresholds,omitempty"`
 
 	// state of storage pool
-	// Enum: [closed opened]
+	// Enum: ["closed","opened"]
 	State *string `json:"state,omitempty"`
 }
 
@@ -59,11 +60,15 @@ func (m *UpdateStoragePool) validateOverrideThresholds(formats strfmt.Registry) 
 
 	if m.OverrideThresholds != nil {
 		if err := m.OverrideThresholds.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("overrideThresholds")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("overrideThresholds")
 			}
+
 			return err
 		}
 	}
@@ -71,7 +76,7 @@ func (m *UpdateStoragePool) validateOverrideThresholds(formats strfmt.Registry) 
 	return nil
 }
 
-var updateStoragePoolTypeStatePropEnum []interface{}
+var updateStoragePoolTypeStatePropEnum []any
 
 func init() {
 	var res []string
@@ -130,12 +135,21 @@ func (m *UpdateStoragePool) ContextValidate(ctx context.Context, formats strfmt.
 func (m *UpdateStoragePool) contextValidateOverrideThresholds(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.OverrideThresholds != nil {
+
+		if swag.IsZero(m.OverrideThresholds) { // not required
+			return nil
+		}
+
 		if err := m.OverrideThresholds.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("overrideThresholds")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("overrideThresholds")
 			}
+
 			return err
 		}
 	}

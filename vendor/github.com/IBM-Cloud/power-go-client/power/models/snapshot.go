@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -26,7 +27,10 @@ type Snapshot struct {
 	// Format: date-time
 	CreationDate strfmt.DateTime `json:"creationDate,omitempty"`
 
-	// Description of the PVM instance snapshot
+	// crn
+	Crn CRN `json:"crn,omitempty"`
+
+	// Description of the PVM instance snapshot with a maximum of 255 characters allowed.
 	Description string `json:"description,omitempty"`
 
 	// Last Update Date
@@ -48,8 +52,11 @@ type Snapshot struct {
 	// Required: true
 	SnapshotID *string `json:"snapshotID"`
 
-	// Status of the PVM instancesnapshot
+	// Status of the PVM instance snapshot
 	Status string `json:"status,omitempty"`
+
+	// Detailed information for the last PVM instance snapshot action
+	StatusDetail string `json:"statusDetail,omitempty"`
 
 	// A map of volume snapshots included in the PVM instance snapshot
 	// Required: true
@@ -61,6 +68,10 @@ func (m *Snapshot) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCreationDate(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateCrn(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -96,6 +107,27 @@ func (m *Snapshot) validateCreationDate(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("creationDate", "body", "date-time", m.CreationDate.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Snapshot) validateCrn(formats strfmt.Registry) error {
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("crn")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("crn")
+		}
+
 		return err
 	}
 
@@ -150,8 +182,39 @@ func (m *Snapshot) validateVolumeSnapshots(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this snapshot based on context it is used
+// ContextValidate validate this snapshot based on the context it is used
 func (m *Snapshot) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateCrn(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Snapshot) contextValidateCrn(ctx context.Context, formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("crn")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("crn")
+		}
+
+		return err
+	}
+
 	return nil
 }
 

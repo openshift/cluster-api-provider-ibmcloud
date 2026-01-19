@@ -6,6 +6,8 @@ package p_cloud_volume_groups
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 
@@ -21,7 +23,7 @@ type PcloudVolumegroupsPostReader struct {
 }
 
 // ReadResponse reads a server response into the received o.
-func (o *PcloudVolumegroupsPostReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
+func (o *PcloudVolumegroupsPostReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (any, error) {
 	switch response.Code() {
 	case 202:
 		result := NewPcloudVolumegroupsPostAccepted()
@@ -43,6 +45,18 @@ func (o *PcloudVolumegroupsPostReader) ReadResponse(response runtime.ClientRespo
 		return nil, result
 	case 401:
 		result := NewPcloudVolumegroupsPostUnauthorized()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 403:
+		result := NewPcloudVolumegroupsPostForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 404:
+		result := NewPcloudVolumegroupsPostNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -72,7 +86,7 @@ func (o *PcloudVolumegroupsPostReader) ReadResponse(response runtime.ClientRespo
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups] pcloud.volumegroups.post", response, response.Code())
 	}
 }
 
@@ -81,7 +95,8 @@ func NewPcloudVolumegroupsPostAccepted() *PcloudVolumegroupsPostAccepted {
 	return &PcloudVolumegroupsPostAccepted{}
 }
 
-/* PcloudVolumegroupsPostAccepted describes a response with status code 202, with default header values.
+/*
+PcloudVolumegroupsPostAccepted describes a response with status code 202, with default header values.
 
 Accepted
 */
@@ -89,9 +104,46 @@ type PcloudVolumegroupsPostAccepted struct {
 	Payload *models.VolumeGroupCreateResponse
 }
 
-func (o *PcloudVolumegroupsPostAccepted) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostAccepted  %+v", 202, o.Payload)
+// IsSuccess returns true when this pcloud volumegroups post accepted response has a 2xx status code
+func (o *PcloudVolumegroupsPostAccepted) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud volumegroups post accepted response has a 3xx status code
+func (o *PcloudVolumegroupsPostAccepted) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post accepted response has a 4xx status code
+func (o *PcloudVolumegroupsPostAccepted) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud volumegroups post accepted response has a 5xx status code
+func (o *PcloudVolumegroupsPostAccepted) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud volumegroups post accepted response a status code equal to that given
+func (o *PcloudVolumegroupsPostAccepted) IsCode(code int) bool {
+	return code == 202
+}
+
+// Code gets the status code for the pcloud volumegroups post accepted response
+func (o *PcloudVolumegroupsPostAccepted) Code() int {
+	return 202
+}
+
+func (o *PcloudVolumegroupsPostAccepted) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostAccepted %s", 202, payload)
+}
+
+func (o *PcloudVolumegroupsPostAccepted) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostAccepted %s", 202, payload)
+}
+
 func (o *PcloudVolumegroupsPostAccepted) GetPayload() *models.VolumeGroupCreateResponse {
 	return o.Payload
 }
@@ -101,7 +153,7 @@ func (o *PcloudVolumegroupsPostAccepted) readResponse(response runtime.ClientRes
 	o.Payload = new(models.VolumeGroupCreateResponse)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -113,7 +165,8 @@ func NewPcloudVolumegroupsPostPartialContent() *PcloudVolumegroupsPostPartialCon
 	return &PcloudVolumegroupsPostPartialContent{}
 }
 
-/* PcloudVolumegroupsPostPartialContent describes a response with status code 206, with default header values.
+/*
+PcloudVolumegroupsPostPartialContent describes a response with status code 206, with default header values.
 
 Partial Content
 */
@@ -121,9 +174,46 @@ type PcloudVolumegroupsPostPartialContent struct {
 	Payload *models.VolumeGroupCreateResponse
 }
 
-func (o *PcloudVolumegroupsPostPartialContent) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostPartialContent  %+v", 206, o.Payload)
+// IsSuccess returns true when this pcloud volumegroups post partial content response has a 2xx status code
+func (o *PcloudVolumegroupsPostPartialContent) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud volumegroups post partial content response has a 3xx status code
+func (o *PcloudVolumegroupsPostPartialContent) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post partial content response has a 4xx status code
+func (o *PcloudVolumegroupsPostPartialContent) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud volumegroups post partial content response has a 5xx status code
+func (o *PcloudVolumegroupsPostPartialContent) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud volumegroups post partial content response a status code equal to that given
+func (o *PcloudVolumegroupsPostPartialContent) IsCode(code int) bool {
+	return code == 206
+}
+
+// Code gets the status code for the pcloud volumegroups post partial content response
+func (o *PcloudVolumegroupsPostPartialContent) Code() int {
+	return 206
+}
+
+func (o *PcloudVolumegroupsPostPartialContent) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostPartialContent %s", 206, payload)
+}
+
+func (o *PcloudVolumegroupsPostPartialContent) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostPartialContent %s", 206, payload)
+}
+
 func (o *PcloudVolumegroupsPostPartialContent) GetPayload() *models.VolumeGroupCreateResponse {
 	return o.Payload
 }
@@ -133,7 +223,7 @@ func (o *PcloudVolumegroupsPostPartialContent) readResponse(response runtime.Cli
 	o.Payload = new(models.VolumeGroupCreateResponse)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -145,7 +235,8 @@ func NewPcloudVolumegroupsPostBadRequest() *PcloudVolumegroupsPostBadRequest {
 	return &PcloudVolumegroupsPostBadRequest{}
 }
 
-/* PcloudVolumegroupsPostBadRequest describes a response with status code 400, with default header values.
+/*
+PcloudVolumegroupsPostBadRequest describes a response with status code 400, with default header values.
 
 Bad Request
 */
@@ -153,9 +244,46 @@ type PcloudVolumegroupsPostBadRequest struct {
 	Payload *models.Error
 }
 
-func (o *PcloudVolumegroupsPostBadRequest) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostBadRequest  %+v", 400, o.Payload)
+// IsSuccess returns true when this pcloud volumegroups post bad request response has a 2xx status code
+func (o *PcloudVolumegroupsPostBadRequest) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud volumegroups post bad request response has a 3xx status code
+func (o *PcloudVolumegroupsPostBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post bad request response has a 4xx status code
+func (o *PcloudVolumegroupsPostBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud volumegroups post bad request response has a 5xx status code
+func (o *PcloudVolumegroupsPostBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud volumegroups post bad request response a status code equal to that given
+func (o *PcloudVolumegroupsPostBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the pcloud volumegroups post bad request response
+func (o *PcloudVolumegroupsPostBadRequest) Code() int {
+	return 400
+}
+
+func (o *PcloudVolumegroupsPostBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostBadRequest %s", 400, payload)
+}
+
+func (o *PcloudVolumegroupsPostBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostBadRequest %s", 400, payload)
+}
+
 func (o *PcloudVolumegroupsPostBadRequest) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -165,7 +293,7 @@ func (o *PcloudVolumegroupsPostBadRequest) readResponse(response runtime.ClientR
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -177,7 +305,8 @@ func NewPcloudVolumegroupsPostUnauthorized() *PcloudVolumegroupsPostUnauthorized
 	return &PcloudVolumegroupsPostUnauthorized{}
 }
 
-/* PcloudVolumegroupsPostUnauthorized describes a response with status code 401, with default header values.
+/*
+PcloudVolumegroupsPostUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized
 */
@@ -185,9 +314,46 @@ type PcloudVolumegroupsPostUnauthorized struct {
 	Payload *models.Error
 }
 
-func (o *PcloudVolumegroupsPostUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostUnauthorized  %+v", 401, o.Payload)
+// IsSuccess returns true when this pcloud volumegroups post unauthorized response has a 2xx status code
+func (o *PcloudVolumegroupsPostUnauthorized) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud volumegroups post unauthorized response has a 3xx status code
+func (o *PcloudVolumegroupsPostUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post unauthorized response has a 4xx status code
+func (o *PcloudVolumegroupsPostUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud volumegroups post unauthorized response has a 5xx status code
+func (o *PcloudVolumegroupsPostUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud volumegroups post unauthorized response a status code equal to that given
+func (o *PcloudVolumegroupsPostUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the pcloud volumegroups post unauthorized response
+func (o *PcloudVolumegroupsPostUnauthorized) Code() int {
+	return 401
+}
+
+func (o *PcloudVolumegroupsPostUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostUnauthorized %s", 401, payload)
+}
+
+func (o *PcloudVolumegroupsPostUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostUnauthorized %s", 401, payload)
+}
+
 func (o *PcloudVolumegroupsPostUnauthorized) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -197,7 +363,147 @@ func (o *PcloudVolumegroupsPostUnauthorized) readResponse(response runtime.Clien
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudVolumegroupsPostForbidden creates a PcloudVolumegroupsPostForbidden with default headers values
+func NewPcloudVolumegroupsPostForbidden() *PcloudVolumegroupsPostForbidden {
+	return &PcloudVolumegroupsPostForbidden{}
+}
+
+/*
+PcloudVolumegroupsPostForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type PcloudVolumegroupsPostForbidden struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud volumegroups post forbidden response has a 2xx status code
+func (o *PcloudVolumegroupsPostForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud volumegroups post forbidden response has a 3xx status code
+func (o *PcloudVolumegroupsPostForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post forbidden response has a 4xx status code
+func (o *PcloudVolumegroupsPostForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud volumegroups post forbidden response has a 5xx status code
+func (o *PcloudVolumegroupsPostForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud volumegroups post forbidden response a status code equal to that given
+func (o *PcloudVolumegroupsPostForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the pcloud volumegroups post forbidden response
+func (o *PcloudVolumegroupsPostForbidden) Code() int {
+	return 403
+}
+
+func (o *PcloudVolumegroupsPostForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostForbidden %s", 403, payload)
+}
+
+func (o *PcloudVolumegroupsPostForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostForbidden %s", 403, payload)
+}
+
+func (o *PcloudVolumegroupsPostForbidden) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudVolumegroupsPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudVolumegroupsPostNotFound creates a PcloudVolumegroupsPostNotFound with default headers values
+func NewPcloudVolumegroupsPostNotFound() *PcloudVolumegroupsPostNotFound {
+	return &PcloudVolumegroupsPostNotFound{}
+}
+
+/*
+PcloudVolumegroupsPostNotFound describes a response with status code 404, with default header values.
+
+Not Found
+*/
+type PcloudVolumegroupsPostNotFound struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud volumegroups post not found response has a 2xx status code
+func (o *PcloudVolumegroupsPostNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud volumegroups post not found response has a 3xx status code
+func (o *PcloudVolumegroupsPostNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post not found response has a 4xx status code
+func (o *PcloudVolumegroupsPostNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud volumegroups post not found response has a 5xx status code
+func (o *PcloudVolumegroupsPostNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud volumegroups post not found response a status code equal to that given
+func (o *PcloudVolumegroupsPostNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the pcloud volumegroups post not found response
+func (o *PcloudVolumegroupsPostNotFound) Code() int {
+	return 404
+}
+
+func (o *PcloudVolumegroupsPostNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostNotFound %s", 404, payload)
+}
+
+func (o *PcloudVolumegroupsPostNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostNotFound %s", 404, payload)
+}
+
+func (o *PcloudVolumegroupsPostNotFound) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudVolumegroupsPostNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -209,7 +515,8 @@ func NewPcloudVolumegroupsPostConflict() *PcloudVolumegroupsPostConflict {
 	return &PcloudVolumegroupsPostConflict{}
 }
 
-/* PcloudVolumegroupsPostConflict describes a response with status code 409, with default header values.
+/*
+PcloudVolumegroupsPostConflict describes a response with status code 409, with default header values.
 
 Conflict
 */
@@ -217,9 +524,46 @@ type PcloudVolumegroupsPostConflict struct {
 	Payload *models.Error
 }
 
-func (o *PcloudVolumegroupsPostConflict) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostConflict  %+v", 409, o.Payload)
+// IsSuccess returns true when this pcloud volumegroups post conflict response has a 2xx status code
+func (o *PcloudVolumegroupsPostConflict) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud volumegroups post conflict response has a 3xx status code
+func (o *PcloudVolumegroupsPostConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post conflict response has a 4xx status code
+func (o *PcloudVolumegroupsPostConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud volumegroups post conflict response has a 5xx status code
+func (o *PcloudVolumegroupsPostConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud volumegroups post conflict response a status code equal to that given
+func (o *PcloudVolumegroupsPostConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the pcloud volumegroups post conflict response
+func (o *PcloudVolumegroupsPostConflict) Code() int {
+	return 409
+}
+
+func (o *PcloudVolumegroupsPostConflict) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostConflict %s", 409, payload)
+}
+
+func (o *PcloudVolumegroupsPostConflict) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostConflict %s", 409, payload)
+}
+
 func (o *PcloudVolumegroupsPostConflict) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -229,7 +573,7 @@ func (o *PcloudVolumegroupsPostConflict) readResponse(response runtime.ClientRes
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -241,7 +585,8 @@ func NewPcloudVolumegroupsPostUnprocessableEntity() *PcloudVolumegroupsPostUnpro
 	return &PcloudVolumegroupsPostUnprocessableEntity{}
 }
 
-/* PcloudVolumegroupsPostUnprocessableEntity describes a response with status code 422, with default header values.
+/*
+PcloudVolumegroupsPostUnprocessableEntity describes a response with status code 422, with default header values.
 
 Unprocessable Entity
 */
@@ -249,9 +594,46 @@ type PcloudVolumegroupsPostUnprocessableEntity struct {
 	Payload *models.Error
 }
 
-func (o *PcloudVolumegroupsPostUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostUnprocessableEntity  %+v", 422, o.Payload)
+// IsSuccess returns true when this pcloud volumegroups post unprocessable entity response has a 2xx status code
+func (o *PcloudVolumegroupsPostUnprocessableEntity) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud volumegroups post unprocessable entity response has a 3xx status code
+func (o *PcloudVolumegroupsPostUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post unprocessable entity response has a 4xx status code
+func (o *PcloudVolumegroupsPostUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud volumegroups post unprocessable entity response has a 5xx status code
+func (o *PcloudVolumegroupsPostUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud volumegroups post unprocessable entity response a status code equal to that given
+func (o *PcloudVolumegroupsPostUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the pcloud volumegroups post unprocessable entity response
+func (o *PcloudVolumegroupsPostUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *PcloudVolumegroupsPostUnprocessableEntity) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostUnprocessableEntity %s", 422, payload)
+}
+
+func (o *PcloudVolumegroupsPostUnprocessableEntity) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostUnprocessableEntity %s", 422, payload)
+}
+
 func (o *PcloudVolumegroupsPostUnprocessableEntity) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -261,7 +643,7 @@ func (o *PcloudVolumegroupsPostUnprocessableEntity) readResponse(response runtim
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -273,7 +655,8 @@ func NewPcloudVolumegroupsPostInternalServerError() *PcloudVolumegroupsPostInter
 	return &PcloudVolumegroupsPostInternalServerError{}
 }
 
-/* PcloudVolumegroupsPostInternalServerError describes a response with status code 500, with default header values.
+/*
+PcloudVolumegroupsPostInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -281,9 +664,46 @@ type PcloudVolumegroupsPostInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *PcloudVolumegroupsPostInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this pcloud volumegroups post internal server error response has a 2xx status code
+func (o *PcloudVolumegroupsPostInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud volumegroups post internal server error response has a 3xx status code
+func (o *PcloudVolumegroupsPostInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post internal server error response has a 4xx status code
+func (o *PcloudVolumegroupsPostInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud volumegroups post internal server error response has a 5xx status code
+func (o *PcloudVolumegroupsPostInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud volumegroups post internal server error response a status code equal to that given
+func (o *PcloudVolumegroupsPostInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the pcloud volumegroups post internal server error response
+func (o *PcloudVolumegroupsPostInternalServerError) Code() int {
+	return 500
+}
+
+func (o *PcloudVolumegroupsPostInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostInternalServerError %s", 500, payload)
+}
+
+func (o *PcloudVolumegroupsPostInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostInternalServerError %s", 500, payload)
+}
+
 func (o *PcloudVolumegroupsPostInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -293,7 +713,7 @@ func (o *PcloudVolumegroupsPostInternalServerError) readResponse(response runtim
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -305,7 +725,8 @@ func NewPcloudVolumegroupsPostGatewayTimeout() *PcloudVolumegroupsPostGatewayTim
 	return &PcloudVolumegroupsPostGatewayTimeout{}
 }
 
-/* PcloudVolumegroupsPostGatewayTimeout describes a response with status code 504, with default header values.
+/*
+PcloudVolumegroupsPostGatewayTimeout describes a response with status code 504, with default header values.
 
 Gateway Timeout. Request is still processing and taking longer than expected.
 */
@@ -313,9 +734,46 @@ type PcloudVolumegroupsPostGatewayTimeout struct {
 	Payload *models.Error
 }
 
-func (o *PcloudVolumegroupsPostGatewayTimeout) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostGatewayTimeout  %+v", 504, o.Payload)
+// IsSuccess returns true when this pcloud volumegroups post gateway timeout response has a 2xx status code
+func (o *PcloudVolumegroupsPostGatewayTimeout) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud volumegroups post gateway timeout response has a 3xx status code
+func (o *PcloudVolumegroupsPostGatewayTimeout) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud volumegroups post gateway timeout response has a 4xx status code
+func (o *PcloudVolumegroupsPostGatewayTimeout) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud volumegroups post gateway timeout response has a 5xx status code
+func (o *PcloudVolumegroupsPostGatewayTimeout) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud volumegroups post gateway timeout response a status code equal to that given
+func (o *PcloudVolumegroupsPostGatewayTimeout) IsCode(code int) bool {
+	return code == 504
+}
+
+// Code gets the status code for the pcloud volumegroups post gateway timeout response
+func (o *PcloudVolumegroupsPostGatewayTimeout) Code() int {
+	return 504
+}
+
+func (o *PcloudVolumegroupsPostGatewayTimeout) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostGatewayTimeout %s", 504, payload)
+}
+
+func (o *PcloudVolumegroupsPostGatewayTimeout) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/volume-groups][%d] pcloudVolumegroupsPostGatewayTimeout %s", 504, payload)
+}
+
 func (o *PcloudVolumegroupsPostGatewayTimeout) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -325,7 +783,7 @@ func (o *PcloudVolumegroupsPostGatewayTimeout) readResponse(response runtime.Cli
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 

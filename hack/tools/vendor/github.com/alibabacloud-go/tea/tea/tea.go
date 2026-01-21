@@ -218,8 +218,11 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 				}
 			}
 		}
-		byt, _ := json.Marshal(data)
-		err.Data = String(string(byt))
+		byt := bytes.NewBuffer([]byte{})
+		jsonEncoder := json.NewEncoder(byt)
+		jsonEncoder.SetEscapeHTML(false)
+		jsonEncoder.Encode(data)
+		err.Data = String(string(bytes.TrimSpace(byt.Bytes())))
 	}
 
 	if statusCode, ok := obj["statusCode"].(int); ok {
@@ -1160,6 +1163,11 @@ func Prettify(i interface{}) string {
 
 func ToInt(a *int32) *int {
 	return Int(int(Int32Value(a)))
+}
+
+func ForceInt(a interface{}) int {
+	num, _ := a.(int)
+	return num
 }
 
 func ToInt32(a *int) *int32 {

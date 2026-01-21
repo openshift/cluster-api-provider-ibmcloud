@@ -101,6 +101,8 @@ func ParsePackage(apkPackage io.Reader) (*Package, error) {
 		RepoCommit:    info.Commit,
 		BuildTime:     time.Unix(info.BuildDate, 0).UTC(),
 		Replaces:      info.Replaces,
+
+		ProviderPriority: info.ProviderPriority,
 	}, nil
 }
 
@@ -120,4 +122,6 @@ type apkInfo struct {
 	Replaces   string   `ini:"replaces"`
 	Depend     []string `ini:"depend,,allowshadow"`
 	Provides   []string `ini:"provides,,allowshadow"`
+
+	ProviderPriority uint64 `ini:"provider_priority"`
 }

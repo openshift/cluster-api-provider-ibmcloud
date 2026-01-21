@@ -12,11 +12,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"golang.org/x/telemetry/internal/telemetry"
 )
 
 var (
 	dateRE     = regexp.MustCompile(`(\d\d\d\d-\d\d-\d\d)[.]json$`)
-	dateFormat = "2006-01-02"
+	dateFormat = telemetry.DateOnly
 	// TODO(rfindley): use dateFormat throughout.
 )
 
@@ -41,7 +43,7 @@ func (u *uploader) uploadReport(fname string) {
 	// TODO(rfindley): use uploadReportDate here, once we've done a gopls release.
 
 	// first make sure it is not in the future
-	today := thisInstant.Format("2006-01-02")
+	today := thisInstant.Format(telemetry.DateOnly)
 	match := dateRE.FindStringSubmatch(fname)
 	if match == nil || len(match) < 2 {
 		u.logger.Printf("Report name %q missing date", filepath.Base(fname))
@@ -62,15 +64,9 @@ func (u *uploader) uploadReport(fname string) {
 // try to upload the report, 'true' if successful
 func (u *uploader) uploadReportContents(fname string, buf []byte) bool {
 	fdate := strings.TrimSuffix(filepath.Base(fname), ".json")
-	fdate = fdate[len(fdate)-len("2006-01-02"):]
+	fdate = fdate[len(fdate)-len(telemetry.DateOnly):]
 
 	newname := filepath.Join(u.dir.UploadDir(), fdate+".json")
-	if _, err := os.Stat(newname); err == nil {
-		// Another process uploaded but failed to clean up (or hasn't yet cleaned
-		// up). Ensure that cleanup occurs.
-		_ = os.Remove(fname)
-		return false
-	}
 
 	// Lock the upload, to prevent duplicate uploads.
 	{
@@ -82,6 +78,14 @@ func (u *uploader) uploadReportContents(fname string, buf []byte) bool {
 		}
 		_ = lockfile.Close()
 		defer os.Remove(lockname)
+	}
+
+	if _, err := os.Stat(newname); err == nil {
+		// Another process uploaded but failed to clean up (or hasn't yet cleaned
+		// up). Ensure that cleanup occurs.
+		u.logger.Printf("After acquire: report already uploaded")
+		_ = os.Remove(fname)
+		return false
 	}
 
 	endpoint := u.uploadServerURL + "/" + fdate

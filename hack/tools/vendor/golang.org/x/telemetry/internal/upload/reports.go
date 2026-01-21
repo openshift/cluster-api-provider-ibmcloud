@@ -26,7 +26,7 @@ func (u *uploader) reports(todo *work) ([]string, error) {
 		return nil, nil // no reports
 	}
 	thisInstant := u.startTime
-	today := thisInstant.Format("2006-01-02")
+	today := thisInstant.Format(telemetry.DateOnly)
 	lastWeek := latestReport(todo.uploaded)
 	if lastWeek >= today { //should never happen
 		lastWeek = ""
@@ -115,8 +115,11 @@ func (u *uploader) deleteFiles(files []string) {
 	}
 }
 
-// createReport for all the count files for the same date.
-// returns the absolute path name of the file containing the report
+// createReport creates local and upload report files by
+// combining all the count files for the expiryDate, and
+// returns the upload report file's path.
+// It may delete the count files once local and upload report
+// files are successfully created.
 func (u *uploader) createReport(start time.Time, expiryDate string, countFiles []string, lastWeek string) (string, error) {
 	uploadOK := true
 	mode, asof := u.dir.Mode()

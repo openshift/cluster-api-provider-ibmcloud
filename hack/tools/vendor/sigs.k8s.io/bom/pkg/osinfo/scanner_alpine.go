@@ -17,6 +17,7 @@ limitations under the License.
 package osinfo
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -43,7 +44,7 @@ func (ct *alpineScanner) OSType() OSType {
 	return OSAlpine
 }
 
-// ReadApkPackages reads the last known changed copy of the apk database
+// ReadApkPackages reads the last known changed copy of the apk database.
 func (ct *alpineScanner) ReadOSPackages(layers []string) (layer int, pk *[]PackageDBEntry, err error) {
 	apkDatabase := ""
 
@@ -92,9 +93,9 @@ func (ct *alpineScanner) ParseDB(dbPath string) (*[]PackageDBEntry, error) {
 	for _, p := range apks {
 		cs := map[string]string{}
 		if strings.HasPrefix(p.ChecksumString(), "Q1") {
-			cs["SHA1"] = fmt.Sprintf("%x", p.Checksum)
+			cs["SHA1"] = hex.EncodeToString(p.Checksum)
 		} else if p.ChecksumString() != "" {
-			cs["MD5"] = fmt.Sprintf("%x", p.Checksum)
+			cs["MD5"] = hex.EncodeToString(p.Checksum)
 		}
 
 		packages = append(packages, PackageDBEntry{

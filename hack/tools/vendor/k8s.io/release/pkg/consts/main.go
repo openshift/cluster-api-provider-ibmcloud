@@ -16,7 +16,11 @@ limitations under the License.
 
 package consts
 
-import "github.com/sirupsen/logrus"
+import (
+	"slices"
+
+	"github.com/sirupsen/logrus"
+)
 
 const (
 	PackageCRITools      string = "cri-tools"
@@ -63,7 +67,7 @@ var (
 )
 
 const (
-	DefaultReleaseDownloadLinkBase = "gs://kubernetes-release/release"
+	DefaultReleaseDownloadLinkBase = "https://dl.k8s.io/release"
 	DefaultRevision                = "0"
 	DefaultSpecTemplatePath        = "cmd/krel/templates/latest"
 )
@@ -72,13 +76,7 @@ func IsSupported(field string, input, expected []string) bool {
 	notSupported := []string{}
 
 	for _, i := range input {
-		supported := false
-		for _, j := range expected {
-			if i == j {
-				supported = true
-				break
-			}
-		}
+		supported := slices.Contains(expected, i)
 
 		if !supported {
 			notSupported = append(notSupported, i)
@@ -89,6 +87,7 @@ func IsSupported(field string, input, expected []string) bool {
 		logrus.Infof(
 			"Flag %s has an unsupported option: %v", field, notSupported,
 		)
+
 		return false
 	}
 

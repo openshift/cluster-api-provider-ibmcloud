@@ -5,6 +5,10 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -17,8 +21,10 @@ import (
 	"github.com/MakeNowJust/heredoc/v2"
 )
 
-const apkIndexFilename = "APKINDEX"
-const descriptionFilename = "DESCRIPTION"
+const (
+	apkIndexFilename    = "APKINDEX"
+	descriptionFilename = "DESCRIPTION"
+)
 
 // Go template for generating the APKINDEX file from an ApkIndex struct
 var apkIndexTemplate = template.Must(template.New(apkIndexFilename).Funcs(
@@ -90,12 +96,14 @@ func ParsePackageIndex(apkIndexUnpacked io.Reader) (packages []*Package, err err
 	}
 
 	indexScanner := bufio.NewScanner(apkIndexUnpacked)
+	indexScanner.Buffer(nil, 128*1024)
 
 	pkg := &Package{}
-	linenr := 1
+	linenr := 0
 
 	for indexScanner.Scan() {
 		line := indexScanner.Text()
+		linenr++
 		if len(line) == 0 {
 			if pkg.Name != "" {
 				packages = append(packages, pkg)
@@ -172,8 +180,9 @@ func ParsePackageIndex(apkIndexUnpacked io.Reader) (packages []*Package, err err
 				pkg.Checksum = checksum
 			}
 		}
-
-		linenr++
+	}
+	if indexScanner.Err() != nil {
+		return nil, fmt.Errorf("cannot parse line %d: %w", linenr, indexScanner.Err())
 	}
 
 	return
@@ -181,7 +190,6 @@ func ParsePackageIndex(apkIndexUnpacked io.Reader) (packages []*Package, err err
 
 func IndexFromArchive(archive io.ReadCloser) (apkindex *ApkIndex, err error) {
 	gzipReader, err := gzip.NewReader(archive)
-
 	if err != nil {
 		return
 	}
@@ -247,29 +255,63 @@ func ArchiveFromIndex(apkindex *ApkIndex) (archive io.Reader, err error) {
 	defer tw.Close()
 
 	// Add APKINDEX and DESCRIPTION files to the tarball
-	for _, item := range []struct {
-		filename string
-		contents []byte
-	}{
-		{apkIndexFilename, apkindexContents.Bytes()},
-		{descriptionFilename, []byte(apkindex.Description)},
-	} {
-		var info os.FileInfo = &tarballItemFileInfo{item.filename, int64(len(item.contents))}
-		header, err := tar.FileInfoHeader(info, item.filename)
+	err = tarWrite(tw, apkIndexFilename, apkindexContents.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	if apkindex.Description != "" {
+		err = tarWrite(tw, descriptionFilename, []byte(apkindex.Description))
 		if err != nil {
-			return nil, fmt.Errorf("creating tar header for %s: %w", item.filename, err)
-		}
-		header.Name = item.filename
-		if err := tw.WriteHeader(header); err != nil {
-			return nil, fmt.Errorf("writing tar header for %s: %w", item.filename, err)
-		}
-		if _, err = io.Copy(tw, bytes.NewReader(item.contents)); err != nil {
-			return nil, fmt.Errorf("copying tar contents for %s: %w", item.filename, err)
+			return nil, err
 		}
 	}
 
 	// Return io.ReadCloser representing the tarball
 	return &tarballContents, nil
+}
+
+// SignArchive signs an unsigned APKINDEX archive e.g. APKINDEX.unsigned.tar.gz.
+func SignArchive(archive io.Reader, privateKey *rsa.PrivateKey, keyName string) (signedArchive io.Reader, err error) {
+	archiveBytes, err := io.ReadAll(archive)
+	if err != nil {
+		return nil, err
+	}
+
+	var signature bytes.Buffer
+	gw := gzip.NewWriter(&signature)
+	defer gw.Close()
+	tw := tar.NewWriter(gw)
+
+	sum := sha1.Sum(archiveBytes)
+	sig, err := privateKey.Sign(rand.Reader, sum[:], crypto.SHA1)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = tarWrite(tw, ".SIGN.RSA."+keyName, sig); err != nil {
+		return nil, err
+	}
+	if err = tw.Flush(); err != nil {
+		return nil, err
+	}
+
+	// Concatenate the signature and unsigned archive.
+	return io.MultiReader(&signature, bytes.NewReader(archiveBytes)), nil
+}
+
+func tarWrite(tw *tar.Writer, filename string, content []byte) error {
+	info := &tarballItemFileInfo{filename, int64(len(content))}
+	header, err := tar.FileInfoHeader(info, filename)
+	if err != nil {
+		return fmt.Errorf("creating tar header for %s: %w", filename, err)
+	}
+	if err = tw.WriteHeader(header); err != nil {
+		return fmt.Errorf("writing tar header for %s: %w", filename, err)
+	}
+	if _, err = tw.Write(content); err != nil {
+		return fmt.Errorf("copying tar contents for %s: %w", filename, err)
+	}
+	return nil
 }
 
 // This type implements os.FileInfo, allowing us to construct
@@ -281,7 +323,7 @@ type tarballItemFileInfo struct {
 
 func (info *tarballItemFileInfo) Name() string       { return info.name }
 func (info *tarballItemFileInfo) Size() int64        { return info.size }
-func (info *tarballItemFileInfo) Mode() os.FileMode  { return 0644 }
+func (info *tarballItemFileInfo) Mode() os.FileMode  { return 0o644 }
 func (info *tarballItemFileInfo) ModTime() time.Time { return time.Time{} }
 func (info *tarballItemFileInfo) IsDir() bool        { return false }
 func (info *tarballItemFileInfo) Sys() interface{}   { return nil }

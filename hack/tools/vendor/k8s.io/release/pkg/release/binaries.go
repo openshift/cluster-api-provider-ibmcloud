@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
+
 	"k8s.io/release/pkg/binary"
 )
 
@@ -50,24 +51,26 @@ func (ac *ArtifactChecker) Options() *ArtifactCheckerOptions {
 }
 
 // CheckBinaryTags checks that the binaries produced in the release are
-// correctly tagged with the semver string
+// correctly tagged with the semver string.
 func (ac *ArtifactChecker) CheckBinaryTags() error {
 	for _, tag := range ac.opts.Versions {
 		if err := ac.impl.CheckVersionTags(ac.opts, tag); err != nil {
 			return fmt.Errorf("checking tags in %s binaries: %w", tag, err)
 		}
 	}
+
 	return nil
 }
 
 // CheckBinaryArchitectures ensures all the artifacts produced in each
-// release are of the right architecture
+// release are of the right architecture.
 func (ac *ArtifactChecker) CheckBinaryArchitectures() error {
 	for _, tag := range ac.opts.Versions {
 		if err := ac.impl.CheckVersionArch(ac.opts, tag); err != nil {
 			return fmt.Errorf("checking tags in %s binaries: %w", tag, err)
 		}
 	}
+
 	return nil
 }
 
@@ -79,7 +82,7 @@ type artifactCheckerImplementation interface {
 
 type defaultArtifactCheckerImpl struct{}
 
-// ListReleaseBinaries lists a release's binaries, with expected platform
+// ListReleaseBinaries lists a release's binaries, with expected platform.
 func (impl *defaultArtifactCheckerImpl) ListReleaseBinaries(
 	opts *ArtifactCheckerOptions, version string,
 ) (
@@ -89,7 +92,7 @@ func (impl *defaultArtifactCheckerImpl) ListReleaseBinaries(
 }
 
 // CheckVersionTags checks the binaries of a release to verify they have
-// the correct version tag
+// the correct version tag.
 func (impl *defaultArtifactCheckerImpl) CheckVersionTags(
 	opts *ArtifactCheckerOptions, version string,
 ) error {
@@ -97,7 +100,9 @@ func (impl *defaultArtifactCheckerImpl) CheckVersionTags(
 	if err != nil {
 		return fmt.Errorf("listing binaries for release %s: %w", version, err)
 	}
+
 	logrus.Infof("Checking %d binaries for tag %s", len(binaries), version)
+
 	for _, binData := range binaries {
 		bin, err := binary.New(binData.Path)
 		if err != nil {
@@ -114,12 +119,14 @@ func (impl *defaultArtifactCheckerImpl) CheckVersionTags(
 		if err != nil {
 			return fmt.Errorf("scanning binary %s: %w", binData.Path, err)
 		}
+
 		if !contains {
 			return fmt.Errorf(
 				"tag %s not found in produced binary: %s ", version, binData.Path,
 			)
 		}
 	}
+
 	return nil
 }
 
@@ -132,7 +139,9 @@ func (impl *defaultArtifactCheckerImpl) CheckVersionArch(
 	if err != nil {
 		return fmt.Errorf("listing binaries for release %s: %w", version, err)
 	}
+
 	logrus.Infof("Ensuring architecture of %d binaries for version %s", len(binaries), version)
+
 	for _, binData := range binaries {
 		bin, err := binary.New(binData.Path)
 		if err != nil {
@@ -155,5 +164,6 @@ func (impl *defaultArtifactCheckerImpl) CheckVersionArch(
 			logrus.Warnf("Binary is dynamically linked, which should be nothing we release: %s", binData.Path)
 		}
 	}
+
 	return nil
 }

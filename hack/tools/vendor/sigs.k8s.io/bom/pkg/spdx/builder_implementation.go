@@ -22,11 +22,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/blang/semver/v4"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v2"
+
+	"sigs.k8s.io/release-utils/helpers"
+	"sigs.k8s.io/yaml"
+
 	"sigs.k8s.io/bom/pkg/license"
-	"sigs.k8s.io/release-utils/util"
 )
 
 type DocBuilderImplementation interface {
@@ -45,7 +48,7 @@ type DocBuilderImplementation interface {
 }
 
 // defaultDocBuilderImpl is the default implementation for the
-// SPDX document builder
+// SPDX document builder.
 type defaultDocBuilderImpl struct {
 	format Format
 }
@@ -54,10 +57,19 @@ func (builder *defaultDocBuilderImpl) CreateDocument(genopts *DocGenerateOptions
 	// Create the new document
 	doc := NewDocument()
 	doc.Name = genopts.Name
-	doc.LicenseListVersion = strings.TrimPrefix(license.DefaultCatalogOpts.Version, "v")
+	// Use the license list from the embedded catalog
+	ver := strings.TrimPrefix(license.DefaultCatalogOpts.Version, "v")
+	// ... unless there was one sepcified in the options
 	if genopts.LicenseListVersion != "" {
-		doc.LicenseListVersion = strings.TrimPrefix(genopts.LicenseListVersion, "v")
+		ver = strings.TrimPrefix(genopts.LicenseListVersion, "v")
 	}
+
+	// Trim the patch part of the license version
+	v, err := semver.New(ver)
+	if err != nil {
+		return nil, fmt.Errorf("parsing license list semver string %q: %w", ver, err)
+	}
+	doc.LicenseListVersion = fmt.Sprintf("%d.%d", v.Major, v.Minor)
 
 	// If we do not have a namespace, we generate one under the public SPDX
 	// URL as defined in the spec.
@@ -82,7 +94,7 @@ func (builder *defaultDocBuilderImpl) CreateSPDXClient(genopts *DocGenerateOptio
 	spdx.Options().ScanImages = genopts.ScanImages
 	spdx.Options().LicenseListVersion = genopts.LicenseListVersion
 
-	if !util.Exists(opts.WorkDir) {
+	if !helpers.Exists(opts.WorkDir) {
 		if err := os.MkdirAll(opts.WorkDir, os.FileMode(0o755)); err != nil {
 			return nil, fmt.Errorf("creating builder worskpace dir: %w", err)
 		}
@@ -202,7 +214,7 @@ func (builder *defaultDocBuilderImpl) ScanFiles(genopts *DocGenerateOptions, spd
 }
 
 // ReadYamlConfiguration reads a yaml configuration and
-// set the values in an options struct
+// set the values in an options struct.
 func (builder *defaultDocBuilderImpl) ReadYamlConfiguration(
 	path string, genopts *DocGenerateOptions,
 ) (err error) {
@@ -266,7 +278,7 @@ func (builder *defaultDocBuilderImpl) ValidateOptions(genopts *DocGenerateOption
 	return nil
 }
 
-// WriteDoc renders the document to a file
+// WriteDoc renders the document to a file.
 func (builder *defaultDocBuilderImpl) WriteDoc(doc *Document, path string) error {
 	markup, err := doc.Render()
 	if err != nil {

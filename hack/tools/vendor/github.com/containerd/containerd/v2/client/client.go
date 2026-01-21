@@ -37,6 +37,7 @@ import (
 	sandboxsapi "github.com/containerd/containerd/api/services/sandbox/v1"
 	snapshotsapi "github.com/containerd/containerd/api/services/snapshots/v1"
 	"github.com/containerd/containerd/api/services/tasks/v1"
+	transferapi "github.com/containerd/containerd/api/services/transfer/v1"
 	versionservice "github.com/containerd/containerd/api/services/version/v1"
 	apitypes "github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/v2/core/containers"
@@ -55,6 +56,8 @@ import (
 	sandboxproxy "github.com/containerd/containerd/v2/core/sandbox/proxy"
 	"github.com/containerd/containerd/v2/core/snapshots"
 	snproxy "github.com/containerd/containerd/v2/core/snapshots/proxy"
+	"github.com/containerd/containerd/v2/core/transfer"
+	transferproxy "github.com/containerd/containerd/v2/core/transfer/proxy"
 	"github.com/containerd/containerd/v2/defaults"
 	"github.com/containerd/containerd/v2/pkg/dialer"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
@@ -111,9 +114,7 @@ func New(address string, opts ...Opt) (*Client, error) {
 	}
 
 	if copts.defaultRuntime != "" {
-		c.runtime = copts.defaultRuntime
-	} else {
-		c.runtime = defaults.DefaultRuntime
+		c.runtime.value = copts.defaultRuntime
 	}
 
 	if copts.defaultPlatform != nil {
@@ -129,7 +130,8 @@ func New(address string, opts ...Opt) (*Client, error) {
 		backoffConfig := backoff.DefaultConfig
 		backoffConfig.MaxDelay = copts.timeout
 		connParams := grpc.ConnectParams{
-			Backoff: backoffConfig,
+			Backoff:           backoffConfig,
+			MinConnectTimeout: copts.timeout,
 		}
 		gopts := []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -139,6 +141,8 @@ func New(address string, opts ...Opt) (*Client, error) {
 		if len(copts.dialOptions) > 0 {
 			gopts = copts.dialOptions
 		}
+		gopts = append(gopts, copts.extraDialOpts...)
+
 		gopts = append(gopts, grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(defaults.DefaultMaxRecvMsgSize),
 			grpc.MaxCallSendMsgSize(defaults.DefaultMaxSendMsgSize)))
@@ -168,15 +172,6 @@ func New(address string, opts ...Opt) (*Client, error) {
 		return nil, fmt.Errorf("no grpc connection or services is available: %w", errdefs.ErrUnavailable)
 	}
 
-	// check namespace labels for default runtime
-	if copts.defaultRuntime == "" && c.defaultns != "" {
-		if label, err := c.GetLabel(context.Background(), defaults.DefaultRuntimeNSLabel); err != nil {
-			return nil, err
-		} else if label != "" {
-			c.runtime = label
-		}
-	}
-
 	return c, nil
 }
 
@@ -192,22 +187,16 @@ func NewWithConn(conn *grpc.ClientConn, opts ...Opt) (*Client, error) {
 	c := &Client{
 		defaultns: copts.defaultns,
 		conn:      conn,
-		runtime:   defaults.DefaultRuntime,
+	}
+
+	if copts.defaultRuntime != "" {
+		c.runtime.value = copts.defaultRuntime
 	}
 
 	if copts.defaultPlatform != nil {
 		c.platform = copts.defaultPlatform
 	} else {
 		c.platform = platforms.Default()
-	}
-
-	// check namespace labels for default runtime
-	if copts.defaultRuntime == "" && c.defaultns != "" {
-		if label, err := c.GetLabel(context.Background(), defaults.DefaultRuntimeNSLabel); err != nil {
-			return nil, err
-		} else if label != "" {
-			c.runtime = label
-		}
 	}
 
 	if copts.services != nil {
@@ -222,10 +211,15 @@ type Client struct {
 	services
 	connMu    sync.Mutex
 	conn      *grpc.ClientConn
-	runtime   string
 	defaultns string
 	platform  platforms.MatchComparer
 	connector func() (*grpc.ClientConn, error)
+
+	// this should only be accessed via defaultRuntime()
+	runtime struct {
+		value string
+		mut   sync.Mutex
+	}
 }
 
 // Reconnect re-establishes the GRPC connection to the containerd daemon
@@ -246,7 +240,31 @@ func (c *Client) Reconnect() error {
 
 // Runtime returns the name of the runtime being used
 func (c *Client) Runtime() string {
-	return c.runtime
+	runtime, _ := c.defaultRuntime(context.TODO())
+	return runtime
+}
+
+func (c *Client) defaultRuntime(ctx context.Context) (string, error) {
+	c.runtime.mut.Lock()
+	defer c.runtime.mut.Unlock()
+
+	if c.runtime.value != "" {
+		return c.runtime.value, nil
+	}
+
+	if c.defaultns != "" {
+		label, err := c.GetLabel(ctx, defaults.DefaultRuntimeNSLabel)
+		if err != nil {
+			// Don't set the runtime value if there's an error
+			return defaults.DefaultRuntime, fmt.Errorf("failed to get default runtime label: %w", err)
+		}
+		if label != "" {
+			c.runtime.value = label
+			return label, nil
+		}
+	}
+	c.runtime.value = defaults.DefaultRuntime
+	return c.runtime.value, nil
 }
 
 // IsServing returns true if the client can successfully connect to the
@@ -293,10 +311,15 @@ func (c *Client) NewContainer(ctx context.Context, id string, opts ...NewContain
 	}
 	defer done(ctx)
 
+	runtime, err := c.defaultRuntime(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	container := containers.Container{
 		ID: id,
 		Runtime: containers.RuntimeInfo{
-			Name: c.runtime,
+			Name: runtime,
 		},
 	}
 	for _, o := range opts {
@@ -379,21 +402,25 @@ type RemoteContext struct {
 	// after it has completed transferring.
 	HandlerWrapper func(images.Handler) images.Handler
 
-	// ConvertSchema1 is whether to convert Docker registry schema 1
-	// manifests. If this option is false then any image which resolves
-	// to schema 1 will return an error since schema 1 is not supported.
-	//
-	// Deprecated: use Schema 2 or OCI images.
-	ConvertSchema1 bool
-
 	// Platforms defines which platforms to handle when doing the image operation.
 	// Platforms is ignored when a PlatformMatcher is set, otherwise the
 	// platforms will be used to create a PlatformMatcher with no ordering
 	// preference.
 	Platforms []string
 
-	// MaxConcurrentDownloads is the max concurrent content downloads for each pull.
+	DownloadLimiter *semaphore.Weighted
+
+	// MaxConcurrentDownloads restricts the total number of concurrent downloads
+	// across all layers during an image pull operation. This helps control the
+	// overall network bandwidth usage.
 	MaxConcurrentDownloads int
+
+	// ConcurrentLayerFetchBuffer sets the maximum size in bytes for each chunk
+	// when downloading layers in parallel. Larger chunks reduce coordination
+	// overhead but use more memory. When ConcurrentLayerFetchBuffer is above
+	// 512 bytes, parallel layer fetch is enabled. It can accelerate pulls for
+	// big images.
+	ConcurrentLayerFetchBuffer int
 
 	// MaxConcurrentUploadedLayers is the max concurrent uploaded layers for each push.
 	MaxConcurrentUploadedLayers int
@@ -756,6 +783,16 @@ func (c *Client) SandboxController(name string) sandbox.Controller {
 	return sandboxproxy.NewSandboxController(sandboxsapi.NewControllerClient(c.conn), name)
 }
 
+// TranferService returns the underlying transferrer
+func (c *Client) TransferService() transfer.Transferrer {
+	if c.transferService != nil {
+		return c.transferService
+	}
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	return transferproxy.NewTransferrer(transferapi.NewTransferClient(c.conn), c.streamCreator())
+}
+
 // VersionService returns the underlying VersionClient
 func (c *Client) VersionService() versionservice.VersionClient {
 	c.connMu.Lock()
@@ -915,14 +952,16 @@ type RuntimeInfo struct {
 }
 
 func (c *Client) RuntimeInfo(ctx context.Context, runtimePath string, runtimeOptions interface{}) (*RuntimeInfo, error) {
-	rt := c.runtime
+	runtime, err := c.defaultRuntime(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if runtimePath != "" {
-		rt = runtimePath
+		runtime = runtimePath
 	}
 	rr := &apitypes.RuntimeRequest{
-		RuntimePath: rt,
+		RuntimePath: runtime,
 	}
-	var err error
 	if runtimeOptions != nil {
 		rr.Options, err = typeurl.MarshalAnyToProto(runtimeOptions)
 		if err != nil {

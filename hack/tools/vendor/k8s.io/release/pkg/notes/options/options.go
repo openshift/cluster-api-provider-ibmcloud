@@ -30,7 +30,7 @@ import (
 )
 
 // Options is the global options structure which can be used to build release
-// notes generator options
+// notes generator options.
 type Options struct {
 	// GithubBaseURL specifies the Github base URL.
 	GithubBaseURL string
@@ -69,6 +69,11 @@ type Options struct {
 	// EndRev can be used to set the release notes end revision to any
 	// valid git revision. Should not be used together with EndSHA.
 	EndRev string
+
+	// SkipFirstCommit skips the first commit if StartRev is being used. This
+	// is useful if StartRev is a tag which should not be included in the
+	// release notes.
+	SkipFirstCommit bool
 
 	// Format specifies the format of the release notes. Can be either
 	// `json` or `markdown`.
@@ -128,6 +133,9 @@ type Options struct {
 	// This is useful when the release notes are outputted to a file. When using the GitHub release page to publish release notes,
 	// this option should be set to false to take advantage of Github's autolinked references.
 	AddMarkdownLinks bool
+
+	// IncludeLabels can be used to filter PRs by labels so only PRs with one or more specified labels are included.
+	IncludeLabels []string
 }
 
 type RevisionDiscoveryMode string
@@ -150,7 +158,7 @@ const (
 	GoTemplateInline       = GoTemplatePrefix + GoTemplatePrefixInline
 )
 
-// New creates a new Options instance with the default values
+// New creates a new Options instance with the default values.
 func New() *Options {
 	return &Options{
 		DiscoverMode:       RevisionDiscoveryModeNONE,
@@ -162,6 +170,7 @@ func New() *Options {
 		gitCloneFn:         git.CloneOrOpenGitHubRepo,
 		MapProviderStrings: []string{},
 		AddMarkdownLinks:   false,
+		IncludeLabels:      []string{},
 	}
 }
 
@@ -181,6 +190,7 @@ func (o *Options) ValidateAndFinish() (err error) {
 	// Recover for replay if needed
 	if o.ReplayDir != "" {
 		logrus.Info("Using replay mode")
+
 		return nil
 	}
 
@@ -217,25 +227,42 @@ func (o *Options) ValidateAndFinish() (err error) {
 		return errors.New("the ending commit hash must be set via --end-sha, $END_SHA, --end-rev or $END_REV")
 	}
 
+	if o.SkipFirstCommit && o.StartRev == "" {
+		return errors.New("--skip-first-commit/-s can be only used together with --start-rev")
+	}
+
 	// Check if we have to parse a revision
 	if (o.StartRev != "" && o.StartSHA == "") || (o.EndRev != "" && o.EndSHA == "") {
 		repo, err := o.repo()
 		if err != nil {
 			return err
 		}
+
 		if o.StartRev != "" && o.StartSHA == "" {
 			sha, err := repo.RevParseTag(o.StartRev)
 			if err != nil {
 				return fmt.Errorf("resolving %s: %w", o.StartRev, err)
 			}
+
+			if o.SkipFirstCommit {
+				logrus.Infof("Skipping first commit: %s", sha)
+
+				sha, err = repo.NextCommit(sha, git.DefaultRemote+"/"+o.Branch)
+				if err != nil {
+					return fmt.Errorf("getting the next repo commit: %w", err)
+				}
+			}
+
 			logrus.Infof("Using found start SHA: %s", sha)
 			o.StartSHA = sha
 		}
+
 		if o.EndRev != "" && o.EndSHA == "" {
 			sha, err := repo.RevParseTag(o.EndRev)
 			if err != nil {
 				return fmt.Errorf("resolving %s: %w", o.EndRev, err)
 			}
+
 			logrus.Infof("Using found end SHA: %s", sha)
 			o.EndSHA = sha
 		}
@@ -244,6 +271,7 @@ func (o *Options) ValidateAndFinish() (err error) {
 	// Create the record dir
 	if o.RecordDir != "" {
 		logrus.Info("Using record mode")
+
 		if err := os.MkdirAll(o.RecordDir, os.FileMode(0o755)); err != nil {
 			return err
 		}
@@ -257,13 +285,15 @@ func (o *Options) ValidateAndFinish() (err error) {
 	if err := o.checkFormatOptions(); err != nil {
 		return fmt.Errorf("while checking format flags: %w", err)
 	}
+
 	return nil
 }
 
-// checkFormatOptions verifies that template related options are sane
+// checkFormatOptions verifies that template related options are sane.
 func (o *Options) checkFormatOptions() error {
 	// Validate the output format and template
 	logrus.Infof("Using output format: %s", o.Format)
+
 	if o.Format == FormatMarkdown && o.GoTemplate != GoTemplateDefault {
 		if !strings.HasPrefix(o.GoTemplate, GoTemplatePrefix) {
 			return fmt.Errorf("go template has to be prefixed with %q", GoTemplatePrefix)
@@ -276,17 +306,21 @@ func (o *Options) checkFormatOptions() error {
 			if os.IsNotExist(err) {
 				return fmt.Errorf("could not find template file (%s)", templatePathOrOnline)
 			}
+
 			if fileStats.Size() == 0 {
 				return fmt.Errorf("template file %s is empty", templatePathOrOnline)
 			}
 		}
 	}
+
 	if o.Format == FormatJSON && o.GoTemplate != GoTemplateDefault {
 		return errors.New("go-template cannot be defined when in JSON mode")
 	}
+
 	if o.Format != FormatJSON && o.Format != FormatMarkdown {
 		return fmt.Errorf("invalid format: %s", o.Format)
 	}
+
 	return nil
 }
 
@@ -297,6 +331,7 @@ func (o *Options) resolveDiscoverMode() error {
 	}
 
 	var result git.DiscoverResult
+
 	switch o.DiscoverMode {
 	case RevisionDiscoveryModeMergeBaseToLatest:
 		result, err = repo.LatestReleaseBranchMergeBaseToLatest()
@@ -342,9 +377,11 @@ func (o *Options) repo() (repo *git.Repo, err error) {
 		logrus.Infof("Re-using local repo %s", o.RepoPath)
 		repo, err = git.OpenRepo(o.RepoPath)
 	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	return repo, nil
 }
 
@@ -359,6 +396,7 @@ func (o *Options) Client() (github.Client, error) {
 	}
 
 	var gh *github.GitHub
+
 	var err error
 	// Create a real GitHub API client
 	if o.GithubBaseURL != "" && o.GithubUploadURL != "" {
@@ -366,6 +404,7 @@ func (o *Options) Client() (github.Client, error) {
 	} else {
 		gh, err = github.NewWithToken(o.githubToken)
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("unable to create GitHub client: %w", err)
 	}

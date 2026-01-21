@@ -44,9 +44,10 @@ import (
 	purl "github.com/package-url/packageurl-go"
 	"github.com/sirupsen/logrus"
 
+	"sigs.k8s.io/release-utils/helpers"
+
 	"sigs.k8s.io/bom/pkg/license"
 	"sigs.k8s.io/bom/pkg/osinfo"
-	"sigs.k8s.io/release-utils/util"
 )
 
 //counterfeiter:generate . spdxImplementation
@@ -70,7 +71,7 @@ type spdxImplementation interface {
 
 type spdxDefaultImplementation struct{}
 
-// ExtractTarballTmp extracts a tarball to a temporary directory
+// ExtractTarballTmp extracts a tarball to a temporary directory.
 func (di *spdxDefaultImplementation) ExtractTarballTmp(tarPath string) (tmpDir string, err error) {
 	tmpDir, err = os.MkdirTemp(os.TempDir(), "spdx-tar-extract-")
 	if err != nil {
@@ -171,10 +172,10 @@ func sanitizeExtractPath(tmpDir, filePath string) (string, error) {
 }
 
 // readArchiveManifest extracts the manifest json from an image tar
-// archive and returns the data as a struct
+// archive and returns the data as a struct.
 func (di *spdxDefaultImplementation) ReadArchiveManifest(manifestPath string) (manifest *ArchiveManifest, err error) {
 	// Check that we have the archive manifest.json file
-	if !util.Exists(manifestPath) {
+	if !helpers.Exists(manifestPath) {
 		return manifest, errors.New("unable to find manifest file " + manifestPath)
 	}
 
@@ -192,7 +193,7 @@ func (di *spdxDefaultImplementation) ReadArchiveManifest(manifestPath string) (m
 }
 
 // getImageReferences gets a reference string and returns all image
-// references from it
+// references from it.
 func getImageReferences(referenceString string) (*ImageReferenceInfo, error) {
 	ref, err := name.ParseReference(referenceString)
 	if err != nil {
@@ -318,7 +319,7 @@ func refInfoFromImage(ref name.Reference, descr *remote.Descriptor) (refinfo *Im
 }
 
 // fullDigest builds a name.Digest with the registry info from tag
-// and the value from hash
+// and the value from hash.
 func fullDigest(tag name.Tag, hash v1.Hash) (name.Digest, error) {
 	dig, err := name.NewDigest(
 		fmt.Sprintf(
@@ -352,7 +353,7 @@ func PullImageToArchive(referenceString, path string) error {
 }
 
 // PullImagesToArchive takes an image reference (a tag or a digest)
-// and writes it into a docker tar archive in path
+// and writes it into a docker tar archive in path.
 func (di *spdxDefaultImplementation) PullImagesToArchive(
 	referenceString, path string,
 ) (references *ImageReferenceInfo, err error) {
@@ -362,7 +363,7 @@ func (di *spdxDefaultImplementation) PullImagesToArchive(
 		return nil, err
 	}
 
-	if !util.Exists(path) {
+	if !helpers.Exists(path) {
 		if err := os.MkdirAll(path, os.FileMode(0o755)); err != nil {
 			return nil, fmt.Errorf("creating image directory: %w", err)
 		}
@@ -429,7 +430,7 @@ func createReferenceArchive(digest, path string) (tarPath string, err error) {
 
 	// Write image to tar archive
 	if err := tarball.MultiWriteToFile(
-		tarPath, map[name.Tag]v1.Image{d.Repository.Tag(p[1]): img},
+		tarPath, map[name.Tag]v1.Image{d.Tag(p[1]): img},
 	); err != nil {
 		return "", fmt.Errorf("writing image to disk: %w", err)
 	}
@@ -437,7 +438,7 @@ func createReferenceArchive(digest, path string) (tarPath string, err error) {
 	return tarPath, nil
 }
 
-// PackageFromTarball builds a SPDX package from the contents of a tarball
+// PackageFromTarball builds a SPDX package from the contents of a tarball.
 func (di *spdxDefaultImplementation) PackageFromTarball(
 	opts *Options, tarOpts *TarballOptions, tarFile string,
 ) (pkg *Package, err error) {
@@ -467,7 +468,7 @@ func (di *spdxDefaultImplementation) PackageFromTarball(
 	return pkg, nil
 }
 
-// GetDirectoryTree traverses a directory and return a slice of strings with all files
+// GetDirectoryTree traverses a directory and return a slice of strings with all files.
 func (di *spdxDefaultImplementation) GetDirectoryTree(dirPath string) ([]string, error) {
 	fileList := []string{}
 
@@ -491,7 +492,7 @@ func (di *spdxDefaultImplementation) GetDirectoryTree(dirPath string) ([]string,
 	return fileList, nil
 }
 
-// IgnorePatterns return a list of gitignore patterns
+// IgnorePatterns return a list of gitignore patterns.
 func (di *spdxDefaultImplementation) IgnorePatterns(
 	dirPath string, extraPatterns []string, skipGitIgnore bool,
 ) ([]gitignore.Pattern, error) {
@@ -505,7 +506,7 @@ func (di *spdxDefaultImplementation) IgnorePatterns(
 		return patterns, nil
 	}
 
-	if util.Exists(filepath.Join(dirPath, gitIgnoreFile)) {
+	if helpers.Exists(filepath.Join(dirPath, gitIgnoreFile)) {
 		f, err := os.Open(filepath.Join(dirPath, gitIgnoreFile))
 		if err != nil {
 			return nil, fmt.Errorf("opening gitignore file: %w", err)
@@ -519,7 +520,7 @@ func (di *spdxDefaultImplementation) IgnorePatterns(
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
 			s := scanner.Text()
-			if !strings.HasPrefix(s, "#") && len(strings.TrimSpace(s)) > 0 {
+			if !strings.HasPrefix(s, "#") && strings.TrimSpace(s) != "" {
 				logrus.Debugf("Loaded .gitignore pattern: >>%s<<", s)
 				patterns = append(patterns, gitignore.ParsePattern(s, nil))
 			}
@@ -532,7 +533,7 @@ func (di *spdxDefaultImplementation) IgnorePatterns(
 	return patterns, nil
 }
 
-// ApplyIgnorePatterns applies the gitignore patterns to a list of files, removing matched
+// ApplyIgnorePatterns applies the gitignore patterns to a list of files, removing matched.
 func (di *spdxDefaultImplementation) ApplyIgnorePatterns(
 	fileList []string, patterns []gitignore.Pattern,
 ) (filteredList []string) {
@@ -616,7 +617,7 @@ func (di *spdxDefaultImplementation) LicenseReader(spdxOpts *Options) (*license.
 }
 
 // GetDirectoryLicense takes a path and scans
-// the files in it to determine licensins information
+// the files in it to determine licensins information.
 func (di *spdxDefaultImplementation) GetDirectoryLicense(
 	reader *license.Reader, path string, _ *Options,
 ) (*license.License, error) {
@@ -631,7 +632,7 @@ func (di *spdxDefaultImplementation) GetDirectoryLicense(
 	return licenseResult.License, nil
 }
 
-// purlFromImage builds a purl from an image reference
+// purlFromImage builds a purl from an image reference.
 func (*spdxDefaultImplementation) purlFromImage(img *ImageReferenceInfo) string {
 	// OCI type urls don't have a namespace ref:
 	// https://github.com/package-url/purl-spec/blob/master/PURL-TYPES.rst#oci
@@ -644,7 +645,7 @@ func (*spdxDefaultImplementation) purlFromImage(img *ImageReferenceInfo) string 
 	digest := ""
 	// If we have the digest, skip checking it from the registry
 	if _, ok := imageReference.(name.Digest); ok {
-		p := strings.Split(imageReference.(name.Digest).String(), "@")
+		p := strings.Split(imageReference.(name.Digest).String(), "@") //nolint: errcheck
 		if len(p) < 2 {
 			return ""
 		}
@@ -690,7 +691,7 @@ func (*spdxDefaultImplementation) purlFromImage(img *ImageReferenceInfo) string 
 	return strings.Replace(packageurl.String(), "@sha256:", "@sha256%3A", 1)
 }
 
-// ImageRefToPackage Returns a spdx package from an OCI image reference
+// ImageRefToPackage Returns a spdx package from an OCI image reference.
 func (di *spdxDefaultImplementation) ImageRefToPackage(ref string, opts *Options) (*Package, error) {
 	tmpdir, err := os.MkdirTemp("", "doc-build-")
 	if err != nil {
@@ -826,7 +827,7 @@ func (di *spdxDefaultImplementation) referenceInfoToPackage(opts *Options, img *
 }
 
 // PackageFromImageTarball reads an OCI image archive and produces a SPDX
-// packafe describing its layers
+// packafe describing its layers.
 func (di *spdxDefaultImplementation) PackageFromImageTarball(
 	spdxOpts *Options, tarPath string,
 ) (imagePackage *Package, err error) {
@@ -986,7 +987,7 @@ func (di *spdxDefaultImplementation) AnalyzeImageLayer(layerPath string, pkg *Pa
 }
 
 // PackageFromDirectory scans a directory and returns its contents as a
-// SPDX package, optionally determining the licenses found
+// SPDX package, optionally determining the licenses found.
 func (di *spdxDefaultImplementation) PackageFromDirectory(opts *Options, dirPath string) (pkg *Package, err error) {
 	dirPath, err = filepath.Abs(dirPath)
 	if err != nil {

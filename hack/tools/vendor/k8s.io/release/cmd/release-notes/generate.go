@@ -21,11 +21,13 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"sigs.k8s.io/release-sdk/git"
+	"sigs.k8s.io/release-utils/env"
+
 	"k8s.io/release/pkg/notes"
 	"k8s.io/release/pkg/notes/options"
 	"k8s.io/release/pkg/release"
-	"sigs.k8s.io/release-sdk/git"
-	"sigs.k8s.io/release-utils/env"
 )
 
 func addGenerateFlags(subcommand *cobra.Command) {
@@ -111,6 +113,17 @@ func addGenerateFlags(subcommand *cobra.Command) {
 		"end-rev",
 		env.Default("END_REV", ""),
 		"The git revision to end at. Can be used as alternative to end-sha.",
+	)
+
+	// SkipFirstCommit skips the first commit if StartRev is being used. This
+	// is useful if StartRev is a tag which should not be included in the
+	// release notes.
+	subcommand.PersistentFlags().BoolVarP(
+		&opts.SkipFirstCommit,
+		"skip-first-commit",
+		"s",
+		env.IsSet("SKIP_FIRST_COMMIT"),
+		"Skip the first commit if --start-rev is being used. This is useful if the --start-rev is a tag which should not be included in the release notes.",
 	)
 
 	// repoPath contains the path to a local Kubernetes repository to avoid the
@@ -229,12 +242,6 @@ func addGenerateFlags(subcommand *cobra.Command) {
 		"m",
 		[]string{},
 		"specify a location to recursively look for release notes *.y[a]ml file mappings",
-	)
-	subcommand.PersistentFlags().BoolVar(
-		&opts.ListReleaseNotesV2,
-		"list-v2",
-		false,
-		"enable experimental implementation to list commits (ListReleaseNotesV2)",
 	)
 }
 

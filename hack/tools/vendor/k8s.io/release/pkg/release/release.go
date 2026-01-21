@@ -30,15 +30,15 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"sigs.k8s.io/promo-tools/v3/image"
+	"sigs.k8s.io/promo-tools/v4/image/consts"
 	"sigs.k8s.io/release-sdk/git"
 	"sigs.k8s.io/release-sdk/github"
 	"sigs.k8s.io/release-sdk/object"
 	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/release-utils/env"
 	rhash "sigs.k8s.io/release-utils/hash"
+	"sigs.k8s.io/release-utils/helpers"
 	"sigs.k8s.io/release-utils/tar"
-	"sigs.k8s.io/release-utils/util"
 )
 
 const (
@@ -50,13 +50,11 @@ const (
 	DefaultK8sRepo = git.DefaultGithubRepo
 	DefaultK8sRef  = git.DefaultRef
 
-	// TODO(vdf): Need to reference K8s Infra project here
+	// TODO(vdf): Need to reference K8s Infra project here.
 	DefaultKubernetesStagingProject = "kubernetes-release-test"
 	DefaultRelengStagingTestProject = "k8s-staging-releng-test"
 	DefaultRelengStagingProject     = "k8s-staging-releng"
 	DefaultDiskSize                 = "500"
-	BucketPrefix                    = "kubernetes-release-"
-	BucketPrefixK8sInfra            = "k8s-release-"
 
 	versionReleaseRE   = `v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-?([a-zA-Z0-9]+\.(0|[1-9][0-9]*)\.)?`
 	versionBuildRE     = `([0-9]{1,})\+([0-9a-f]{5,40})`
@@ -65,13 +63,13 @@ const (
 
 	KubernetesTar = "kubernetes.tar.gz"
 
-	// Staged source code tarball of Kubernetes
+	// Staged source code tarball of Kubernetes.
 	SourcesTar = "src.tar.gz"
 
-	// Root path on the bucket for staged artifacts
+	// Root path on the bucket for staged artifacts.
 	StagePath = "stage"
 
-	// Path where the release container images are stored
+	// Path where the release container images are stored.
 	ImagesPath = "release-images"
 
 	// GCSStagePath is the directory where release artifacts are staged before
@@ -93,43 +91,35 @@ const (
 	// WindowsLocalPath is the directory where Windows GCE scripts are created.
 	WindowsLocalPath = ReleaseStagePath + "/full/kubernetes/cluster/gce/windows"
 
-	// CIBucketLegacy is the default bucket for Kubernetes CI releases
-	CIBucketLegacy = "kubernetes-release-dev"
-
-	// CIBucketK8sInfra is the community infra bucket for Kubernetes CI releases
+	// CIBucketK8sInfra is the community infra bucket for Kubernetes CI releases.
 	CIBucketK8sInfra = "k8s-release-dev"
 
-	// TestBucket is the default bucket for mocked Kubernetes releases
+	// TestBucket is the default bucket for mocked Kubernetes releases.
 	TestBucket = "kubernetes-release-gcb"
 
-	// ProductionBucket is the default bucket for Kubernetes releases
-	ProductionBucket = "kubernetes-release"
+	// ProductionBucket is the default bucket for Kubernetes releases.
+	// Owned by SIG k8s Infra: https://git.k8s.io/community/sig-k8s-infra
+	ProductionBucket = "767373bbdcb8270361b96548387bf2a9ad0d48758c35"
 
-	// ProductionBucketURL is the url for the ProductionBucket
+	// ProductionBucketURL is the url for the ProductionBucket.
 	ProductionBucketURL = "https://dl.k8s.io"
 
-	// Production registry root URL
-	GCRIOPathProd = image.ProdRegistry
+	// Production registry root URL.
+	GCRIOPathProd = consts.ProdRegistry
 
-	// Staging registry root URL prefix
-	GCRIOPathStagingPrefix = image.StagingRepoPrefix
+	// Staging registry root URL prefix.
+	GCRIOPathStagingPrefix = consts.StagingRepoPrefix
 
-	// Staging registry root URL
-	GCRIOPathStaging = GCRIOPathStagingPrefix + image.StagingRepoSuffix
+	// Staging registry root URL.
+	GCRIOPathStaging = GCRIOPathStagingPrefix + consts.StagingRepoSuffix
 
-	// Mock staging registry root URL
+	// Mock staging registry root URL.
 	GCRIOPathMock = GCRIOPathStaging + "/mock"
 
 	// BuildDir is the default build output directory.
 	BuildDir = "_output"
 
-	// The default bazel build directory.
-	BazelBuildDir = "bazel-bin/build"
-
-	// Archive path is the root path in the bucket where releases are archived
-	ArchivePath = "archive"
-
-	// Publishing bot issue repository
+	// Publishing bot issue repository.
 	PubBotRepoOrg  = "kubernetes"
 	PubBotRepoName = "sig-release"
 
@@ -166,6 +156,13 @@ func GetToolRef() string {
 	return env.Default("TOOL_REF", DefaultToolRef)
 }
 
+// GetForceBuildKrel checks if the 'FORCE_BUILD_KREL' environment variable is
+// set.  If 'FORCE_BUILD_KREL' is non-empty, it returns the value. Otherwise,
+// it returns "false".
+func GetForceBuildKrel() string {
+	return env.Default("FORCE_BUILD_KREL", "false")
+}
+
 // GetK8sOrg checks if the 'K8S_ORG' environment variable is set.
 // If 'K8S_ORG' is non-empty, it returns the value. Otherwise, it returns DefaultK8sOrg.
 func GetK8sOrg() string {
@@ -191,35 +188,19 @@ func IsDefaultK8sUpstream() bool {
 		GetK8sRef() == DefaultK8sRef
 }
 
-// BuiltWithBazel determines whether the most recent Kubernetes release was built with Bazel.
-func BuiltWithBazel(workDir string) (bool, error) {
-	bazelBuild := filepath.Join(workDir, BazelBuildDir, ReleaseTarsPath, KubernetesTar)
-	dockerBuild := filepath.Join(workDir, BuildDir, ReleaseTarsPath, KubernetesTar)
-	return util.MoreRecent(bazelBuild, dockerBuild)
-}
-
-// ReadBazelVersion reads the version from a Bazel build.
-func ReadBazelVersion(workDir string) (string, error) {
-	version, err := os.ReadFile(filepath.Join(workDir, "bazel-bin", "version"))
-	if os.IsNotExist(err) {
-		// The check for version in bazel-genfiles can be removed once everyone is
-		// off of versions before 0.25.0.
-		// https://github.com/bazelbuild/bazel/issues/8651
-		version, err = os.ReadFile(filepath.Join(workDir, "bazel-genfiles", "version"))
-	}
-	return string(version), err
-}
-
 // ReadDockerizedVersion reads the version from a Dockerized Kubernetes build.
 func ReadDockerizedVersion(workDir string) (string, error) {
 	dockerTarball := filepath.Join(workDir, BuildDir, ReleaseTarsPath, KubernetesTar)
+
 	reader, err := tar.ReadFileFromGzippedTar(
 		dockerTarball, filepath.Join("kubernetes", "version"),
 	)
 	if err != nil {
 		return "", err
 	}
+
 	file, err := io.ReadAll(reader)
+
 	return strings.TrimSpace(string(file)), err
 }
 
@@ -229,6 +210,7 @@ func IsValidReleaseBuild(build string) (bool, error) {
 	if strings.Contains(build, "+") {
 		return regexp.MatchString("("+versionReleaseRE+`(`+versionBuildRE+")"+versionDirtyRE+"?)", build)
 	}
+
 	return regexp.MatchString("("+versionReleaseRE+`(`+versionBuildRE+")?"+versionDirtyRE+"?)", build)
 }
 
@@ -239,12 +221,14 @@ func IsDirtyBuild(build string) bool {
 
 func GetWorkspaceVersion() (string, error) {
 	workspaceStatusScript := "hack/print-workspace-status.sh"
+
 	_, workspaceStatusScriptStatErr := os.Stat(workspaceStatusScript)
 	if os.IsNotExist(workspaceStatusScriptStatErr) {
 		return "", fmt.Errorf("checking for workspace status script: %w", workspaceStatusScriptStatErr)
 	}
 
 	logrus.Info("Getting workspace status")
+
 	workspaceStatusStream, getWorkspaceStatusErr := command.New(workspaceStatusScript).RunSuccessOutput()
 	if getWorkspaceStatusErr != nil {
 		return "", fmt.Errorf("getting workspace status: %w", getWorkspaceStatusErr)
@@ -258,16 +242,21 @@ func GetWorkspaceVersion() (string, error) {
 	version := submatch[1]
 
 	logrus.Infof("Found workspace version: %s", version)
+
 	return version, nil
 }
 
-// URLPrefixForBucket returns the URL prefix for the provided bucket string
+// URLPrefixForBucket returns the URL prefix for the provided bucket string.
 func URLPrefixForBucket(bucket string) string {
 	bucket = strings.TrimPrefix(bucket, object.GcsPrefix)
-	urlPrefix := fmt.Sprintf("https://storage.googleapis.com/%s", bucket)
-	if bucket == ProductionBucket {
+	urlPrefix := "https://storage.googleapis.com/" + bucket
+
+	const legacyBucket = "kubernetes-release"
+
+	if bucket == ProductionBucket || bucket == legacyBucket {
 		urlPrefix = ProductionBucketURL
 	}
+
 	return urlPrefix
 }
 
@@ -275,6 +264,7 @@ func URLPrefixForBucket(bucket string) string {
 // their platform into the `targetPath`.
 func CopyBinaries(rootPath, targetPath string) error {
 	platformsPath := filepath.Join(rootPath, "client")
+
 	platformsAndArches, err := os.ReadDir(platformsPath)
 	if err != nil {
 		return fmt.Errorf("retrieve platforms from %s: %w", platformsPath, err)
@@ -286,6 +276,7 @@ func CopyBinaries(rootPath, targetPath string) error {
 				"Skipping platform and arch %q because it's not a directory",
 				platformArch.Name(),
 			)
+
 			continue
 		}
 
@@ -309,28 +300,31 @@ func CopyBinaries(rootPath, targetPath string) error {
 		// We assume here the "server package" is a superset of the "client
 		// package"
 		serverSrc := filepath.Join(rootPath, "server", platformArch.Name())
-		if util.Exists(serverSrc) {
+		if helpers.Exists(serverSrc) {
 			logrus.Infof("Server source found in %s, copying them", serverSrc)
 			src = filepath.Join(serverSrc, "kubernetes", "server", "bin")
 		}
 
 		dst := filepath.Join(targetPath, "bin", platform, arch)
 		logrus.Infof("Copying server binaries from %s to %s", src, dst)
-		if err := util.CopyDirContentsLocal(src, dst); err != nil {
+
+		if err := helpers.CopyDirContentsLocal(src, dst); err != nil {
 			return fmt.Errorf("copy server binaries from %s to %s: %w", src, dst, err)
 		}
 
 		// Copy node binaries if they exist and this isn't a 'server' platform
 		nodeSrc := filepath.Join(rootPath, "node", platformArch.Name())
-		if !util.Exists(serverSrc) && util.Exists(nodeSrc) {
+		if !helpers.Exists(serverSrc) && helpers.Exists(nodeSrc) {
 			src = filepath.Join(nodeSrc, "kubernetes", "node", "bin")
 
 			logrus.Infof("Copying node binaries from %s to %s", src, dst)
-			if err := util.CopyDirContentsLocal(src, dst); err != nil {
+
+			if err := helpers.CopyDirContentsLocal(src, dst); err != nil {
 				return fmt.Errorf("copy node binaries from %s to %s: %w", src, dst, err)
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -359,6 +353,7 @@ func WriteChecksums(rootPath string) error {
 				}
 
 				files = append(files, fmt.Sprintf("%s  %s", sha, strings.TrimPrefix(path, rootPath+"/")))
+
 				return nil
 			},
 		); err != nil {
@@ -369,6 +364,7 @@ func WriteChecksums(rootPath string) error {
 		if err != nil {
 			return "", fmt.Errorf("create file %s: %w", fileName, err)
 		}
+
 		if _, err := file.WriteString(strings.Join(files, "\n")); err != nil {
 			return "", fmt.Errorf("write to file %s: %w", fileName, err)
 		}
@@ -382,6 +378,7 @@ func WriteChecksums(rootPath string) error {
 	if err != nil {
 		return fmt.Errorf("create SHA256 sums: %w", err)
 	}
+
 	sha512SumsFile, err := createSHASums(sha512.New())
 	if err != nil {
 		return fmt.Errorf("create SHA512 sums: %w", err)
@@ -390,19 +387,22 @@ func WriteChecksums(rootPath string) error {
 	// After all the checksum files are generated, move them into the bucket
 	// staging area
 	moveFile := func(file string) error {
-		if err := util.CopyFileLocal(
+		if err := helpers.CopyFileLocal(
 			file, filepath.Join(rootPath, file), true,
 		); err != nil {
 			return fmt.Errorf("move %s sums file to %s: %w", file, rootPath, err)
 		}
+
 		if err := os.RemoveAll(file); err != nil {
 			return fmt.Errorf("remove file %s: %w", file, err)
 		}
+
 		return nil
 	}
 	if err := moveFile(sha256SumsFile); err != nil {
 		return fmt.Errorf("move SHA256 sums: %w", err)
 	}
+
 	if err := moveFile(sha512SumsFile); err != nil {
 		return fmt.Errorf("move SHA512 sums: %w", err)
 	}
@@ -414,11 +414,13 @@ func WriteChecksums(rootPath string) error {
 		if err != nil {
 			return fmt.Errorf("get hash from file: %w", err)
 		}
+
 		shaFileName := fmt.Sprintf("%s.sha%d", fileName, hasher.Size()*8)
 
 		if err := os.WriteFile(shaFileName, []byte(sha), os.FileMode(0o644)); err != nil {
 			return fmt.Errorf("write SHA to file %s: %w", shaFileName, err)
 		}
+
 		return nil
 	}
 
@@ -438,6 +440,7 @@ func WriteChecksums(rootPath string) error {
 			if err := writeSHAFile(path, sha512.New()); err != nil {
 				return fmt.Errorf("write %s.sha512: %w", file.Name(), err)
 			}
+
 			return nil
 		},
 	); err != nil {
@@ -447,7 +450,7 @@ func WriteChecksums(rootPath string) error {
 	return nil
 }
 
-// CreatePubBotBranchIssue creates an issue on GitHub to notify
+// CreatePubBotBranchIssue creates an issue on GitHub to notify.
 func CreatePubBotBranchIssue(branchName string) error {
 	// Check the GH token is set
 	if os.Getenv(github.TokenEnvKey) == "" {
@@ -474,11 +477,13 @@ func CreatePubBotBranchIssue(branchName string) error {
 	if err != nil {
 		return fmt.Errorf("creating publishing bot issue: %w", err)
 	}
+
 	logrus.Infof("Publishing bot issue created #%d!", issue.GetNumber())
+
 	return nil
 }
 
-// Calls docker login to log into docker hub using a token from the environment
+// Calls docker login to log into docker hub using a token from the environment.
 func DockerHubLogin() error {
 	// Check the environment  variable is set
 	if os.Getenv(DockerHubEnvKey) == "" {
@@ -486,14 +491,17 @@ func DockerHubLogin() error {
 	}
 	// Pipe the token into docker login
 	cmd := command.New(
-		"docker", "login", fmt.Sprintf("--username=%s", DockerHubUserName),
+		"docker", "login", "--username="+DockerHubUserName,
 		"--password", os.Getenv(DockerHubEnvKey),
 	)
 	// Run docker login:
 	if err := cmd.RunSuccess(); err != nil {
 		errStr := strings.ReplaceAll(err.Error(), os.Getenv(DockerHubEnvKey), "**********")
+
 		return fmt.Errorf("%s: logging into Docker Hub", errStr)
 	}
+
 	logrus.Infof("User %s successfully logged into Docker Hub", DockerHubUserName)
+
 	return nil
 }

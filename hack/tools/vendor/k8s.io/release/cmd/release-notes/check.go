@@ -21,11 +21,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/spf13/cobra"
+
+	"sigs.k8s.io/release-utils/env"
+
 	"k8s.io/release/pkg/notes"
 	"k8s.io/release/pkg/notes/options"
-	"sigs.k8s.io/release-utils/env"
 )
 
 const (
@@ -48,22 +51,19 @@ type checkPROptions struct {
 func (o *checkPROptions) ValidateAndFinish() error {
 	var lenErr, prNrErr, orgErr, repoErr error
 	if len(o.PullRequests) == 0 {
-		lenErr = fmt.Errorf("no pull requests numbers specified")
+		lenErr = errors.New("no pull requests numbers specified")
 	}
 
-	for _, n := range o.PullRequests {
-		if n == 0 {
-			prNrErr = fmt.Errorf("invalid pull request number (must be an integer larger than 0)")
-			break
-		}
+	if slices.Contains(o.PullRequests, 0) {
+		prNrErr = errors.New("invalid pull request number (must be an integer larger than 0)")
 	}
 
 	if o.GithubOrg == "" {
-		orgErr = fmt.Errorf("no GitHub organization specified")
+		orgErr = errors.New("no GitHub organization specified")
 	}
 
 	if o.GithubRepo == "" {
-		orgErr = fmt.Errorf("no GitHub repository specified")
+		orgErr = errors.New("no GitHub repository specified")
 	}
 
 	return errors.Join(
@@ -174,6 +174,7 @@ To generate release notes from these blocks, use release-notes generate.
 
 			if len(errs) > 0 {
 				fmt.Fprintf(os.Stderr, "\nError Checking Release Notes:\n\n"+pullRequestGuidance)
+
 				return errors.Join(errs...)
 			}
 

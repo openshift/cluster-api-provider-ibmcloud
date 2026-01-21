@@ -30,13 +30,15 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"sigs.k8s.io/release-utils/http"
+
 	"sigs.k8s.io/bom/pkg/spdx/json/document"
 	spdx22JSON "sigs.k8s.io/bom/pkg/spdx/json/v2.2"
 	spdx23JSON "sigs.k8s.io/bom/pkg/spdx/json/v2.3"
-	"sigs.k8s.io/release-utils/http"
 )
 
-// Regexp to match the tag-value spdx expressions
+// Regexp to match the tag-value spdx expressions.
 var (
 	tagRegExp          = regexp.MustCompile(`^([a-z0-9A-Z]+):\s+(.+)`)
 	relationshioRegExp = regexp.MustCompile(`^*(\S+)\s+([_A-Z]+)\s+(\S+)`)
@@ -49,14 +51,16 @@ func OpenDoc(path string) (doc *Document, err error) {
 	// support reading SBOMs from STDIN
 	var file *os.File
 	var isTemp bool
-	if path == "-" || path == "" {
+
+	switch {
+	case path == "-", path == "":
 		if path == "" {
 			fi, err := os.Stdin.Stat()
 			if err != nil {
 				return nil, fmt.Errorf("checking stdin for data: %w", err)
 			}
 			if (fi.Mode() & os.ModeCharDevice) != 0 {
-				return nil, fmt.Errorf("document path not specified")
+				return nil, errors.New("document path not specified")
 			}
 		}
 		isTemp = true
@@ -64,13 +68,13 @@ func OpenDoc(path string) (doc *Document, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading STDIN: %w", err)
 		}
-	} else if isURL(path) {
+	case isURL(path):
 		file, err = tempFileFromURL(path)
 		if err != nil {
 			return nil, fmt.Errorf("get temp file from url: %w", err)
 		}
 		isTemp = true
-	} else {
+	default:
 		file, err = os.Open(path)
 		if err != nil {
 			return nil, fmt.Errorf("opening document from %s: %w", path, err)
@@ -100,20 +104,18 @@ func OpenDoc(path string) (doc *Document, err error) {
 	return nil, errors.New("unknown SBOM encoding")
 }
 
+// TODO(puerco): Perhaps this function and isURL should be part of the http agent.
 func tempFileFromURL(query string) (*os.File, error) {
-	response, err := http.GetURLResponse(query, false)
-	if err != nil {
-		return nil, fmt.Errorf("retrieving URL resposne from %s: %w", query, err)
-	}
 	file, err := os.CreateTemp("", "sbom-")
 	if err != nil {
-		return nil, fmt.Errorf("create temp file for URL response: %w", err)
+		return nil, fmt.Errorf("creating temp file for URL response: %w", err)
 	}
-	if _, err := file.WriteString(response); err != nil {
-		return nil, fmt.Errorf("write response to file: %w", err)
+	if err := http.NewAgent().GetToWriter(file, query); err != nil {
+		return nil, fmt.Errorf("retrieving URL data from %q: %w", query, err)
 	}
+
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, fmt.Errorf("seek file start: %w", err)
+		return nil, fmt.Errorf("seeking to temp file start: %w", err)
 	}
 	return file, nil
 }
@@ -331,9 +333,10 @@ func parseJSON(file *os.File) (doc *Document, err error) {
 			continue
 		}
 
+		switch {
 		// Look for the peer element, exception: peer may be
 		// an external reference
-		if strings.HasPrefix(relatedID, "DocumentRef-") {
+		case strings.HasPrefix(relatedID, "DocumentRef-"):
 			externalID = relatedID
 			parts := strings.SplitN(relatedID, ":", 2)
 			if len(parts) != 2 {
@@ -341,7 +344,7 @@ func parseJSON(file *os.File) (doc *Document, err error) {
 				continue
 			}
 			relatedID = parts[1]
-		} else if typeID == string(DESCRIBES) && elementID == jsonDoc.GetID() {
+		case (typeID == string(DESCRIBES) && elementID == jsonDoc.GetID()):
 			// Handle top-level packages marked by a relationship
 			if p, ok := allPackages[relatedID]; ok {
 				doc.Packages[relatedID] = p
@@ -352,7 +355,7 @@ func parseJSON(file *os.File) (doc *Document, err error) {
 				continue
 			}
 			seenObjects[relatedID] = relatedID
-		} else {
+		default:
 			if _, ok := allPackages[relatedID]; ok {
 				peer = allPackages[relatedID]
 			} else if _, ok := allFiles[relatedID]; ok {
@@ -543,19 +546,19 @@ func parseTagValue(file *os.File) (doc *Document, err error) {
 			}
 			// Tags for packages
 		case "FilesAnalyzed":
-			currentObject.(*Package).FilesAnalyzed = value == "true"
+			currentObject.(*Package).FilesAnalyzed = value == "true" //nolint: errcheck
 		case "PackageVersion":
-			currentObject.(*Package).Version = value
+			currentObject.(*Package).Version = value //nolint: errcheck
 		case "PackageLicenseDeclared":
-			currentObject.(*Package).LicenseDeclared = value
+			currentObject.(*Package).LicenseDeclared = value //nolint: errcheck
 		case "PackageVerificationCode":
-			currentObject.(*Package).VerificationCode = value
+			currentObject.(*Package).VerificationCode = value //nolint: errcheck
 		case "PackageComment":
-			currentObject.(*Package).Comment = value
+			currentObject.(*Package).Comment = value //nolint: errcheck
 		case "PackageFileName":
-			currentObject.(*Package).FileName = value
+			currentObject.(*Package).FileName = value //nolint: errcheck
 		case "PackageHomePage":
-			currentObject.(*Package).HomePage = value
+			currentObject.(*Package).HomePage = value //nolint: errcheck
 		case "PrimaryPackagePurpose":
 			purpose := ""
 			for _, pp := range PackagePurposes {
@@ -568,18 +571,18 @@ func parseTagValue(file *os.File) (doc *Document, err error) {
 				// TODO: Check if the doc is SPDX 2.3 or higher
 				return nil, fmt.Errorf("invalid package purpose found %s", value)
 			}
-			currentObject.(*Package).PrimaryPurpose = purpose
+			currentObject.(*Package).PrimaryPurpose = purpose //nolint: errcheck
 		case "PackageLicenseInfoFromFiles":
 			have := false
 			// Check if we already have the license
-			for _, licid := range currentObject.(*Package).LicenseInfoFromFiles {
+			for _, licid := range currentObject.(*Package).LicenseInfoFromFiles { //nolint: errcheck
 				if licid == value {
 					have = true
 					break
 				}
 			}
 			if !have {
-				currentObject.(*Package).LicenseInfoFromFiles = append(currentObject.(*Package).LicenseInfoFromFiles, value)
+				currentObject.(*Package).LicenseInfoFromFiles = append(currentObject.(*Package).LicenseInfoFromFiles, value) //nolint: errcheck
 			}
 		case "PackageSupplier":
 			if value == NOASSERTION {
@@ -592,9 +595,9 @@ func parseTagValue(file *os.File) (doc *Document, err error) {
 			}
 			switch match[1] {
 			case entPerson:
-				currentObject.(*Package).Supplier.Person = match[2]
+				currentObject.(*Package).Supplier.Person = match[2] //nolint: errcheck
 			case entOrganization:
-				currentObject.(*Package).Supplier.Organization = match[2]
+				currentObject.(*Package).Supplier.Organization = match[2] //nolint: errcheck
 			default:
 				return nil, fmt.Errorf(
 					"invalid supplier tag '%s' syntax at line %d, valid values are 'Organization' or 'Person'",
@@ -603,7 +606,7 @@ func parseTagValue(file *os.File) (doc *Document, err error) {
 			}
 		case "LicenseInfoInFile":
 			if value != NONE {
-				currentObject.(*File).LicenseInfoInFile = value
+				currentObject.(*File).LicenseInfoInFile = value //nolint: errcheck
 			}
 		case "FileChecksum", "PackageChecksum":
 			// Checksums are also tag/value -> algo/hash
@@ -707,7 +710,7 @@ func parseTagValue(file *os.File) (doc *Document, err error) {
 					return nil, fmt.Errorf("invalid external reference type: %s", parts[1])
 				}
 
-				currentObject.(*Package).ExternalRefs = append(currentObject.(*Package).ExternalRefs, ExternalRef{
+				currentObject.(*Package).ExternalRefs = append(currentObject.(*Package).ExternalRefs, ExternalRef{ //nolint: errcheck
 					Category: parts[0],
 					Type:     parts[1],
 					Locator:  parts[2],
@@ -751,7 +754,7 @@ func parseTagValue(file *os.File) (doc *Document, err error) {
 
 			if f, ok := objects[rdata.Peer].(*File); ok {
 				logrus.Debugf("doc %s describes file %s", doc.ID, rdata.Peer)
-				doc.Files[(objects[rdata.Peer]).(*File).SPDXID()] = f
+				doc.Files[(objects[rdata.Peer]).(*File).SPDXID()] = f //nolint: errcheck
 			}
 			continue
 		}
@@ -800,7 +803,7 @@ func parseTagValue(file *os.File) (doc *Document, err error) {
 	return doc, nil
 }
 
-// detectSBOMEncoding reads a few bytes from the SBOM and returns
+// detectSBOMEncoding reads a few bytes from the SBOM and returns.
 func DetectSBOMEncoding(f *os.File) (format string, err error) {
 	fileScanner := bufio.NewScanner(f)
 	fileScanner.Split(bufio.ScanLines)
@@ -839,7 +842,7 @@ func DetectSBOMEncoding(f *os.File) (format string, err error) {
 	return "", nil
 }
 
-// buyfferSTDIN buffers all of STDIN to a temp file
+// buyfferSTDIN buffers all of STDIN to a temp file.
 func bufferSTDIN() (*os.File, error) {
 	file, err := os.CreateTemp("", "temp-sbom")
 	if err != nil {

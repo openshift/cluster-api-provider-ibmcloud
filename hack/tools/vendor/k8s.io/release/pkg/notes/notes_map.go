@@ -24,17 +24,17 @@ import (
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v4"
 
 	"sigs.k8s.io/release-sdk/object"
 )
 
-// MapProvider interface that obtains release notes maps from a source
+// MapProvider interface that obtains release notes maps from a source.
 type MapProvider interface {
 	GetMapsForPR(int) ([]*ReleaseNotesMap, error)
 }
 
-// NewProviderFromInitString creates a new map provider from an initialization string
+// NewProviderFromInitString creates a new map provider from an initialization string.
 func NewProviderFromInitString(initString string) (MapProvider, error) {
 	// If init string starts with gs:// return a CloudStorageProvider
 	if len(initString) >= 5 && initString[0:5] == object.GcsPrefix {
@@ -48,6 +48,7 @@ func NewProviderFromInitString(initString string) (MapProvider, error) {
 	if os.IsNotExist(err) {
 		return nil, errors.New("release notes map path does not exist")
 	}
+
 	if !fileStat.IsDir() {
 		return nil, errors.New("release notes map path is not a directory")
 	}
@@ -55,24 +56,27 @@ func NewProviderFromInitString(initString string) (MapProvider, error) {
 	return &DirectoryMapProvider{Path: initString}, nil
 }
 
-// ParseReleaseNotesMap Parses a Release Notes Map
+// ParseReleaseNotesMap Parses a Release Notes Map.
 func ParseReleaseNotesMap(mapPath string) (*[]ReleaseNotesMap, error) {
 	notemaps := []ReleaseNotesMap{}
+
 	yamlReader, err := os.Open(mapPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening maps: %w", err)
 	}
+
 	defer yamlReader.Close()
 
 	decoder := yaml.NewDecoder(yamlReader)
 
 	for {
 		noteMap := ReleaseNotesMap{}
-		if err := decoder.Decode(&noteMap); err == io.EOF {
+		if err := decoder.Decode(&noteMap); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			return nil, fmt.Errorf("decoding note map: %w", err)
 		}
+
 		notemaps = append(notemaps, noteMap)
 	}
 
@@ -122,24 +126,26 @@ type ReleaseNotesMap struct {
 	PRBody *string `json:"pr_body,omitempty" yaml:"pr_body,omitempty"`
 }
 
-// ReleaseNotesDataField extra data added to a release note
-type ReleaseNotesDataField interface{}
+// ReleaseNotesDataField extra data added to a release note.
+type ReleaseNotesDataField any
 
-// DirectoryMapProvider is a provider that gets maps from a directory
+// DirectoryMapProvider is a provider that gets maps from a directory.
 type DirectoryMapProvider struct {
 	Path string
 	Maps map[int][]*ReleaseNotesMap
 }
 
-// readMaps Open the dir and read dir notes
+// readMaps Open the dir and read dir notes.
 func (mp *DirectoryMapProvider) readMaps() error {
 	var fileList []string
+
 	mp.Maps = map[int][]*ReleaseNotesMap{}
 
 	err := filepath.Walk(mp.Path, func(path string, info os.FileInfo, err error) error {
 		if filepath.Ext(path) == ".yaml" || filepath.Ext(path) == ".yml" {
 			fileList = append(fileList, path)
 		}
+
 		return nil
 	})
 
@@ -148,18 +154,22 @@ func (mp *DirectoryMapProvider) readMaps() error {
 		if err != nil {
 			return fmt.Errorf("while parsing note map in %s: %w", fileName, err)
 		}
+
 		for i, notemap := range *notemaps {
 			if _, ok := mp.Maps[notemap.PR]; !ok {
 				mp.Maps[notemap.PR] = make([]*ReleaseNotesMap, 0)
 			}
+
 			mp.Maps[notemap.PR] = append(mp.Maps[notemap.PR], &(*notemaps)[i])
 		}
 	}
+
 	logrus.Infof("Successfully parsed release notes maps for %d PRs from %s", len(mp.Maps), mp.Path)
+
 	return err
 }
 
-// GetMapsForPR get the release notes maps for a specific PR number
+// GetMapsForPR get the release notes maps for a specific PR number.
 func (mp *DirectoryMapProvider) GetMapsForPR(pr int) (notesMap []*ReleaseNotesMap, err error) {
 	if mp.Maps == nil {
 		err := mp.readMaps()
@@ -167,8 +177,10 @@ func (mp *DirectoryMapProvider) GetMapsForPR(pr int) (notesMap []*ReleaseNotesMa
 			return nil, fmt.Errorf("while reading release notes maps: %w", err)
 		}
 	}
+
 	if notesMap, ok := mp.Maps[pr]; ok {
 		return notesMap, nil
 	}
+
 	return nil, nil
 }

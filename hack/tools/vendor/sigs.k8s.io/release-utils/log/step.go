@@ -29,7 +29,7 @@ type StepLogger struct {
 	currentStep uint
 }
 
-// NewStepLogger creates a new logger
+// NewStepLogger creates a new logger.
 func NewStepLogger(steps uint) *StepLogger {
 	return &StepLogger{
 		Logger:      logrus.StandardLogger(),
@@ -42,6 +42,7 @@ func NewStepLogger(steps uint) *StepLogger {
 // field.
 func (l *StepLogger) WithStep() *logrus.Entry {
 	l.currentStep++
+
 	return l.WithField(
 		"step",
 		fmt.Sprintf("%d/%d", l.currentStep, l.steps),

@@ -31,19 +31,19 @@ import (
 //go:generate /usr/bin/env bash -c "cat ../../hack/boilerplate/boilerplate.generatego.txt binaryfakes/fake_binary_implementation.go > binaryfakes/_fake_binary_implementation.go && mv binaryfakes/_fake_binary_implementation.go binaryfakes/fake_binary_implementation.go"
 
 const (
-	// GOOS labels
+	// GOOS labels.
 	LINUX  = "linux"
 	DARWIN = "darwin"
 	WIN    = "windows"
 )
 
-// Binary is the base type of the package. It abstracts a binary executable
+// Binary is the base type of the package. It abstracts a binary executable.
 type Binary struct {
 	options *Options
 	binaryImplementation
 }
 
-// Options to control the binary checker
+// Options to control the binary checker.
 type Options struct {
 	Path string
 }
@@ -54,7 +54,7 @@ func New(filePath string) (bin *Binary, err error) {
 	return NewWithOptions(filePath, &Options{Path: filePath})
 }
 
-// NewWithOptions creates a new binary with the specified options
+// NewWithOptions creates a new binary with the specified options.
 func NewWithOptions(filePath string, opts *Options) (bin *Binary, err error) {
 	bin = &Binary{
 		options: opts,
@@ -64,19 +64,22 @@ func NewWithOptions(filePath string, opts *Options) (bin *Binary, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting arch implementation: %w", err)
 	}
+
 	bin.options.Path = filePath
 	bin.SetImplementation(impl)
+
 	return bin, nil
 }
 
 // getArchImplementation returns the implementation that corresponds
-// to the specified binary
+// to the specified binary.
 func getArchImplementation(filePath string, opts *Options) (impl binaryImplementation, err error) {
 	// Check if we're dealing with a Linux binary
 	elf, err := NewELFBinary(filePath, opts)
 	if err != nil {
 		return nil, fmt.Errorf("checking if file is an ELF binary: %w", err)
 	}
+
 	if elf != nil {
 		return elf, nil
 	}
@@ -86,6 +89,7 @@ func getArchImplementation(filePath string, opts *Options) (impl binaryImplement
 	if err != nil {
 		return nil, fmt.Errorf("checking if file is a Mach-O binary: %w", err)
 	}
+
 	if macho != nil {
 		return macho, nil
 	}
@@ -95,11 +99,13 @@ func getArchImplementation(filePath string, opts *Options) (impl binaryImplement
 	if err != nil {
 		return nil, fmt.Errorf("checking if file is a windows PE binary: %w", err)
 	}
+
 	if pe != nil {
 		return pe, nil
 	}
 
 	logrus.Warnf("File is not a known executable: %s", filePath)
+
 	return nil, errors.New("file is not an executable or is an unknown format")
 }
 
@@ -115,17 +121,17 @@ type binaryImplementation interface {
 	LinkMode() (LinkMode, error)
 }
 
-// SetImplementation sets the implementation to handle this sort of executable
+// SetImplementation sets the implementation to handle this sort of executable.
 func (b *Binary) SetImplementation(impl binaryImplementation) {
 	b.binaryImplementation = impl
 }
 
-// Arch returns a string with the GOARCH label of the file
+// Arch returns a string with the GOARCH label of the file.
 func (b *Binary) Arch() string {
 	return b.binaryImplementation.Arch()
 }
 
-// OS returns a string with the GOOS label of the binary file
+// OS returns a string with the GOOS label of the binary file.
 func (b *Binary) OS() string {
 	return b.binaryImplementation.OS()
 }
@@ -144,7 +150,7 @@ func (b *Binary) LinkMode() (LinkMode, error) {
 	return b.binaryImplementation.LinkMode()
 }
 
-// ContainsStrings searches the printable strings un a binary file
+// ContainsStrings searches the printable strings un a binary file.
 func (b *Binary) ContainsStrings(s ...string) (match bool, err error) {
 	// We cannot search for 0 items:
 	if len(s) == 0 {
@@ -156,7 +162,9 @@ func (b *Binary) ContainsStrings(s ...string) (match bool, err error) {
 	if err != nil {
 		return match, fmt.Errorf("opening binary to search: %w", err)
 	}
+
 	defer f.Close()
+
 	terms := map[string]bool{}
 	for _, s := range s {
 		terms[s] = true
@@ -169,9 +177,10 @@ func (b *Binary) ContainsStrings(s ...string) (match bool, err error) {
 		// Read each rune from the binary file
 		r, _, err := in.ReadRune()
 		if err != nil {
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				return match, fmt.Errorf("while reading binary data: %w", err)
 			}
+
 			return false, nil
 		}
 		// If the char is not printable, we assume the string ended
@@ -179,11 +188,14 @@ func (b *Binary) ContainsStrings(s ...string) (match bool, err error) {
 		if !unicode.IsPrint(r) {
 			delete(terms, string(runes))
 			runes = []rune{}
+
 			if len(terms) == 0 {
 				return true, nil
 			}
+
 			continue
 		}
+
 		runes = append(runes, r)
 	}
 }

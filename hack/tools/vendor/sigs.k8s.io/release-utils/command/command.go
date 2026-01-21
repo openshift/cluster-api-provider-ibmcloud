@@ -18,6 +18,7 @@ package command
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,7 +31,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// A generic command abstraction
+// A generic command abstraction.
 type Command struct {
 	cmds                         []*command
 	stdErrWriters, stdOutWriters []io.Writer
@@ -39,7 +40,7 @@ type Command struct {
 	filter                       *filter
 }
 
-// The internal command representation
+// The internal command representation.
 type command struct {
 	*exec.Cmd
 	pipeWriter *io.PipeWriter
@@ -51,19 +52,19 @@ type filter struct {
 	replaceAll string
 }
 
-// A generic command exit status
-type Status struct {
+// A generic command exit status.
+type Status struct { //nolint: errname
 	waitStatus syscall.WaitStatus
 	*Stream
 }
 
-// Stream combines standard output and error
+// Stream combines standard output and error.
 type Stream struct { //nolint: errname
 	stdOut string
 	stdErr string
 }
 
-// Commands is an abstraction over multiple Command structures
+// Commands is an abstraction over multiple Command structures.
 type Commands []*Command
 
 // New creates a new command from the provided arguments.
@@ -88,10 +89,11 @@ func NewWithWorkDir(workDir, cmd string, args ...string) *Command {
 func cmdWithDir(dir, cmd string, args ...string) *exec.Cmd {
 	c := exec.Command(cmd, args...)
 	c.Dir = dir
+
 	return c
 }
 
-// Pipe creates a new command where the previous should be piped to
+// Pipe creates a new command where the previous should be piped to.
 func (c *Command) Pipe(cmd string, args ...string) *Command {
 	pipeCmd := cmdWithDir(c.cmds[0].Dir, cmd, args...)
 
@@ -103,6 +105,7 @@ func (c *Command) Pipe(cmd string, args ...string) *Command {
 		Cmd:        pipeCmd,
 		pipeWriter: writer,
 	})
+
 	return c
 }
 
@@ -111,17 +114,19 @@ func (c *Command) Pipe(cmd string, args ...string) *Command {
 // while it is possible to overwrite already existing environment variables.
 func (c *Command) Env(env ...string) *Command {
 	c.env = append(c.env, env...)
+
 	return c
 }
 
 // Verbose enables verbose output aka printing the command before executing it.
 func (c *Command) Verbose() *Command {
 	c.verbose = true
+
 	return c
 }
 
 // isVerbose returns true if the command is in verbose mode, either set locally
-// or global
+// or global.
 func (c *Command) isVerbose() bool {
 	return GetGlobalVerbose() || c.verbose
 }
@@ -132,6 +137,7 @@ func (c *Command) Add(cmd string, args ...string) Commands {
 	addCmd := NewWithWorkDir(c.cmds[0].Dir, cmd, args...)
 	addCmd.verbose = c.verbose
 	addCmd.filter = c.filter
+
 	return Commands{c, addCmd}
 }
 
@@ -141,6 +147,7 @@ func (c *Command) Add(cmd string, args ...string) Commands {
 func (c *Command) AddWriter(writer io.Writer) *Command {
 	c.AddOutputWriter(writer)
 	c.AddErrorWriter(writer)
+
 	return c
 }
 
@@ -148,6 +155,7 @@ func (c *Command) AddWriter(writer io.Writer) *Command {
 // command, for example when having the need to log to files.
 func (c *Command) AddErrorWriter(writer io.Writer) *Command {
 	c.stdErrWriters = append(c.stdErrWriters, writer)
+
 	return c
 }
 
@@ -155,6 +163,7 @@ func (c *Command) AddErrorWriter(writer io.Writer) *Command {
 // the command, for example when having the need to log to files.
 func (c *Command) AddOutputWriter(writer io.Writer) *Command {
 	c.stdOutWriters = append(c.stdOutWriters, writer)
+
 	return c
 }
 
@@ -165,16 +174,18 @@ func (c *Command) Filter(regex, replaceAll string) (*Command, error) {
 	if err != nil {
 		return nil, fmt.Errorf("compile regular expression: %w", err)
 	}
+
 	c.filter = &filter{
 		regex:      filterRegex,
 		replaceAll: replaceAll,
 	}
+
 	return c, nil
 }
 
 // Run starts the command and waits for it to finish. It returns an error if
 // the command execution was not possible at all, otherwise the Status.
-// This method prints the commands output during execution
+// This method prints the commands output during execution.
 func (c *Command) Run() (res *Status, err error) {
 	return c.run(true)
 }
@@ -186,33 +197,40 @@ func (c *Command) RunSuccessOutput() (output *Stream, err error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if !res.Success() {
 		return nil, fmt.Errorf("command %v did not succeed: %v", c.String(), res.Error())
 	}
+
 	return res.Stream, nil
 }
 
 // RunSuccess starts the command and waits for it to finish. It returns an
 // error if the command execution was not successful.
 func (c *Command) RunSuccess() error {
-	_, err := c.RunSuccessOutput() //nolint: errcheck
+	_, err := c.RunSuccessOutput()
+
 	return err
 }
 
-// String returns a string representation of the full command
+// String returns a string representation of the full command.
 func (c *Command) String() string {
 	str := []string{}
+
 	for _, x := range c.cmds {
 		// Note: the following logic can be replaced with x.String(), which was
 		// implemented in go1.13
 		b := new(strings.Builder)
 		b.WriteString(x.Path)
+
 		for _, a := range x.Args[1:] {
 			b.WriteByte(' ')
 			b.WriteString(a)
 		}
+
 		str = append(str, b.String())
 	}
+
 	return strings.Join(str, " | ")
 }
 
@@ -232,9 +250,11 @@ func (c *Command) RunSilentSuccessOutput() (output *Stream, err error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if !res.Success() {
 		return nil, fmt.Errorf("command %v did not succeed: %w", c.String(), res)
 	}
+
 	return res.Stream, nil
 }
 
@@ -242,13 +262,15 @@ func (c *Command) RunSilentSuccessOutput() (output *Stream, err error) {
 // an error if the command execution was not successful. This method does not
 // print the output of the command during its execution.
 func (c *Command) RunSilentSuccess() error {
-	_, err := c.RunSilentSuccessOutput() //nolint: errcheck
+	_, err := c.RunSilentSuccessOutput()
+
 	return err
 }
 
-// run is the internal run method
+// run is the internal run method.
 func (c *Command) run(printOutput bool) (res *Status, err error) {
 	var runErr error
+
 	stdOutBuffer := &bytes.Buffer{}
 	stdErrBuffer := &bytes.Buffer{}
 	status := &Status{Stream: &Stream{}}
@@ -257,9 +279,11 @@ func (c *Command) run(printOutput bool) (res *Status, err error) {
 		stdout error
 		stderr error
 	}
+
 	doneChan := make(chan done, 1)
 
 	var stdOutWriter io.Writer
+
 	for i, cmd := range c.cmds {
 		// Last command handling
 		if i+1 == len(c.cmds) {
@@ -267,12 +291,14 @@ func (c *Command) run(printOutput bool) (res *Status, err error) {
 			if err != nil {
 				return nil, err
 			}
+
 			stderr, err := cmd.StderrPipe()
 			if err != nil {
 				return nil, err
 			}
 
 			var stdErrWriter io.Writer
+
 			if printOutput {
 				stdOutWriter = io.MultiWriter(append(
 					[]io.Writer{os.Stdout, stdOutBuffer}, c.stdOutWriters...,
@@ -284,8 +310,10 @@ func (c *Command) run(printOutput bool) (res *Status, err error) {
 				stdOutWriter = stdOutBuffer
 				stdErrWriter = stdErrBuffer
 			}
+
 			go func() {
 				var stdoutErr, stderrErr error
+
 				wg := sync.WaitGroup{}
 
 				wg.Add(2)
@@ -293,10 +321,12 @@ func (c *Command) run(printOutput bool) (res *Status, err error) {
 				filterCopy := func(read io.ReadCloser, write io.Writer) (err error) {
 					if c.filter != nil {
 						builder := &strings.Builder{}
+
 						_, err = io.Copy(builder, read)
 						if err != nil {
 							return err
 						}
+
 						str := c.filter.regex.ReplaceAllString(
 							builder.String(), c.filter.replaceAll,
 						)
@@ -304,20 +334,24 @@ func (c *Command) run(printOutput bool) (res *Status, err error) {
 					} else {
 						_, err = io.Copy(write, read)
 					}
+
 					return err
 				}
 
 				go func() {
 					stdoutErr = filterCopy(stdout, stdOutWriter)
+
 					wg.Done()
 				}()
 
 				go func() {
 					stderrErr = filterCopy(stderr, stdErrWriter)
+
 					wg.Done()
 				}()
 
 				wg.Wait()
+
 				doneChan <- done{stdoutErr, stderrErr}
 			}()
 		}
@@ -350,6 +384,7 @@ func (c *Command) run(printOutput bool) (res *Status, err error) {
 			if err.stdout != nil && strings.Contains(err.stdout.Error(), os.ErrClosed.Error()) {
 				return nil, fmt.Errorf("unable to copy stdout: %w", err.stdout)
 			}
+
 			if err.stderr != nil && strings.Contains(err.stderr.Error(), os.ErrClosed.Error()) {
 				return nil, fmt.Errorf("unable to copy stderr: %w", err.stderr)
 			}
@@ -361,9 +396,11 @@ func (c *Command) run(printOutput bool) (res *Status, err error) {
 	status.stdOut = stdOutBuffer.String()
 	status.stdErr = stdErrBuffer.String()
 
-	if exitErr, ok := runErr.(*exec.ExitError); ok {
+	exitErr := &exec.ExitError{}
+	if errors.As(runErr, &exitErr) {
 		if waitStatus, ok := exitErr.Sys().(syscall.WaitStatus); ok {
 			status.waitStatus = waitStatus
+
 			return status, nil
 		}
 	}
@@ -371,17 +408,17 @@ func (c *Command) run(printOutput bool) (res *Status, err error) {
 	return status, runErr
 }
 
-// Success returns if a Status was successful
+// Success returns if a Status was successful.
 func (s *Status) Success() bool {
 	return s.waitStatus.ExitStatus() == 0
 }
 
-// ExitCode returns the exit status of the command status
+// ExitCode returns the exit status of the command status.
 func (s *Status) ExitCode() int {
 	return s.waitStatus.ExitStatus()
 }
 
-// Output returns stdout of the command status
+// Output returns stdout of the command status.
 func (s *Stream) Output() string {
 	return s.stdOut
 }
@@ -392,7 +429,7 @@ func (s *Stream) OutputTrimNL() string {
 	return strings.TrimSpace(s.stdOut)
 }
 
-// Error returns the stderr of the command status
+// Error returns the stderr of the command status.
 func (s *Stream) Error() string {
 	return s.stdErr
 }
@@ -404,12 +441,14 @@ func Execute(cmd string, args ...string) error {
 	if err != nil {
 		return fmt.Errorf("command %q is not executable: %w", cmd, err)
 	}
+
 	if !status.Success() {
 		return fmt.Errorf(
 			"command %q did not exit successful (%d)",
 			cmd, status.ExitCode(),
 		)
 	}
+
 	return nil
 }
 
@@ -418,12 +457,15 @@ func Execute(cmd string, args ...string) error {
 // check for duplicates nor if the provided slice is empty.
 func Available(commands ...string) (ok bool) {
 	ok = true
+
 	for _, command := range commands {
 		if _, err := exec.LookPath(command); err != nil {
 			logrus.Warnf("Unable to %v", err)
+
 			ok = false
 		}
 	}
+
 	return ok
 }
 
@@ -433,19 +475,23 @@ func (c Commands) Add(cmd string, args ...string) Commands {
 	addCmd := NewWithWorkDir(c[0].cmds[0].Dir, cmd, args...)
 	addCmd.verbose = c[0].verbose
 	addCmd.filter = c[0].filter
+
 	return append(c, addCmd)
 }
 
 // Run executes all commands sequentially and abort if any of those fails.
 func (c Commands) Run() (*Status, error) {
 	res := &Status{Stream: &Stream{}}
+
 	for _, cmd := range c {
 		output, err := cmd.RunSuccessOutput()
 		if err != nil {
 			return nil, fmt.Errorf("running command %q: %w", cmd.String(), err)
 		}
+
 		res.stdOut += "\n" + output.stdOut
 		res.stdErr += "\n" + output.stdErr
 	}
+
 	return res, nil
 }

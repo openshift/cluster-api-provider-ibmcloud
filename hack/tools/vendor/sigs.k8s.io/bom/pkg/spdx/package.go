@@ -26,6 +26,7 @@ package spdx
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -85,7 +86,7 @@ PackageCopyrightText: {{ if .CopyrightText }}<text>{{ .CopyrightText }}
 
 `
 
-// Package groups a set of files
+// Package groups a set of files.
 type Package struct {
 	Entity
 	sync.RWMutex
@@ -131,11 +132,11 @@ var ExternalRefCategories = map[string][]string{
 
 func NewPackage() (p *Package) {
 	p = &Package{}
-	p.Entity.Opts = &ObjectOptions{}
+	p.Opts = &ObjectOptions{}
 	return p
 }
 
-// AddFile adds a file contained in the package
+// AddFile adds a file contained in the package.
 func (p *Package) AddFile(file *File) error {
 	p.Lock()
 	defer p.Unlock()
@@ -153,7 +154,7 @@ func (p *Package) AddFile(file *File) error {
 		if _, err := h.Write([]byte(p.Name + ":" + file.Name)); err != nil {
 			return fmt.Errorf("getting sha1 of filename: %w", err)
 		}
-		file.BuildID(fmt.Sprintf("%x", h.Sum(nil)))
+		file.BuildID(hex.EncodeToString(h.Sum(nil)))
 	}
 
 	// Add the file to the package's relationships
@@ -166,7 +167,7 @@ func (p *Package) AddFile(file *File) error {
 	return nil
 }
 
-// AddPackage adds a new subpackage to a package
+// AddPackage adds a new subpackage to a package.
 func (p *Package) AddPackage(pkg *Package) error {
 	p.AddRelationship(&Relationship{
 		Peer:       pkg,
@@ -176,7 +177,7 @@ func (p *Package) AddPackage(pkg *Package) error {
 	return nil
 }
 
-// AddDependency adds a new subpackage as a dependency
+// AddDependency adds a new subpackage as a dependency.
 func (p *Package) AddDependency(pkg *Package) error {
 	p.AddRelationship(&Relationship{
 		Peer:       pkg,
@@ -186,7 +187,7 @@ func (p *Package) AddDependency(pkg *Package) error {
 	return nil
 }
 
-// Files returns all contained files in the package
+// Files returns all contained files in the package.
 func (p *Package) Files() []*File {
 	ret := []*File{}
 	for _, rel := range p.Relationships {
@@ -200,7 +201,7 @@ func (p *Package) Files() []*File {
 }
 
 // ComputeVerificationCode calculates the package verification
-// code according to the SPDX spec
+// code according to the SPDX spec.
 func (p *Package) ComputeVerificationCode() error {
 	files := p.Files()
 	p.VerificationCode = ""
@@ -217,12 +218,10 @@ func (p *Package) ComputeVerificationCode() error {
 	shaList := []string{}
 	for _, f := range files {
 		if f.Checksum == nil {
-			return fmt.Errorf("unable to render package, file has no checksums")
+			return errors.New("unable to render package, file has no checksums")
 		}
 		if _, ok := f.Checksum["SHA1"]; !ok {
-			return fmt.Errorf(
-				"unable to render package, files were analyzed but some do not have sha1 checksums",
-			)
+			return errors.New("unable to render package, files were analyzed but some do not have sha1 checksums")
 		}
 		shaList = append(shaList, f.Checksum["SHA1"])
 	}
@@ -233,12 +232,12 @@ func (p *Package) ComputeVerificationCode() error {
 	if _, err := h.Write([]byte(strings.Join(shaList, ""))); err != nil {
 		return fmt.Errorf("getting SHA1 verification of files: %w", err)
 	}
-	p.VerificationCode = fmt.Sprintf("%x", h.Sum(nil))
+	p.VerificationCode = hex.EncodeToString(h.Sum(nil))
 	return nil
 }
 
 // ComputeLicenseListComputes the license list from the
-// files contained in the package
+// files contained in the package.
 func (p *Package) ComputeLicenseList() error {
 	p.LicenseInfoFromFiles = []string{}
 	if !p.FilesAnalyzed {
@@ -247,7 +246,7 @@ func (p *Package) ComputeLicenseList() error {
 
 	files := p.Files()
 	if len(files) == 0 {
-		return fmt.Errorf("unable to compute license list, package has no files")
+		return errors.New("unable to compute license list, package has no files")
 	}
 
 	filesTagList := []string{}
@@ -282,7 +281,7 @@ func (p *Package) ComputeLicenseList() error {
 	return nil
 }
 
-// Render renders the document fragment of the package
+// Render renders the document fragment of the package.
 func (p *Package) Render() (docFragment string, err error) {
 	// First thing, check all relationships
 	if len(p.Relationships) > 0 {
@@ -344,7 +343,7 @@ func (p *Package) CheckRelationships() error {
 	return nil
 }
 
-// BuildID sets the file ID, optionally from a series of strings
+// BuildID sets the file ID, optionally from a series of strings.
 func (p *Package) BuildID(seeds ...string) {
 	prefix := ""
 	if p.Options() != nil {
@@ -372,7 +371,7 @@ func (p *Package) drawTitle(o *DrawingOptions) string {
 	return title
 }
 
-// drawName returns the name string to be used in the outline
+// drawName returns the name string to be used in the outline.
 func (p *Package) drawName(o *DrawingOptions) string {
 	name := p.SPDXID()
 	if o.Purls && p.Purl() != nil && p.Purl().Name != "" {
@@ -402,7 +401,11 @@ func (p *Package) Draw(builder *strings.Builder, o *DrawingOptions, depth int, s
 		connector = connectorL
 	}
 
-	fmt.Fprintf(builder, treeLines(o, depth, connector)+"🔗 %d Relationships\n", len(p.Relationships))
+	// not printed when find is set since relationships will be filtered out from the graph.
+	if o.Find == "" {
+		fmt.Fprintf(builder, treeLines(o, depth, connector)+"🔗 %d Relationships\n", len(p.Relationships))
+	}
+
 	if depth >= o.Recursion && o.Recursion > 0 {
 		fmt.Fprintln(builder, treeLines(o, depth-1, ""))
 		return
@@ -427,12 +430,12 @@ func (p *Package) Draw(builder *strings.Builder, o *DrawingOptions, depth int, s
 
 			if !o.OnlyIDs {
 				if _, ok := rel.Peer.(*Package); ok {
-					name = rel.Peer.(*Package).drawName(o)
+					name = rel.Peer.(*Package).drawName(o) //nolint: errcheck
 					etype = "PACKAGE"
 				}
 
 				if _, ok := rel.Peer.(*File); ok {
-					name = rel.Peer.(*File).Name
+					name = rel.Peer.(*File).Name //nolint: errcheck
 					etype = "FILE"
 				}
 			}
@@ -448,8 +451,8 @@ func (p *Package) Draw(builder *strings.Builder, o *DrawingOptions, depth int, s
 
 		// If it is a file, print the name
 		if _, ok := rel.Peer.(*File); ok {
-			if rel.Peer.(*File).Name != "" {
-				line += fmt.Sprintf(" (%s)", rel.Peer.(*File).Name)
+			if rel.Peer.(*File).Name != "" { //nolint: errcheck
+				line += fmt.Sprintf(" (%s)", rel.Peer.(*File).Name) //nolint: errcheck
 			}
 		}
 		if o.Width > 0 && len(line) > o.Width {
@@ -463,16 +466,16 @@ func (p *Package) Draw(builder *strings.Builder, o *DrawingOptions, depth int, s
 				// if the child is a package:
 				if _, ok := rel.Peer.(*Package); ok {
 					o.SkipName = true
-					if len(rel.Peer.(*Package).Relationships) > 0 {
-						rel.Peer.(*Package).Draw(builder, o, depth+1, seen)
+					if len(rel.Peer.(*Package).Relationships) > 0 { //nolint: errcheck
+						rel.Peer.(*Package).Draw(builder, o, depth+1, seen) //nolint: errcheck
 					}
 				}
 
 				// If the child is a file:
 				if _, ok := rel.Peer.(*File); ok {
 					o.SkipName = false
-					if len(rel.Peer.(*File).Relationships) > 0 {
-						rel.Peer.(*File).Draw(builder, o, depth+1, seen)
+					if len(rel.Peer.(*File).Relationships) > 0 { //nolint: errcheck
+						rel.Peer.(*File).Draw(builder, o, depth+1, seen) //nolint: errcheck
 					}
 				}
 			}
@@ -484,7 +487,7 @@ func (p *Package) Draw(builder *strings.Builder, o *DrawingOptions, depth int, s
 }
 
 // ReadSourceFile reads a file from the filesystem and assigns its properties
-// to the package metadata
+// to the package metadata.
 func (p *Package) ReadSourceFile(path string) error {
 	if err := p.Entity.ReadSourceFile(path); err != nil {
 		return err
@@ -496,7 +499,7 @@ func (p *Package) ReadSourceFile(path string) error {
 }
 
 // GetElementByID search the package and its peers looking for the specified SPDX
-// id. If found, the function returns a copy of the object
+// id. If found, the function returns a copy of the object.
 func (p *Package) GetElementByID(id string) Object {
 	if p.SPDXID() == id {
 		return p
@@ -505,7 +508,7 @@ func (p *Package) GetElementByID(id string) Object {
 }
 
 // Purl searches the external refs in the package and returns
-// a parsed purl if it finds a purl PACKAGE_MANAGER extref:
+// a parsed purl if it finds a purl PACKAGE_MANAGER extref:.
 func (p *Package) Purl() *purl.PackageURL {
 	if p.ExternalRefs == nil {
 		return nil
@@ -531,7 +534,7 @@ func (p *Package) Purl() *purl.PackageURL {
 type PurlSearchOption string
 
 // PurlMatches gets a spec url and returns true if its defined parts
-// match the analog parts in the package's purl
+// match the analog parts in the package's purl.
 func (p *Package) PurlMatches(spec *purl.PackageURL, _ ...PurlSearchOption) bool {
 	pkgPurl := p.Purl()
 	if pkgPurl == nil {

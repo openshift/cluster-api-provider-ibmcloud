@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -24,7 +25,7 @@ type CreateDataVolume struct {
 	AffinityPVMInstance *string `json:"affinityPVMInstance,omitempty"`
 
 	// Affinity policy for data volume being created; ignored if volumePool provided; for policy 'affinity' requires one of affinityPVMInstance or affinityVolume to be specified; for policy 'anti-affinity' requires one of antiAffinityPVMInstances or antiAffinityVolumes to be specified
-	// Enum: [affinity anti-affinity]
+	// Enum: ["affinity","anti-affinity"]
 	AffinityPolicy *string `json:"affinityPolicy,omitempty"`
 
 	// Volume (ID or Name) to base volume affinity policy against; required if requesting affinity and affinityPVMInstance is not provided
@@ -36,7 +37,7 @@ type CreateDataVolume struct {
 	// List of volumes to base volume anti-affinity policy against; required if requesting anti-affinity and antiAffinityPVMInstances is not provided
 	AntiAffinityVolumes []string `json:"antiAffinityVolumes"`
 
-	// Type of Disk, required if affinityPolicy and volumePool not provided, otherwise ignored
+	// Type of Disk; if diskType is not provided the disk type will default to 'tier3'.
 	DiskType string `json:"diskType,omitempty"`
 
 	// Volume Name
@@ -46,6 +47,9 @@ type CreateDataVolume struct {
 	// Indicates if the volume should be replication enabled or not
 	ReplicationEnabled *bool `json:"replicationEnabled,omitempty"`
 
+	// List of replication site for volume replication
+	ReplicationSites []string `json:"replicationSites,omitempty"`
+
 	// Indicates if the volume is shareable between VMs
 	Shareable *bool `json:"shareable,omitempty"`
 
@@ -53,7 +57,10 @@ type CreateDataVolume struct {
 	// Required: true
 	Size *float64 `json:"size"`
 
-	// Volume pool where the volume will be created; if provided then diskType and affinityPolicy values will be ignored
+	// user tags
+	UserTags Tags `json:"userTags,omitempty"`
+
+	// Volume pool where the volume will be created; if provided then affinityPolicy value will be ignored
 	VolumePool string `json:"volumePool,omitempty"`
 }
 
@@ -73,13 +80,17 @@ func (m *CreateDataVolume) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateUserTags(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
 }
 
-var createDataVolumeTypeAffinityPolicyPropEnum []interface{}
+var createDataVolumeTypeAffinityPolicyPropEnum []any
 
 func init() {
 	var res []string
@@ -139,8 +150,56 @@ func (m *CreateDataVolume) validateSize(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this create data volume based on context it is used
+func (m *CreateDataVolume) validateUserTags(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserTags) { // not required
+		return nil
+	}
+
+	if err := m.UserTags.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this create data volume based on the context it is used
 func (m *CreateDataVolume) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateUserTags(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *CreateDataVolume) contextValidateUserTags(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserTags.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
 	return nil
 }
 

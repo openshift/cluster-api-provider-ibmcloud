@@ -55,16 +55,26 @@ func init() {
 //
 // Possible data-structure types of a list are:
 //
-// - "map": it needs to have a key field, which will be used to build an
-//   associative list. A typical example is a the pod container list,
-//   which is indexed by the container name.
+//   - "map": it needs to have a key field, which will be used to build an
+//     associative list. A typical example is a the pod container list,
+//     which is indexed by the container name.
 //
-// - "set": Fields need to be "scalar", and there can be only one
-//   occurrence of each.
+//   - "set": Fields need to be "scalar", and there can be only one
+//     occurrence of each.
 //
-// - "atomic": All the fields in the list are treated as a single value,
-//   are typically manipulated together by the same actor.
+//   - "atomic": All the fields in the list are treated as a single value,
+//     are typically manipulated together by the same actor.
 type ListType string
+
+const (
+	Map     ListType = "map"
+	Set     ListType = "set"
+	Atomic  ListType = "atomic"
+	Array   ListType = "array"
+	Object  ListType = "object"
+	Integer ListType = "integer"
+	Number  ListType = "number"
+)
 
 // +controllertools:marker:generateHelp:category="CRD processing"
 
@@ -83,12 +93,12 @@ type ListMapKey string
 //
 // Possible values:
 //
-// - "granular": items in the map are independent of each other,
-//   and can be manipulated by different actors.
-//   This is the default behavior.
+//   - "granular": items in the map are independent of each other,
+//     and can be manipulated by different actors.
+//     This is the default behavior.
 //
-// - "atomic": all fields are treated as one unit.
-//   Any changes have to replace the entire map.
+//   - "atomic": all fields are treated as one unit.
+//     Any changes have to replace the entire map.
 type MapType string
 
 // +controllertools:marker:generateHelp:category="CRD processing"
@@ -99,19 +109,19 @@ type MapType string
 //
 // Possible values:
 //
-// - "granular": fields in the struct are independent of each other,
-//   and can be manipulated by different actors.
-//   This is the default behavior.
+//   - "granular": fields in the struct are independent of each other,
+//     and can be manipulated by different actors.
+//     This is the default behavior.
 //
-// - "atomic": all fields are treated as one unit.
-//   Any changes have to replace the entire struct.
+//   - "atomic": all fields are treated as one unit.
+//     Any changes have to replace the entire struct.
 type StructType string
 
 func (l ListType) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
-	if schema.Type != "array" {
+	if schema.Type != string(Array) {
 		return fmt.Errorf("must apply listType to an array, found %s", schema.Type)
 	}
-	if l != "map" && l != "atomic" && l != "set" {
+	if l != Map && l != Atomic && l != Set {
 		return fmt.Errorf(`ListType must be either "map", "set" or "atomic"`)
 	}
 	p := string(l)
@@ -119,13 +129,15 @@ func (l ListType) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
 	return nil
 }
 
-func (l ListType) ApplyFirst() {}
+func (l ListType) ApplyPriority() ApplyPriority {
+	return ApplyPriorityDefault - 1
+}
 
 func (l ListMapKey) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
-	if schema.Type != "array" {
+	if schema.Type != string(Array) {
 		return fmt.Errorf("must apply listMapKey to an array, found %s", schema.Type)
 	}
-	if schema.XListType == nil || *schema.XListType != "map" {
+	if schema.XListType == nil || *schema.XListType != string(Map) {
 		return fmt.Errorf("must apply listMapKey to an associative-list")
 	}
 	schema.XListMapKeys = append(schema.XListMapKeys, string(l))
@@ -133,7 +145,7 @@ func (l ListMapKey) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
 }
 
 func (m MapType) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
-	if schema.Type != "object" {
+	if schema.Type != string(Object) {
 		return fmt.Errorf("must apply mapType to an object")
 	}
 
@@ -148,7 +160,7 @@ func (m MapType) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
 }
 
 func (s StructType) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
-	if schema.Type != "object" && schema.Type != "" {
+	if schema.Type != string(Object) && schema.Type != "" {
 		return fmt.Errorf("must apply structType to an object; either explicitly set or defaulted through an empty schema type")
 	}
 

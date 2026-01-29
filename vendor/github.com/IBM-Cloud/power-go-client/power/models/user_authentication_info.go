@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -106,11 +107,15 @@ func (m *UserAuthenticationInfo) validateCapabilities(formats strfmt.Registry) e
 
 	if m.Capabilities != nil {
 		if err := m.Capabilities.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("capabilities")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("capabilities")
 			}
+
 			return err
 		}
 	}
@@ -125,11 +130,15 @@ func (m *UserAuthenticationInfo) validateCrnAccess(formats strfmt.Registry) erro
 
 	if m.CrnAccess != nil {
 		if err := m.CrnAccess.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("crnAccess")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("crnAccess")
 			}
+
 			return err
 		}
 	}
@@ -172,11 +181,15 @@ func (m *UserAuthenticationInfo) validateToken(formats strfmt.Registry) error {
 
 	if m.Token != nil {
 		if err := m.Token.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("token")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("token")
 			}
+
 			return err
 		}
 	}
@@ -208,12 +221,20 @@ func (m *UserAuthenticationInfo) ContextValidate(ctx context.Context, formats st
 
 func (m *UserAuthenticationInfo) contextValidateCapabilities(ctx context.Context, formats strfmt.Registry) error {
 
+	if swag.IsZero(m.Capabilities) { // not required
+		return nil
+	}
+
 	if err := m.Capabilities.ContextValidate(ctx, formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
 			return ve.ValidateName("capabilities")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
 			return ce.ValidateName("capabilities")
 		}
+
 		return err
 	}
 
@@ -222,12 +243,20 @@ func (m *UserAuthenticationInfo) contextValidateCapabilities(ctx context.Context
 
 func (m *UserAuthenticationInfo) contextValidateCrnAccess(ctx context.Context, formats strfmt.Registry) error {
 
+	if swag.IsZero(m.CrnAccess) { // not required
+		return nil
+	}
+
 	if err := m.CrnAccess.ContextValidate(ctx, formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
 			return ve.ValidateName("crnAccess")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
 			return ce.ValidateName("crnAccess")
 		}
+
 		return err
 	}
 
@@ -237,12 +266,17 @@ func (m *UserAuthenticationInfo) contextValidateCrnAccess(ctx context.Context, f
 func (m *UserAuthenticationInfo) contextValidateToken(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Token != nil {
+
 		if err := m.Token.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("token")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("token")
 			}
+
 			return err
 		}
 	}

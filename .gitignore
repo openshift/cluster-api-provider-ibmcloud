@@ -8,6 +8,7 @@ cmd/manager/manager
 IBM_Cloud_CLI*
 
 # command generated files
+kubeconfig
 cmd/clusterctl/kubeconfig
 
 # scripts outputs
@@ -40,6 +41,9 @@ vendor/sigs.k8s.io/cluster-api/docs/book/*.json
 # release
 _artifacts/
 out/
+
+# Do not ignore files in vendor directory
+!vendor/**
 
 #ide settings
 .vscode/

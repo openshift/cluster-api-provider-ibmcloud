@@ -43,5 +43,8 @@ vendor/sigs.k8s.io/cluster-api/docs/book/*.json
 _artifacts/
 out/
 
+# Do not ignore files in vendor directory
+!vendor/**
+
 #ide settings
 .vscode/

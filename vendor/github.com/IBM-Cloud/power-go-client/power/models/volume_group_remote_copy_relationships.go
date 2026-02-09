@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -52,11 +53,15 @@ func (m *VolumeGroupRemoteCopyRelationships) validateRemoteCopyRelationships(for
 
 		if m.RemoteCopyRelationships[i] != nil {
 			if err := m.RemoteCopyRelationships[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("remoteCopyRelationships" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("remoteCopyRelationships" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -85,12 +90,21 @@ func (m *VolumeGroupRemoteCopyRelationships) contextValidateRemoteCopyRelationsh
 	for i := 0; i < len(m.RemoteCopyRelationships); i++ {
 
 		if m.RemoteCopyRelationships[i] != nil {
+
+			if swag.IsZero(m.RemoteCopyRelationships[i]) { // not required
+				return nil
+			}
+
 			if err := m.RemoteCopyRelationships[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("remoteCopyRelationships" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("remoteCopyRelationships" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

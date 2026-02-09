@@ -15,6 +15,8 @@ import (
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+
+	"github.com/IBM-Cloud/power-go-client/power/models"
 )
 
 // NewPcloudPvminstancesDeleteParams creates a new PcloudPvminstancesDeleteParams object,
@@ -53,12 +55,20 @@ func NewPcloudPvminstancesDeleteParamsWithHTTPClient(client *http.Client) *Pclou
 	}
 }
 
-/* PcloudPvminstancesDeleteParams contains all the parameters to send to the API endpoint
-   for the pcloud pvminstances delete operation.
+/*
+PcloudPvminstancesDeleteParams contains all the parameters to send to the API endpoint
 
-   Typically these are written to a http.Request.
+	for the pcloud pvminstances delete operation.
+
+	Typically these are written to a http.Request.
 */
 type PcloudPvminstancesDeleteParams struct {
+
+	/* Body.
+
+	   Parameters to delete a PVM Instance
+	*/
+	Body *models.PVMInstanceDelete
 
 	/* CloudInstanceID.
 
@@ -131,6 +141,17 @@ func (o *PcloudPvminstancesDeleteParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithBody adds the body to the pcloud pvminstances delete params
+func (o *PcloudPvminstancesDeleteParams) WithBody(body *models.PVMInstanceDelete) *PcloudPvminstancesDeleteParams {
+	o.SetBody(body)
+	return o
+}
+
+// SetBody adds the body to the pcloud pvminstances delete params
+func (o *PcloudPvminstancesDeleteParams) SetBody(body *models.PVMInstanceDelete) {
+	o.Body = body
+}
+
 // WithCloudInstanceID adds the cloudInstanceID to the pcloud pvminstances delete params
 func (o *PcloudPvminstancesDeleteParams) WithCloudInstanceID(cloudInstanceID string) *PcloudPvminstancesDeleteParams {
 	o.SetCloudInstanceID(cloudInstanceID)
@@ -171,6 +192,11 @@ func (o *PcloudPvminstancesDeleteParams) WriteToRequest(r runtime.ClientRequest,
 		return err
 	}
 	var res []error
+	if o.Body != nil {
+		if err := r.SetBodyParam(o.Body); err != nil {
+			return err
+		}
+	}
 
 	// path param cloud_instance_id
 	if err := r.SetPathParam("cloud_instance_id", o.CloudInstanceID); err != nil {

@@ -23,11 +23,11 @@ import (
 	"github.com/pkg/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	runtimehooksv1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
+	runtimeclient "sigs.k8s.io/cluster-api/exp/runtime/client"
 	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/patches/api"
-	runtimeclient "sigs.k8s.io/cluster-api/internal/runtime/client"
 )
 
 // externalPatchGenerator generates JSON patches for a GeneratePatchesRequest based on a ClusterClassPatch.
@@ -46,10 +46,20 @@ func NewGenerator(runtimeClient runtimeclient.Client, patch *clusterv1.ClusterCl
 
 func (e externalPatchGenerator) Generate(ctx context.Context, forObject client.Object, req *runtimehooksv1.GeneratePatchesRequest) (*runtimehooksv1.GeneratePatchesResponse, error) {
 	if !feature.Gates.Enabled(feature.RuntimeSDK) {
-		return nil, errors.Errorf("can not use external patch %q if RuntimeSDK feature flag is disabled", *e.patch.External.GenerateExtension)
+		return nil, errors.Errorf("can not use external patch %q if RuntimeSDK feature flag is disabled", e.patch.External.GeneratePatchesExtension)
 	}
+
+	// Set the settings defined in external patch definition on the request object.
+	// These settings will override overlapping keys defined in ExtensionConfig settings.
+	req.Settings = e.patch.External.Settings
+	// The req object is re-used across multiple calls to the patch generator.
+	// Reset the settings so that the request does not remain modified here.
+	defer func() {
+		req.Settings = nil
+	}()
+
 	resp := &runtimehooksv1.GeneratePatchesResponse{}
-	err := e.runtimeClient.CallExtension(ctx, runtimehooksv1.GeneratePatches, forObject, *e.patch.External.GenerateExtension, req, resp)
+	err := e.runtimeClient.CallExtension(ctx, runtimehooksv1.GeneratePatches, forObject, e.patch.External.GeneratePatchesExtension, req, resp)
 	if err != nil {
 		return nil, err
 	}

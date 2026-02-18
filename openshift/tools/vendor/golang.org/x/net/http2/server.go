@@ -155,60 +155,13 @@ type Server struct {
 	state *serverInternalState
 }
 
-func (s *Server) initialConnRecvWindowSize() int32 {
-	if s.MaxUploadBufferPerConnection >= initialWindowSize {
-		return s.MaxUploadBufferPerConnection
-	}
-	return 1 << 20
-}
-
-func (s *Server) initialStreamRecvWindowSize() int32 {
-	if s.MaxUploadBufferPerStream > 0 {
-		return s.MaxUploadBufferPerStream
-	}
-	return 1 << 20
-}
-
-func (s *Server) maxReadFrameSize() uint32 {
-	if v := s.MaxReadFrameSize; v >= minMaxFrameSize && v <= maxFrameSize {
-		return v
-	}
-	return defaultMaxReadFrameSize
-}
-
-func (s *Server) maxConcurrentStreams() uint32 {
-	if v := s.MaxConcurrentStreams; v > 0 {
-		return v
-	}
-	return defaultMaxStreams
-}
-
-func (s *Server) maxDecoderHeaderTableSize() uint32 {
-	if v := s.MaxDecoderHeaderTableSize; v > 0 {
-		return v
-	}
-	return initialHeaderTableSize
-}
-
-func (s *Server) maxEncoderHeaderTableSize() uint32 {
-	if v := s.MaxEncoderHeaderTableSize; v > 0 {
-		return v
-	}
-	return initialHeaderTableSize
-}
-
-// maxQueuedControlFrames is the maximum number of control frames like
-// SETTINGS, PING and RST_STREAM that will be queued for writing before
-// the connection is closed to prevent memory exhaustion attacks.
-func (s *Server) maxQueuedControlFrames() int {
-	// TODO: if anybody asks, add a Server field, and remember to define the
-	// behavior of negative values.
-	return maxQueuedControlFrames
-}
-
 type serverInternalState struct {
 	mu          sync.Mutex
 	activeConns map[*serverConn]struct{}
+
+	// Pool of error channels. This is per-Server rather than global
+	// because channels can't be reused across synctest bubbles.
+	errChanPool sync.Pool
 }
 
 func (s *serverInternalState) registerConn(sc *serverConn) {
@@ -240,6 +193,27 @@ func (s *serverInternalState) startGracefulShutdown() {
 	s.mu.Unlock()
 }
 
+// Global error channel pool used for uninitialized Servers.
+// We use a per-Server pool when possible to avoid using channels across synctest bubbles.
+var errChanPool = sync.Pool{
+	New: func() any { return make(chan error, 1) },
+}
+
+func (s *serverInternalState) getErrChan() chan error {
+	if s == nil {
+		return errChanPool.Get().(chan error) // Server used without calling ConfigureServer
+	}
+	return s.errChanPool.Get().(chan error)
+}
+
+func (s *serverInternalState) putErrChan(ch chan error) {
+	if s == nil {
+		errChanPool.Put(ch) // Server used without calling ConfigureServer
+		return
+	}
+	s.errChanPool.Put(ch)
+}
+
 // ConfigureServer adds HTTP/2 support to a net/http Server.
 //
 // The configuration conf may be nil.
@@ -252,7 +226,10 @@ func ConfigureServer(s *http.Server, conf *Server) error {
 	if conf == nil {
 		conf = new(Server)
 	}
-	conf.state = &serverInternalState{activeConns: make(map[*serverConn]struct{})}
+	conf.state = &serverInternalState{
+		activeConns: make(map[*serverConn]struct{}),
+		errChanPool: sync.Pool{New: func() any { return make(chan error, 1) }},
+	}
 	if h1, h2 := s, conf; h2.IdleTimeout == 0 {
 		if h1.IdleTimeout != 0 {
 			h2.IdleTimeout = h1.IdleTimeout
@@ -399,6 +376,13 @@ func (o *ServeConnOpts) handler() http.Handler {
 //
 // The opts parameter is optional. If nil, default values are used.
 func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
+	if opts == nil {
+		opts = &ServeConnOpts{}
+	}
+	s.serveConn(c, opts, nil)
+}
+
+func (s *Server) serveConn(c net.Conn, opts *ServeConnOpts, newf func(*serverConn)) {
 	baseCtx, cancel := serverConnBaseContext(c, opts)
 	defer cancel()
 
@@ -408,7 +392,7 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 		conn:                        c,
 		baseCtx:                     baseCtx,
 		remoteAddrStr:               c.RemoteAddr().String(),
-		bw:                          newBufferedWriter(c),
+		bw:                          newBufferedWriter(c, conf.WriteByteTimeout),
 		handler:                     opts.handler(),
 		streams:                     make(map[uint32]*stream),
 		readFrameCh:                 make(chan readFrameResult),
@@ -600,6 +584,9 @@ type serverConn struct {
 	goAwayCode                  ErrCode
 	shutdownTimer               *time.Timer // nil until used
 	idleTimer                   *time.Timer // nil if unused
+	readIdleTimeout             time.Duration
+	pingTimeout                 time.Duration
+	readIdleTimer               *time.Timer // nil if unused
 
 	// Owned by the writeFrameAsync goroutine:
 	headerWriteBuf bytes.Buffer
@@ -814,8 +801,8 @@ type readFrameResult struct {
 // consumer is done with the frame.
 // It's run on its own goroutine.
 func (sc *serverConn) readFrames() {
-	gate := make(gate)
-	gateDone := gate.Done
+	gate := make(chan struct{})
+	gateDone := func() { gate <- struct{}{} }
 	for {
 		f, err := sc.framer.ReadFrame()
 		select {
@@ -924,9 +911,15 @@ func (sc *serverConn) serve() {
 	sc.setConnState(http.StateActive)
 	sc.setConnState(http.StateIdle)
 
-	if sc.srv.IdleTimeout != 0 {
+	if sc.srv.IdleTimeout > 0 {
 		sc.idleTimer = time.AfterFunc(sc.srv.IdleTimeout, sc.onIdleTimer)
 		defer sc.idleTimer.Stop()
+	}
+
+	if conf.SendPingTimeout > 0 {
+		sc.readIdleTimeout = conf.SendPingTimeout
+		sc.readIdleTimer = time.AfterFunc(conf.SendPingTimeout, sc.onReadIdleTimer)
+		defer sc.readIdleTimer.Stop()
 	}
 
 	go sc.readFrames() // closed by defer sc.conn.Close above
@@ -934,6 +927,7 @@ func (sc *serverConn) serve() {
 	settingsTimer := time.AfterFunc(firstSettingsTimeout, sc.onSettingsTimer)
 	defer settingsTimer.Stop()
 
+	lastFrameTime := time.Now()
 	loopNum := 0
 	for {
 		loopNum++
@@ -947,6 +941,7 @@ func (sc *serverConn) serve() {
 		case res := <-sc.wroteFrameCh:
 			sc.wroteFrame(res)
 		case res := <-sc.readFrameCh:
+			lastFrameTime = time.Now()
 			// Process any written frames before reading new frames from the client since a
 			// written frame could have triggered a new stream to be started.
 			if sc.writingFrameAsync {
@@ -1016,6 +1011,35 @@ func (sc *serverConn) serve() {
 	}
 }
 
+func (sc *serverConn) handlePingTimer(lastFrameReadTime time.Time) {
+	if sc.pingSent {
+		sc.logf("timeout waiting for PING response")
+		if f := sc.countErrorFunc; f != nil {
+			f("conn_close_lost_ping")
+		}
+		sc.conn.Close()
+		return
+	}
+
+	pingAt := lastFrameReadTime.Add(sc.readIdleTimeout)
+	now := time.Now()
+	if pingAt.After(now) {
+		// We received frames since arming the ping timer.
+		// Reset it for the next possible timeout.
+		sc.readIdleTimer.Reset(pingAt.Sub(now))
+		return
+	}
+
+	sc.pingSent = true
+	// Ignore crypto/rand.Read errors: It generally can't fail, and worse case if it does
+	// is we send a PING frame containing 0s.
+	_, _ = rand.Read(sc.sentPingData[:])
+	sc.writeFrame(FrameWriteRequest{
+		write: &writePing{data: sc.sentPingData},
+	})
+	sc.readIdleTimer.Reset(sc.pingTimeout)
+}
+
 type serverMessage int
 
 // Message values sent to serveMsgCh.
@@ -1075,10 +1099,6 @@ func (sc *serverConn) readPreface() error {
 	}
 }
 
-var errChanPool = sync.Pool{
-	New: func() interface{} { return make(chan error, 1) },
-}
-
 var writeDataPool = sync.Pool{
 	New: func() interface{} { return new(writeData) },
 }
@@ -1086,7 +1106,7 @@ var writeDataPool = sync.Pool{
 // writeDataFromHandler writes DATA response frames from a handler on
 // the given stream.
 func (sc *serverConn) writeDataFromHandler(stream *stream, data []byte, endStream bool) error {
-	ch := errChanPool.Get().(chan error)
+	ch := sc.srv.state.getErrChan()
 	writeArg := writeDataPool.Get().(*writeData)
 	*writeArg = writeData{stream.id, data, endStream}
 	err := sc.writeFrameFromHandler(FrameWriteRequest{
@@ -1118,7 +1138,7 @@ func (sc *serverConn) writeDataFromHandler(stream *stream, data []byte, endStrea
 			return errStreamClosed
 		}
 	}
-	errChanPool.Put(ch)
+	sc.srv.state.putErrChan(ch)
 	if frameWriteDone {
 		writeDataPool.Put(writeArg)
 	}
@@ -2115,8 +2135,8 @@ func (sc *serverConn) newStream(id, pusherID uint32, state streamState) *stream 
 	st.cw.Init()
 	st.flow.conn = &sc.flow // link to conn-level counter
 	st.flow.add(sc.initialStreamSendWindowSize)
-	st.inflow.init(sc.srv.initialStreamRecvWindowSize())
-	if sc.hs.WriteTimeout != 0 {
+	st.inflow.init(sc.initialStreamRecvWindowSize)
+	if sc.hs.WriteTimeout > 0 {
 		st.writeDeadline = time.AfterFunc(sc.hs.WriteTimeout, st.onWriteTimeout)
 	}
 
@@ -2389,7 +2409,7 @@ func (sc *serverConn) writeHeaders(st *stream, headerData *writeResHeaders) erro
 		// waiting for this frame to be written, so an http.Flush mid-handler
 		// writes out the correct value of keys, before a handler later potentially
 		// mutates it.
-		errc = errChanPool.Get().(chan error)
+		errc = sc.srv.state.getErrChan()
 	}
 	if err := sc.writeFrameFromHandler(FrameWriteRequest{
 		write:  headerData,
@@ -2401,7 +2421,7 @@ func (sc *serverConn) writeHeaders(st *stream, headerData *writeResHeaders) erro
 	if errc != nil {
 		select {
 		case err := <-errc:
-			errChanPool.Put(errc)
+			sc.srv.state.putErrChan(errc)
 			return err
 		case <-sc.doneServing:
 			return errClientDisconnected
@@ -2508,7 +2528,7 @@ func (b *requestBody) Read(p []byte) (n int, err error) {
 	if err == io.EOF {
 		b.sawEOF = true
 	}
-	if b.conn == nil && inTests {
+	if b.conn == nil {
 		return
 	}
 	b.conn.noteBodyReadFromHandler(b.stream, n, err)
@@ -3077,7 +3097,7 @@ func (w *responseWriter) Push(target string, opts *http.PushOptions) error {
 		method: opts.Method,
 		url:    u,
 		header: cloneHeader(opts.Header),
-		done:   errChanPool.Get().(chan error),
+		done:   sc.srv.state.getErrChan(),
 	}
 
 	select {
@@ -3094,7 +3114,7 @@ func (w *responseWriter) Push(target string, opts *http.PushOptions) error {
 	case <-st.cw:
 		return errStreamClosed
 	case err := <-msg.done:
-		errChanPool.Put(msg.done)
+		sc.srv.state.putErrChan(msg.done)
 		return err
 	}
 }

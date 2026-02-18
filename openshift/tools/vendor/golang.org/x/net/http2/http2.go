@@ -11,8 +11,6 @@
 // requires Go 1.6 or later)
 //
 // See https://http2.github.io/ for more information on HTTP/2.
-//
-// See https://http2.golang.org/ for a test server running this code.
 package http2 // import "golang.org/x/net/http2"
 
 import (
@@ -34,7 +32,15 @@ var (
 	VerboseLogs    bool
 	logFrameWrites bool
 	logFrameReads  bool
-	inTests        bool
+
+	// Enabling extended CONNECT by causes browsers to attempt to use
+	// WebSockets-over-HTTP/2. This results in problems when the server's websocket
+	// package doesn't support extended CONNECT.
+	//
+	// Disable extended CONNECT by default for now.
+	//
+	// Issue #71128.
+	disableExtendedConnectProtocol = true
 )
 
 func init() {
@@ -241,13 +247,17 @@ func (cw closeWaiter) Wait() {
 // Its buffered writer is lazily allocated as needed, to minimize
 // idle memory usage with many connections.
 type bufferedWriter struct {
-	_  incomparable
-	w  io.Writer     // immutable
-	bw *bufio.Writer // non-nil when data is buffered
+	_           incomparable
+	conn        net.Conn      // immutable
+	bw          *bufio.Writer // non-nil when data is buffered
+	byteTimeout time.Duration // immutable, WriteByteTimeout
 }
 
-func newBufferedWriter(w io.Writer) *bufferedWriter {
-	return &bufferedWriter{w: w}
+func newBufferedWriter(conn net.Conn, timeout time.Duration) *bufferedWriter {
+	return &bufferedWriter{
+		conn:        conn,
+		byteTimeout: timeout,
+	}
 }
 
 // bufWriterPoolBufferSize is the size of bufio.Writer's
@@ -290,6 +300,32 @@ func (w *bufferedWriter) Flush() error {
 	bufWriterPool.Put(bw)
 	w.bw = nil
 	return err
+}
+
+type bufferedWriterTimeoutWriter bufferedWriter
+
+func (w *bufferedWriterTimeoutWriter) Write(p []byte) (n int, err error) {
+	return writeWithByteTimeout(w.conn, w.byteTimeout, p)
+}
+
+// writeWithByteTimeout writes to conn.
+// If more than timeout passes without any bytes being written to the connection,
+// the write fails.
+func writeWithByteTimeout(conn net.Conn, timeout time.Duration, p []byte) (n int, err error) {
+	if timeout <= 0 {
+		return conn.Write(p)
+	}
+	for {
+		conn.SetWriteDeadline(time.Now().Add(timeout))
+		nn, err := conn.Write(p[n:])
+		n += nn
+		if n == len(p) || nn == 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+			// Either we finished the write, made no progress, or hit the deadline.
+			// Whichever it is, we're done now.
+			conn.SetWriteDeadline(time.Time{})
+			return n, err
+		}
+	}
 }
 
 func mustUint31(v int32) uint32 {

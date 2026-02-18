@@ -185,7 +185,7 @@ type ObjectMeta struct {
 	// Null for lists.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
-	CreationTimestamp Time `json:"creationTimestamp,omitempty" protobuf:"bytes,8,opt,name=creationTimestamp"`
+	CreationTimestamp Time `json:"creationTimestamp,omitempty,omitzero" protobuf:"bytes,8,opt,name=creationTimestamp"`
 
 	// DeletionTimestamp is RFC 3339 date and time at which this resource will be deleted. This
 	// field is set by the server when a graceful deletion is requested by the user, and is not
@@ -427,6 +427,15 @@ type ListOptions struct {
 	// +optional
 	SendInitialEvents *bool `json:"sendInitialEvents,omitempty" protobuf:"varint,11,opt,name=sendInitialEvents"`
 }
+
+const (
+	// InitialEventsAnnotationKey the name of the key
+	// under which an annotation marking the end of
+	// a watchlist stream is stored.
+	//
+	// The annotation is added to a "Bookmark" event.
+	InitialEventsAnnotationKey = "k8s.io/initial-events-end"
+)
 
 // resourceVersionMatch specifies how the resourceVersion parameter is applied. resourceVersionMatch
 // may only be set if resourceVersion is also set.

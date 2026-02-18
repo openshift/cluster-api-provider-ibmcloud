@@ -11,8 +11,8 @@ FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
 
 LABEL description="Cluster API Provider IBM Cloud Controller Manager"
 
-COPY --from=builder /build/cluster-api-provider-ibmcloud-controller-manager /bin/cluster-api-provider-ibmcloud-controller-manager
-COPY --from=builder /build/openshift/manifests /manifests
+COPY --from=builder /build/manager /manager
+COPY openshift/capi-operator-manifests /capi-operator-manifests
 
 ENTRYPOINT [ "/bin/cluster-api-provider-ibmcloud-controller-manager" ]
 

@@ -1,0 +1,7 @@
+attributes:
+  type: infrastructure
+  version: v0.12.0
+installOrder: 20
+name: cluster-api-provider-ibmcloud
+ocpPlatform: PowerVS
+selfImageRef: registry.ci.openshift.org/openshift:ibmcloud-cluster-api-controllers

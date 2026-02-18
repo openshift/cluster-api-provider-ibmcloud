@@ -12,6 +12,41 @@ import (
 
 const File_google_protobuf_descriptor_proto = "google/protobuf/descriptor.proto"
 
+// Full and short names for google.protobuf.Edition.
+const (
+	Edition_enum_fullname = "google.protobuf.Edition"
+	Edition_enum_name     = "Edition"
+)
+
+// Enum values for google.protobuf.Edition.
+const (
+	Edition_EDITION_UNKNOWN_enum_value         = 0
+	Edition_EDITION_LEGACY_enum_value          = 900
+	Edition_EDITION_PROTO2_enum_value          = 998
+	Edition_EDITION_PROTO3_enum_value          = 999
+	Edition_EDITION_2023_enum_value            = 1000
+	Edition_EDITION_2024_enum_value            = 1001
+	Edition_EDITION_1_TEST_ONLY_enum_value     = 1
+	Edition_EDITION_2_TEST_ONLY_enum_value     = 2
+	Edition_EDITION_99997_TEST_ONLY_enum_value = 99997
+	Edition_EDITION_99998_TEST_ONLY_enum_value = 99998
+	Edition_EDITION_99999_TEST_ONLY_enum_value = 99999
+	Edition_EDITION_MAX_enum_value             = 2147483647
+)
+
+// Full and short names for google.protobuf.SymbolVisibility.
+const (
+	SymbolVisibility_enum_fullname = "google.protobuf.SymbolVisibility"
+	SymbolVisibility_enum_name     = "SymbolVisibility"
+)
+
+// Enum values for google.protobuf.SymbolVisibility.
+const (
+	SymbolVisibility_VISIBILITY_UNSET_enum_value  = 0
+	SymbolVisibility_VISIBILITY_LOCAL_enum_value  = 1
+	SymbolVisibility_VISIBILITY_EXPORT_enum_value = 2
+)
+
 // Names for google.protobuf.FileDescriptorSet.
 const (
 	FileDescriptorSet_message_name     protoreflect.Name     = "FileDescriptorSet"
@@ -43,6 +78,7 @@ const (
 	FileDescriptorProto_Dependency_field_name       protoreflect.Name = "dependency"
 	FileDescriptorProto_PublicDependency_field_name protoreflect.Name = "public_dependency"
 	FileDescriptorProto_WeakDependency_field_name   protoreflect.Name = "weak_dependency"
+	FileDescriptorProto_OptionDependency_field_name protoreflect.Name = "option_dependency"
 	FileDescriptorProto_MessageType_field_name      protoreflect.Name = "message_type"
 	FileDescriptorProto_EnumType_field_name         protoreflect.Name = "enum_type"
 	FileDescriptorProto_Service_field_name          protoreflect.Name = "service"
@@ -57,6 +93,7 @@ const (
 	FileDescriptorProto_Dependency_field_fullname       protoreflect.FullName = "google.protobuf.FileDescriptorProto.dependency"
 	FileDescriptorProto_PublicDependency_field_fullname protoreflect.FullName = "google.protobuf.FileDescriptorProto.public_dependency"
 	FileDescriptorProto_WeakDependency_field_fullname   protoreflect.FullName = "google.protobuf.FileDescriptorProto.weak_dependency"
+	FileDescriptorProto_OptionDependency_field_fullname protoreflect.FullName = "google.protobuf.FileDescriptorProto.option_dependency"
 	FileDescriptorProto_MessageType_field_fullname      protoreflect.FullName = "google.protobuf.FileDescriptorProto.message_type"
 	FileDescriptorProto_EnumType_field_fullname         protoreflect.FullName = "google.protobuf.FileDescriptorProto.enum_type"
 	FileDescriptorProto_Service_field_fullname          protoreflect.FullName = "google.protobuf.FileDescriptorProto.service"
@@ -74,6 +111,7 @@ const (
 	FileDescriptorProto_Dependency_field_number       protoreflect.FieldNumber = 3
 	FileDescriptorProto_PublicDependency_field_number protoreflect.FieldNumber = 10
 	FileDescriptorProto_WeakDependency_field_number   protoreflect.FieldNumber = 11
+	FileDescriptorProto_OptionDependency_field_number protoreflect.FieldNumber = 15
 	FileDescriptorProto_MessageType_field_number      protoreflect.FieldNumber = 4
 	FileDescriptorProto_EnumType_field_number         protoreflect.FieldNumber = 5
 	FileDescriptorProto_Service_field_number          protoreflect.FieldNumber = 6
@@ -102,6 +140,7 @@ const (
 	DescriptorProto_Options_field_name        protoreflect.Name = "options"
 	DescriptorProto_ReservedRange_field_name  protoreflect.Name = "reserved_range"
 	DescriptorProto_ReservedName_field_name   protoreflect.Name = "reserved_name"
+	DescriptorProto_Visibility_field_name     protoreflect.Name = "visibility"
 
 	DescriptorProto_Name_field_fullname           protoreflect.FullName = "google.protobuf.DescriptorProto.name"
 	DescriptorProto_Field_field_fullname          protoreflect.FullName = "google.protobuf.DescriptorProto.field"
@@ -113,6 +152,7 @@ const (
 	DescriptorProto_Options_field_fullname        protoreflect.FullName = "google.protobuf.DescriptorProto.options"
 	DescriptorProto_ReservedRange_field_fullname  protoreflect.FullName = "google.protobuf.DescriptorProto.reserved_range"
 	DescriptorProto_ReservedName_field_fullname   protoreflect.FullName = "google.protobuf.DescriptorProto.reserved_name"
+	DescriptorProto_Visibility_field_fullname     protoreflect.FullName = "google.protobuf.DescriptorProto.visibility"
 )
 
 // Field numbers for google.protobuf.DescriptorProto.
@@ -127,6 +167,7 @@ const (
 	DescriptorProto_Options_field_number        protoreflect.FieldNumber = 7
 	DescriptorProto_ReservedRange_field_number  protoreflect.FieldNumber = 9
 	DescriptorProto_ReservedName_field_number   protoreflect.FieldNumber = 10
+	DescriptorProto_Visibility_field_number     protoreflect.FieldNumber = 11
 )
 
 // Names for google.protobuf.DescriptorProto.ExtensionRange.
@@ -331,12 +372,14 @@ const (
 	EnumDescriptorProto_Options_field_name       protoreflect.Name = "options"
 	EnumDescriptorProto_ReservedRange_field_name protoreflect.Name = "reserved_range"
 	EnumDescriptorProto_ReservedName_field_name  protoreflect.Name = "reserved_name"
+	EnumDescriptorProto_Visibility_field_name    protoreflect.Name = "visibility"
 
 	EnumDescriptorProto_Name_field_fullname          protoreflect.FullName = "google.protobuf.EnumDescriptorProto.name"
 	EnumDescriptorProto_Value_field_fullname         protoreflect.FullName = "google.protobuf.EnumDescriptorProto.value"
 	EnumDescriptorProto_Options_field_fullname       protoreflect.FullName = "google.protobuf.EnumDescriptorProto.options"
 	EnumDescriptorProto_ReservedRange_field_fullname protoreflect.FullName = "google.protobuf.EnumDescriptorProto.reserved_range"
 	EnumDescriptorProto_ReservedName_field_fullname  protoreflect.FullName = "google.protobuf.EnumDescriptorProto.reserved_name"
+	EnumDescriptorProto_Visibility_field_fullname    protoreflect.FullName = "google.protobuf.EnumDescriptorProto.visibility"
 )
 
 // Field numbers for google.protobuf.EnumDescriptorProto.
@@ -346,6 +389,7 @@ const (
 	EnumDescriptorProto_Options_field_number       protoreflect.FieldNumber = 3
 	EnumDescriptorProto_ReservedRange_field_number protoreflect.FieldNumber = 4
 	EnumDescriptorProto_ReservedName_field_number  protoreflect.FieldNumber = 5
+	EnumDescriptorProto_Visibility_field_number    protoreflect.FieldNumber = 6
 )
 
 // Names for google.protobuf.EnumDescriptorProto.EnumReservedRange.
@@ -814,6 +858,206 @@ const (
 const (
 	UninterpretedOption_NamePart_NamePart_field_number    protoreflect.FieldNumber = 1
 	UninterpretedOption_NamePart_IsExtension_field_number protoreflect.FieldNumber = 2
+)
+
+// Names for google.protobuf.FeatureSet.
+const (
+	FeatureSet_message_name     protoreflect.Name     = "FeatureSet"
+	FeatureSet_message_fullname protoreflect.FullName = "google.protobuf.FeatureSet"
+)
+
+// Field names for google.protobuf.FeatureSet.
+const (
+	FeatureSet_FieldPresence_field_name           protoreflect.Name = "field_presence"
+	FeatureSet_EnumType_field_name                protoreflect.Name = "enum_type"
+	FeatureSet_RepeatedFieldEncoding_field_name   protoreflect.Name = "repeated_field_encoding"
+	FeatureSet_Utf8Validation_field_name          protoreflect.Name = "utf8_validation"
+	FeatureSet_MessageEncoding_field_name         protoreflect.Name = "message_encoding"
+	FeatureSet_JsonFormat_field_name              protoreflect.Name = "json_format"
+	FeatureSet_EnforceNamingStyle_field_name      protoreflect.Name = "enforce_naming_style"
+	FeatureSet_DefaultSymbolVisibility_field_name protoreflect.Name = "default_symbol_visibility"
+
+	FeatureSet_FieldPresence_field_fullname           protoreflect.FullName = "google.protobuf.FeatureSet.field_presence"
+	FeatureSet_EnumType_field_fullname                protoreflect.FullName = "google.protobuf.FeatureSet.enum_type"
+	FeatureSet_RepeatedFieldEncoding_field_fullname   protoreflect.FullName = "google.protobuf.FeatureSet.repeated_field_encoding"
+	FeatureSet_Utf8Validation_field_fullname          protoreflect.FullName = "google.protobuf.FeatureSet.utf8_validation"
+	FeatureSet_MessageEncoding_field_fullname         protoreflect.FullName = "google.protobuf.FeatureSet.message_encoding"
+	FeatureSet_JsonFormat_field_fullname              protoreflect.FullName = "google.protobuf.FeatureSet.json_format"
+	FeatureSet_EnforceNamingStyle_field_fullname      protoreflect.FullName = "google.protobuf.FeatureSet.enforce_naming_style"
+	FeatureSet_DefaultSymbolVisibility_field_fullname protoreflect.FullName = "google.protobuf.FeatureSet.default_symbol_visibility"
+)
+
+// Field numbers for google.protobuf.FeatureSet.
+const (
+	FeatureSet_FieldPresence_field_number           protoreflect.FieldNumber = 1
+	FeatureSet_EnumType_field_number                protoreflect.FieldNumber = 2
+	FeatureSet_RepeatedFieldEncoding_field_number   protoreflect.FieldNumber = 3
+	FeatureSet_Utf8Validation_field_number          protoreflect.FieldNumber = 4
+	FeatureSet_MessageEncoding_field_number         protoreflect.FieldNumber = 5
+	FeatureSet_JsonFormat_field_number              protoreflect.FieldNumber = 6
+	FeatureSet_EnforceNamingStyle_field_number      protoreflect.FieldNumber = 7
+	FeatureSet_DefaultSymbolVisibility_field_number protoreflect.FieldNumber = 8
+)
+
+// Full and short names for google.protobuf.FeatureSet.FieldPresence.
+const (
+	FeatureSet_FieldPresence_enum_fullname = "google.protobuf.FeatureSet.FieldPresence"
+	FeatureSet_FieldPresence_enum_name     = "FieldPresence"
+)
+
+// Enum values for google.protobuf.FeatureSet.FieldPresence.
+const (
+	FeatureSet_FIELD_PRESENCE_UNKNOWN_enum_value = 0
+	FeatureSet_EXPLICIT_enum_value               = 1
+	FeatureSet_IMPLICIT_enum_value               = 2
+	FeatureSet_LEGACY_REQUIRED_enum_value        = 3
+)
+
+// Full and short names for google.protobuf.FeatureSet.EnumType.
+const (
+	FeatureSet_EnumType_enum_fullname = "google.protobuf.FeatureSet.EnumType"
+	FeatureSet_EnumType_enum_name     = "EnumType"
+)
+
+// Enum values for google.protobuf.FeatureSet.EnumType.
+const (
+	FeatureSet_ENUM_TYPE_UNKNOWN_enum_value = 0
+	FeatureSet_OPEN_enum_value              = 1
+	FeatureSet_CLOSED_enum_value            = 2
+)
+
+// Full and short names for google.protobuf.FeatureSet.RepeatedFieldEncoding.
+const (
+	FeatureSet_RepeatedFieldEncoding_enum_fullname = "google.protobuf.FeatureSet.RepeatedFieldEncoding"
+	FeatureSet_RepeatedFieldEncoding_enum_name     = "RepeatedFieldEncoding"
+)
+
+// Enum values for google.protobuf.FeatureSet.RepeatedFieldEncoding.
+const (
+	FeatureSet_REPEATED_FIELD_ENCODING_UNKNOWN_enum_value = 0
+	FeatureSet_PACKED_enum_value                          = 1
+	FeatureSet_EXPANDED_enum_value                        = 2
+)
+
+// Full and short names for google.protobuf.FeatureSet.Utf8Validation.
+const (
+	FeatureSet_Utf8Validation_enum_fullname = "google.protobuf.FeatureSet.Utf8Validation"
+	FeatureSet_Utf8Validation_enum_name     = "Utf8Validation"
+)
+
+// Enum values for google.protobuf.FeatureSet.Utf8Validation.
+const (
+	FeatureSet_UTF8_VALIDATION_UNKNOWN_enum_value = 0
+	FeatureSet_VERIFY_enum_value                  = 2
+	FeatureSet_NONE_enum_value                    = 3
+)
+
+// Full and short names for google.protobuf.FeatureSet.MessageEncoding.
+const (
+	FeatureSet_MessageEncoding_enum_fullname = "google.protobuf.FeatureSet.MessageEncoding"
+	FeatureSet_MessageEncoding_enum_name     = "MessageEncoding"
+)
+
+// Enum values for google.protobuf.FeatureSet.MessageEncoding.
+const (
+	FeatureSet_MESSAGE_ENCODING_UNKNOWN_enum_value = 0
+	FeatureSet_LENGTH_PREFIXED_enum_value          = 1
+	FeatureSet_DELIMITED_enum_value                = 2
+)
+
+// Full and short names for google.protobuf.FeatureSet.JsonFormat.
+const (
+	FeatureSet_JsonFormat_enum_fullname = "google.protobuf.FeatureSet.JsonFormat"
+	FeatureSet_JsonFormat_enum_name     = "JsonFormat"
+)
+
+// Enum values for google.protobuf.FeatureSet.JsonFormat.
+const (
+	FeatureSet_JSON_FORMAT_UNKNOWN_enum_value = 0
+	FeatureSet_ALLOW_enum_value               = 1
+	FeatureSet_LEGACY_BEST_EFFORT_enum_value  = 2
+)
+
+// Full and short names for google.protobuf.FeatureSet.EnforceNamingStyle.
+const (
+	FeatureSet_EnforceNamingStyle_enum_fullname = "google.protobuf.FeatureSet.EnforceNamingStyle"
+	FeatureSet_EnforceNamingStyle_enum_name     = "EnforceNamingStyle"
+)
+
+// Enum values for google.protobuf.FeatureSet.EnforceNamingStyle.
+const (
+	FeatureSet_ENFORCE_NAMING_STYLE_UNKNOWN_enum_value = 0
+	FeatureSet_STYLE2024_enum_value                    = 1
+	FeatureSet_STYLE_LEGACY_enum_value                 = 2
+)
+
+// Names for google.protobuf.FeatureSet.VisibilityFeature.
+const (
+	FeatureSet_VisibilityFeature_message_name     protoreflect.Name     = "VisibilityFeature"
+	FeatureSet_VisibilityFeature_message_fullname protoreflect.FullName = "google.protobuf.FeatureSet.VisibilityFeature"
+)
+
+// Full and short names for google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility.
+const (
+	FeatureSet_VisibilityFeature_DefaultSymbolVisibility_enum_fullname = "google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility"
+	FeatureSet_VisibilityFeature_DefaultSymbolVisibility_enum_name     = "DefaultSymbolVisibility"
+)
+
+// Enum values for google.protobuf.FeatureSet.VisibilityFeature.DefaultSymbolVisibility.
+const (
+	FeatureSet_VisibilityFeature_DEFAULT_SYMBOL_VISIBILITY_UNKNOWN_enum_value = 0
+	FeatureSet_VisibilityFeature_EXPORT_ALL_enum_value                        = 1
+	FeatureSet_VisibilityFeature_EXPORT_TOP_LEVEL_enum_value                  = 2
+	FeatureSet_VisibilityFeature_LOCAL_ALL_enum_value                         = 3
+	FeatureSet_VisibilityFeature_STRICT_enum_value                            = 4
+)
+
+// Names for google.protobuf.FeatureSetDefaults.
+const (
+	FeatureSetDefaults_message_name     protoreflect.Name     = "FeatureSetDefaults"
+	FeatureSetDefaults_message_fullname protoreflect.FullName = "google.protobuf.FeatureSetDefaults"
+)
+
+// Field names for google.protobuf.FeatureSetDefaults.
+const (
+	FeatureSetDefaults_Defaults_field_name       protoreflect.Name = "defaults"
+	FeatureSetDefaults_MinimumEdition_field_name protoreflect.Name = "minimum_edition"
+	FeatureSetDefaults_MaximumEdition_field_name protoreflect.Name = "maximum_edition"
+
+	FeatureSetDefaults_Defaults_field_fullname       protoreflect.FullName = "google.protobuf.FeatureSetDefaults.defaults"
+	FeatureSetDefaults_MinimumEdition_field_fullname protoreflect.FullName = "google.protobuf.FeatureSetDefaults.minimum_edition"
+	FeatureSetDefaults_MaximumEdition_field_fullname protoreflect.FullName = "google.protobuf.FeatureSetDefaults.maximum_edition"
+)
+
+// Field numbers for google.protobuf.FeatureSetDefaults.
+const (
+	FeatureSetDefaults_Defaults_field_number       protoreflect.FieldNumber = 1
+	FeatureSetDefaults_MinimumEdition_field_number protoreflect.FieldNumber = 4
+	FeatureSetDefaults_MaximumEdition_field_number protoreflect.FieldNumber = 5
+)
+
+// Names for google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault.
+const (
+	FeatureSetDefaults_FeatureSetEditionDefault_message_name     protoreflect.Name     = "FeatureSetEditionDefault"
+	FeatureSetDefaults_FeatureSetEditionDefault_message_fullname protoreflect.FullName = "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault"
+)
+
+// Field names for google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault.
+const (
+	FeatureSetDefaults_FeatureSetEditionDefault_Edition_field_name             protoreflect.Name = "edition"
+	FeatureSetDefaults_FeatureSetEditionDefault_OverridableFeatures_field_name protoreflect.Name = "overridable_features"
+	FeatureSetDefaults_FeatureSetEditionDefault_FixedFeatures_field_name       protoreflect.Name = "fixed_features"
+
+	FeatureSetDefaults_FeatureSetEditionDefault_Edition_field_fullname             protoreflect.FullName = "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault.edition"
+	FeatureSetDefaults_FeatureSetEditionDefault_OverridableFeatures_field_fullname protoreflect.FullName = "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault.overridable_features"
+	FeatureSetDefaults_FeatureSetEditionDefault_FixedFeatures_field_fullname       protoreflect.FullName = "google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault.fixed_features"
+)
+
+// Field numbers for google.protobuf.FeatureSetDefaults.FeatureSetEditionDefault.
+const (
+	FeatureSetDefaults_FeatureSetEditionDefault_Edition_field_number             protoreflect.FieldNumber = 3
+	FeatureSetDefaults_FeatureSetEditionDefault_OverridableFeatures_field_number protoreflect.FieldNumber = 4
+	FeatureSetDefaults_FeatureSetEditionDefault_FixedFeatures_field_number       protoreflect.FieldNumber = 5
 )
 
 // Names for google.protobuf.SourceCodeInfo.

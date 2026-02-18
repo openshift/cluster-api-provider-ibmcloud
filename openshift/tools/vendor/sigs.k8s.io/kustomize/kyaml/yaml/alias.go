@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"io"
 
-	"sigs.k8s.io/kustomize/kyaml/internal/forked/github.com/go-yaml/yaml"
+	yaml "go.yaml.in/yaml/v3"
 )
 
 const (

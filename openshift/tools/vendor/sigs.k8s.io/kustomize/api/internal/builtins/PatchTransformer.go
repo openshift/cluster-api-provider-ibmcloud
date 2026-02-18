@@ -48,10 +48,12 @@ func (p *PatchTransformerPlugin) Config(
 		p.Patch = string(loaded)
 	}
 
-	patchSM, errSM := h.ResmapFactory().RF().FromBytes([]byte(p.Patch))
-	patchJson, errJson := jsonPatchFromBytes([]byte(p.Patch))
-	if (errSM == nil && errJson == nil) ||
-		(patchSM != nil && patchJson != nil) {
+	patchesSM, errSM := h.ResmapFactory().RF().SliceFromBytes([]byte(p.patchText))
+	patchesJson, errJson := jsonPatchFromBytes([]byte(p.patchText))
+
+	if ((errSM == nil && errJson == nil) ||
+		(patchesSM != nil && patchesJson != nil)) &&
+		(len(patchesSM) > 0 && len(patchesJson) > 0) {
 		return fmt.Errorf(
 			"illegally qualifies as both an SM and JSON patch: [%v]",
 			p.Patch)

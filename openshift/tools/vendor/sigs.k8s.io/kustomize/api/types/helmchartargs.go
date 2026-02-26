@@ -88,6 +88,9 @@ type HelmChart struct {
 	// ApiVersions is the kubernetes apiversions used for Capabilities.APIVersions
 	ApiVersions []string `json:"apiVersions,omitempty" yaml:"apiVersions,omitempty"`
 
+	// KubeVersion is the kubernetes version used by Helm for Capabilities.KubeVersion"
+	KubeVersion string `json:"kubeVersion,omitempty" yaml:"kubeVersion,omitempty"`
+
 	// NameTemplate is for specifying the name template used to name the release.
 	NameTemplate string `json:"nameTemplate,omitempty" yaml:"nameTemplate,omitempty"`
 
@@ -96,9 +99,6 @@ type HelmChart struct {
 
 	// debug enables debug output from the Helm chart inflator generator.
 	Debug bool `json:"debug,omitempty" yaml:"debug,omitempty"`
-
-	// allow for devel release to be used.
-	Devel bool `json:"devel,omitempty" yaml:"devel,omitempty"`
 }
 
 // HelmChartArgs contains arguments to helm.
@@ -178,6 +178,10 @@ func (h HelmChart) AsHelmArgs(absChartHome string) []string {
 	for _, apiVer := range h.ApiVersions {
 		args = append(args, "--api-versions", apiVer)
 	}
+	if h.KubeVersion != "" {
+		args = append(args, "--kube-version", h.KubeVersion)
+	}
+
 	if h.IncludeCRDs {
 		args = append(args, "--include-crds")
 	}
@@ -189,9 +193,6 @@ func (h HelmChart) AsHelmArgs(absChartHome string) []string {
 	}
 	if h.Debug {
 		args = append(args, "--debug")
-	}
-	if h.Devel {
-		args = append(args, "--devel")
 	}
 	return args
 }

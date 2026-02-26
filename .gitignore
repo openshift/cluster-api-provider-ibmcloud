@@ -44,7 +44,3 @@ out/
 
 #ide settings
 .vscode/
-
-
-# Do not ignore files in vendor directory
-!vendor/**

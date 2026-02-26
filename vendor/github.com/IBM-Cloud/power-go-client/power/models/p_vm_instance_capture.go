@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -22,7 +23,7 @@ type PVMInstanceCapture struct {
 
 	// Destination for the deployable image
 	// Required: true
-	// Enum: [image-catalog cloud-storage both]
+	// Enum: ["image-catalog","cloud-storage","both"]
 	CaptureDestination *string `json:"captureDestination"`
 
 	// Name of the deployable image created for the captured PVMInstance
@@ -31,6 +32,9 @@ type PVMInstanceCapture struct {
 
 	// List of Data volume IDs to include in the captured PVMInstance
 	CaptureVolumeIDs []string `json:"captureVolumeIDs"`
+
+	// Create a checksum file
+	Checksum bool `json:"checksum,omitempty"`
 
 	// Cloud Storage Access key
 	CloudStorageAccessKey string `json:"cloudStorageAccessKey,omitempty"`
@@ -43,6 +47,9 @@ type PVMInstanceCapture struct {
 
 	// Cloud Storage Secret key
 	CloudStorageSecretKey string `json:"cloudStorageSecretKey,omitempty"`
+
+	// user tags
+	UserTags Tags `json:"userTags,omitempty"`
 }
 
 // Validate validates this p VM instance capture
@@ -57,13 +64,17 @@ func (m *PVMInstanceCapture) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateUserTags(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
 }
 
-var pVmInstanceCaptureTypeCaptureDestinationPropEnum []interface{}
+var pVmInstanceCaptureTypeCaptureDestinationPropEnum []any
 
 func init() {
 	var res []string
@@ -118,8 +129,56 @@ func (m *PVMInstanceCapture) validateCaptureName(formats strfmt.Registry) error 
 	return nil
 }
 
-// ContextValidate validates this p VM instance capture based on context it is used
+func (m *PVMInstanceCapture) validateUserTags(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserTags) { // not required
+		return nil
+	}
+
+	if err := m.UserTags.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this p VM instance capture based on the context it is used
 func (m *PVMInstanceCapture) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateUserTags(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *PVMInstanceCapture) contextValidateUserTags(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserTags.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
 	return nil
 }
 

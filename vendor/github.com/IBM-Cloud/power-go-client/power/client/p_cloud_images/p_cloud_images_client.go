@@ -9,12 +9,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p cloud images API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new p cloud images API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new p cloud images API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -25,7 +51,7 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
@@ -60,10 +86,10 @@ type ClientService interface {
 }
 
 /*
-  PcloudCloudinstancesImagesDelete deletes an image from a cloud instance
+PcloudCloudinstancesImagesDelete deletes an image from a cloud instance
 */
 func (a *Client) PcloudCloudinstancesImagesDelete(params *PcloudCloudinstancesImagesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesDeleteOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudCloudinstancesImagesDeleteParams()
 	}
@@ -83,26 +109,35 @@ func (a *Client) PcloudCloudinstancesImagesDelete(params *PcloudCloudinstancesIm
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudCloudinstancesImagesDeleteOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.cloudinstances.images.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudCloudinstancesImagesExportPost exports an image
+	PcloudCloudinstancesImagesExportPost exports an image
+
+	This API is deprecated for /pcloud/v2/cloud-instances/{cloud_instance_id}/images/{image_id}/export.
+
+>*Note*: Support for this API is available till Oct 2022.
 */
 func (a *Client) PcloudCloudinstancesImagesExportPost(params *PcloudCloudinstancesImagesExportPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesExportPostAccepted, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudCloudinstancesImagesExportPostParams()
 	}
@@ -122,26 +157,31 @@ func (a *Client) PcloudCloudinstancesImagesExportPost(params *PcloudCloudinstanc
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudCloudinstancesImagesExportPostAccepted)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.cloudinstances.images.export.post: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudCloudinstancesImagesGet detaileds info of an image
+PcloudCloudinstancesImagesGet detaileds info of an image
 */
 func (a *Client) PcloudCloudinstancesImagesGet(params *PcloudCloudinstancesImagesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesGetOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudCloudinstancesImagesGetParams()
 	}
@@ -161,26 +201,31 @@ func (a *Client) PcloudCloudinstancesImagesGet(params *PcloudCloudinstancesImage
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudCloudinstancesImagesGetOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.cloudinstances.images.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudCloudinstancesImagesGetall lists all images for this cloud instance
+PcloudCloudinstancesImagesGetall lists all images for this cloud instance
 */
 func (a *Client) PcloudCloudinstancesImagesGetall(params *PcloudCloudinstancesImagesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesGetallOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudCloudinstancesImagesGetallParams()
 	}
@@ -200,26 +245,31 @@ func (a *Client) PcloudCloudinstancesImagesGetall(params *PcloudCloudinstancesIm
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudCloudinstancesImagesGetallOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.cloudinstances.images.getall: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudCloudinstancesImagesPost creates a new image from available images
+PcloudCloudinstancesImagesPost creates a new image from available images
 */
 func (a *Client) PcloudCloudinstancesImagesPost(params *PcloudCloudinstancesImagesPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesImagesPostOK, *PcloudCloudinstancesImagesPostCreated, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudCloudinstancesImagesPostParams()
 	}
@@ -239,27 +289,31 @@ func (a *Client) PcloudCloudinstancesImagesPost(params *PcloudCloudinstancesImag
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// several success responses have to be checked
 	switch value := result.(type) {
 	case *PcloudCloudinstancesImagesPostOK:
 		return value, nil, nil
 	case *PcloudCloudinstancesImagesPostCreated:
 		return nil, value, nil
 	}
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for p_cloud_images: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudCloudinstancesStockimagesGet detaileds info of an available stock image
+PcloudCloudinstancesStockimagesGet detaileds info of an available stock image
 */
 func (a *Client) PcloudCloudinstancesStockimagesGet(params *PcloudCloudinstancesStockimagesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesStockimagesGetOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudCloudinstancesStockimagesGetParams()
 	}
@@ -279,26 +333,31 @@ func (a *Client) PcloudCloudinstancesStockimagesGet(params *PcloudCloudinstances
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudCloudinstancesStockimagesGetOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.cloudinstances.stockimages.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudCloudinstancesStockimagesGetall lists all available stock images
+PcloudCloudinstancesStockimagesGetall lists all available stock images
 */
 func (a *Client) PcloudCloudinstancesStockimagesGetall(params *PcloudCloudinstancesStockimagesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudCloudinstancesStockimagesGetallOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudCloudinstancesStockimagesGetallParams()
 	}
@@ -318,26 +377,35 @@ func (a *Client) PcloudCloudinstancesStockimagesGetall(params *PcloudCloudinstan
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudCloudinstancesStockimagesGetallOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.cloudinstances.stockimages.getall: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudImagesGet deprecateds for pcloud v1 cloud instances cloud instance id stock images image id detailed info of an available stock image
+	PcloudImagesGet detaileds info of an image in the image catalog
+
+	This API is deprecated for /pcloud/v1/cloud-instances/{cloud_instance_id}/stock-images/{image_id}.
+
+>*Note*: Support for this API will be available till 31st March 2023.
 */
 func (a *Client) PcloudImagesGet(params *PcloudImagesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudImagesGetOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudImagesGetParams()
 	}
@@ -357,26 +425,35 @@ func (a *Client) PcloudImagesGet(params *PcloudImagesGetParams, authInfo runtime
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudImagesGetOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.images.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudImagesGetall deprecateds for pcloud v1 cloud instances cloud instance id stock images list all available stock images
+	PcloudImagesGetall lists all the images in the image catalog
+
+	This API is deprecated for /pcloud/v1/cloud-instances/{cloud_instance_id}/stock-images.
+
+>*Note*: Support for this API will be available till 31st March 2023.
 */
 func (a *Client) PcloudImagesGetall(params *PcloudImagesGetallParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudImagesGetallOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudImagesGetallParams()
 	}
@@ -396,26 +473,31 @@ func (a *Client) PcloudImagesGetall(params *PcloudImagesGetallParams, authInfo r
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudImagesGetallOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.images.getall: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudV1CloudinstancesCosimagesGet gets detail of last cos image import job
+PcloudV1CloudinstancesCosimagesGet gets detail of last cos image import job
 */
 func (a *Client) PcloudV1CloudinstancesCosimagesGet(params *PcloudV1CloudinstancesCosimagesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV1CloudinstancesCosimagesGetOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudV1CloudinstancesCosimagesGetParams()
 	}
@@ -435,26 +517,31 @@ func (a *Client) PcloudV1CloudinstancesCosimagesGet(params *PcloudV1Cloudinstanc
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudV1CloudinstancesCosimagesGetOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.v1.cloudinstances.cosimages.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudV1CloudinstancesCosimagesPost creates an cos image import job
+PcloudV1CloudinstancesCosimagesPost creates an cos image import job
 */
 func (a *Client) PcloudV1CloudinstancesCosimagesPost(params *PcloudV1CloudinstancesCosimagesPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV1CloudinstancesCosimagesPostAccepted, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudV1CloudinstancesCosimagesPostParams()
 	}
@@ -474,26 +561,31 @@ func (a *Client) PcloudV1CloudinstancesCosimagesPost(params *PcloudV1Cloudinstan
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudV1CloudinstancesCosimagesPostAccepted)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.v1.cloudinstances.cosimages.post: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudV2ImagesExportGet gets detail of last image export job
+PcloudV2ImagesExportGet gets detail of last image export job
 */
 func (a *Client) PcloudV2ImagesExportGet(params *PcloudV2ImagesExportGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2ImagesExportGetOK, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudV2ImagesExportGetParams()
 	}
@@ -513,26 +605,31 @@ func (a *Client) PcloudV2ImagesExportGet(params *PcloudV2ImagesExportGetParams, 
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudV2ImagesExportGetOK)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.v2.images.export.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  PcloudV2ImagesExportPost adds image export job to the jobs queue
+PcloudV2ImagesExportPost adds image export job to the jobs queue
 */
 func (a *Client) PcloudV2ImagesExportPost(params *PcloudV2ImagesExportPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PcloudV2ImagesExportPostAccepted, error) {
-	// TODO: Validate the params before sending
+	// NOTE: parameters are not validated before sending
 	if params == nil {
 		params = NewPcloudV2ImagesExportPostParams()
 	}
@@ -552,17 +649,22 @@ func (a *Client) PcloudV2ImagesExportPost(params *PcloudV2ImagesExportPostParams
 	for _, opt := range opts {
 		opt(op)
 	}
-
 	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
+
+	// only one success response has to be checked
 	success, ok := result.(*PcloudV2ImagesExportPostAccepted)
 	if ok {
 		return success, nil
 	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+
+	// unexpected success response.
+
+	// no default response is defined.
+	//
+	// safeguard: normally, in the absence of a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for pcloud.v2.images.export.post: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }

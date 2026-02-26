@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -94,11 +95,15 @@ func (m *Tenant) validateCloudInstances(formats strfmt.Registry) error {
 
 		if m.CloudInstances[i] != nil {
 			if err := m.CloudInstances[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("cloudInstances" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("cloudInstances" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -142,11 +147,15 @@ func (m *Tenant) validatePeeringNetworks(formats strfmt.Registry) error {
 
 		if m.PeeringNetworks[i] != nil {
 			if err := m.PeeringNetworks[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("peeringNetworks" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("peeringNetworks" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -168,11 +177,15 @@ func (m *Tenant) validateSSHKeys(formats strfmt.Registry) error {
 
 		if m.SSHKeys[i] != nil {
 			if err := m.SSHKeys[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("sshKeys" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("sshKeys" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -218,12 +231,21 @@ func (m *Tenant) contextValidateCloudInstances(ctx context.Context, formats strf
 	for i := 0; i < len(m.CloudInstances); i++ {
 
 		if m.CloudInstances[i] != nil {
+
+			if swag.IsZero(m.CloudInstances[i]) { // not required
+				return nil
+			}
+
 			if err := m.CloudInstances[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("cloudInstances" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("cloudInstances" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -238,12 +260,21 @@ func (m *Tenant) contextValidatePeeringNetworks(ctx context.Context, formats str
 	for i := 0; i < len(m.PeeringNetworks); i++ {
 
 		if m.PeeringNetworks[i] != nil {
+
+			if swag.IsZero(m.PeeringNetworks[i]) { // not required
+				return nil
+			}
+
 			if err := m.PeeringNetworks[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("peeringNetworks" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("peeringNetworks" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -258,12 +289,21 @@ func (m *Tenant) contextValidateSSHKeys(ctx context.Context, formats strfmt.Regi
 	for i := 0; i < len(m.SSHKeys); i++ {
 
 		if m.SSHKeys[i] != nil {
+
+			if swag.IsZero(m.SSHKeys[i]) { // not required
+				return nil
+			}
+
 			if err := m.SSHKeys[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("sshKeys" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("sshKeys" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

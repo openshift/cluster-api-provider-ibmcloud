@@ -20,15 +20,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"strings"
+	"fmt"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"sigs.k8s.io/cluster-api/internal/contract"
-	tlog "sigs.k8s.io/cluster-api/internal/log"
+	patchutil "sigs.k8s.io/cluster-api/internal/util/patch"
 )
 
 // PatchOption represents an option for the patchObject and patchTemplate funcs.
@@ -57,7 +58,7 @@ func (i PreserveFields) ApplyToHelper(opts *PatchOptions) {
 	opts.preserveFields = i
 }
 
-// patchObject overwrites spec in object with spec.template.spec of patchedTemplate,
+// patchObject overwrites spec in object with spec.template.spec of modifiedObject,
 // while preserving the configured fields.
 // For example, ControlPlane.spec will be overwritten with the patched
 // ControlPlaneTemplate.spec.template.spec but preserving spec.version and spec.replicas
@@ -66,7 +67,7 @@ func patchObject(ctx context.Context, object, modifiedObject *unstructured.Unstr
 	return patchUnstructured(ctx, object, modifiedObject, "spec.template.spec", "spec", opts...)
 }
 
-// patchTemplate overwrites spec.template.spec in template with spec.template.spec of patchedTemplate,
+// patchTemplate overwrites spec.template.spec in template with spec.template.spec of modifiedTemplate,
 // while preserving the configured fields.
 // For example, it's possible to patch BootstrapTemplate.spec.template.spec with a patched
 // BootstrapTemplate.spec.template.spec while preserving fields configured via opts.fieldsToPreserve.
@@ -77,7 +78,7 @@ func patchTemplate(ctx context.Context, template, modifiedTemplate *unstructured
 // patchUnstructured overwrites original.destSpecPath with modified.srcSpecPath.
 // NOTE: Original won't be changed at all, if there is no diff.
 func patchUnstructured(ctx context.Context, original, modified *unstructured.Unstructured, srcSpecPath, destSpecPath string, opts ...PatchOption) error {
-	log := tlog.LoggerFrom(ctx)
+	log := ctrl.LoggerFrom(ctx)
 
 	patchOptions := &PatchOptions{}
 	patchOptions.ApplyOptions(opts)
@@ -86,20 +87,20 @@ func patchUnstructured(ctx context.Context, original, modified *unstructured.Uns
 	patched := original.DeepCopy()
 
 	// copySpec overwrites patched.destSpecPath with modified.srcSpecPath.
-	if err := copySpec(copySpecInput{
-		src:              modified,
-		dest:             patched,
-		srcSpecPath:      srcSpecPath,
-		destSpecPath:     destSpecPath,
-		fieldsToPreserve: patchOptions.preserveFields,
+	if err := patchutil.CopySpec(patchutil.CopySpecInput{
+		Src:              modified,
+		Dest:             patched,
+		SrcSpecPath:      srcSpecPath,
+		DestSpecPath:     destSpecPath,
+		FieldsToPreserve: patchOptions.preserveFields,
 	}); err != nil {
-		return errors.Wrapf(err, "failed to apply patch to %s", tlog.KObj{Obj: original})
+		return errors.Wrapf(err, "failed to apply patch to %s %s", original.GetKind(), klog.KObj(original))
 	}
 
 	// Calculate diff.
 	diff, err := calculateDiff(original, patched)
 	if err != nil {
-		return errors.Wrapf(err, "failed to apply patch to %s: failed to calculate diff", tlog.KObj{Obj: original})
+		return errors.Wrapf(err, "failed to apply patch to %s %s: failed to calculate diff", original.GetKind(), klog.KObj(original))
 	}
 
 	// Return if there is no diff.
@@ -108,7 +109,7 @@ func patchUnstructured(ctx context.Context, original, modified *unstructured.Uns
 	}
 
 	// Log the delta between the object before and after applying the accumulated patches.
-	log.V(4).WithObject(original).Infof("Applying accumulated patches to desired state: %s", string(diff))
+	log.V(4).Info(fmt.Sprintf("Applying accumulated patches to desired state of %s", original.GetKind()), original.GetKind(), klog.KObj(original), "patch", string(diff))
 
 	// Overwrite original.
 	*original = *patched
@@ -132,82 +133,4 @@ func calculateDiff(original, patched *unstructured.Unstructured) ([]byte, error)
 		return nil, errors.Errorf("failed to diff objects")
 	}
 	return diff, nil
-}
-
-// patchTemplateSpec overwrites spec in templateJSON with spec of patchedTemplateBytes.
-func patchTemplateSpec(templateJSON *runtime.RawExtension, patchedTemplateBytes []byte) error {
-	// Convert templates to Unstructured.
-	template, err := bytesToUnstructured(templateJSON.Raw)
-	if err != nil {
-		return errors.Wrap(err, "failed to convert template to Unstructured")
-	}
-	patchedTemplate, err := bytesToUnstructured(patchedTemplateBytes)
-	if err != nil {
-		return errors.Wrap(err, "failed to convert patched template to Unstructured")
-	}
-
-	// Copy spec from patchedTemplate to template.
-	if err := copySpec(copySpecInput{
-		src:          patchedTemplate,
-		dest:         template,
-		srcSpecPath:  "spec",
-		destSpecPath: "spec",
-	}); err != nil {
-		return errors.Wrap(err, "failed to apply patch to template")
-	}
-
-	// Marshal template and store it in templateJSON.
-	templateBytes, err := template.MarshalJSON()
-	if err != nil {
-		return errors.Wrapf(err, "failed to marshal patched template")
-	}
-	templateJSON.Object = template
-	templateJSON.Raw = templateBytes
-	return nil
-}
-
-type copySpecInput struct {
-	src              *unstructured.Unstructured
-	dest             *unstructured.Unstructured
-	srcSpecPath      string
-	destSpecPath     string
-	fieldsToPreserve []contract.Path
-}
-
-// copySpec copies a field from a srcSpecPath in src to a destSpecPath in dest,
-// while preserving fieldsToPreserve.
-func copySpec(in copySpecInput) error {
-	// Backup fields that should be preserved from dest.
-	preservedFields := map[string]interface{}{}
-	for _, field := range in.fieldsToPreserve {
-		value, found, err := unstructured.NestedFieldNoCopy(in.dest.Object, field...)
-		if !found {
-			// Continue if the field does not exist in src. fieldsToPreserve don't have to exist.
-			continue
-		} else if err != nil {
-			return errors.Wrapf(err, "failed to get field %q from %s", strings.Join(field, "."), tlog.KObj{Obj: in.dest})
-		}
-		preservedFields[strings.Join(field, ".")] = value
-	}
-
-	// Get spec from src.
-	srcSpec, found, err := unstructured.NestedFieldNoCopy(in.src.Object, strings.Split(in.srcSpecPath, ".")...)
-	if !found {
-		return errors.Errorf("missing field %q in %s", in.srcSpecPath, tlog.KObj{Obj: in.src})
-	} else if err != nil {
-		return errors.Wrapf(err, "failed to get field %q from %s", in.srcSpecPath, tlog.KObj{Obj: in.src})
-	}
-
-	// Set spec in dest.
-	if err := unstructured.SetNestedField(in.dest.Object, srcSpec, strings.Split(in.destSpecPath, ".")...); err != nil {
-		return errors.Wrapf(err, "failed to set field %q on %s", in.destSpecPath, tlog.KObj{Obj: in.dest})
-	}
-
-	// Restore preserved fields.
-	for path, value := range preservedFields {
-		if err := unstructured.SetNestedField(in.dest.Object, value, strings.Split(path, ".")...); err != nil {
-			return errors.Wrapf(err, "failed to set field %q on %s", path, tlog.KObj{Obj: in.dest})
-		}
-	}
-	return nil
 }

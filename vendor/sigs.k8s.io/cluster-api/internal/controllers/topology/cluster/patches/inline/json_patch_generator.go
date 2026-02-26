@@ -25,15 +25,17 @@ import (
 	"strings"
 	"text/template"
 
-	sprig "github.com/Masterminds/sprig/v3"
+	"github.com/Masterminds/sprig/v3"
 	"github.com/pkg/errors"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	runtimehooksv1 "sigs.k8s.io/cluster-api/exp/runtime/hooks/api/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
+	"sigs.k8s.io/cluster-api/exp/runtime/topologymutation"
 	"sigs.k8s.io/cluster-api/internal/contract"
 	"sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/patches/api"
 	patchvariables "sigs.k8s.io/cluster-api/internal/controllers/topology/cluster/patches/variables"
@@ -55,14 +57,15 @@ func NewGenerator(patch *clusterv1.ClusterClassPatch) api.Generator {
 func (j *jsonPatchGenerator) Generate(_ context.Context, _ client.Object, req *runtimehooksv1.GeneratePatchesRequest) (*runtimehooksv1.GeneratePatchesResponse, error) {
 	resp := &runtimehooksv1.GeneratePatchesResponse{}
 
-	globalVariables := patchvariables.ToMap(req.Variables)
+	globalVariables := topologymutation.ToMap(req.Variables)
 
 	// Loop over all templates.
 	errs := []error{}
 	for i := range req.Items {
 		item := &req.Items[i]
+		objectKind := item.Object.Object.GetObjectKind().GroupVersionKind().Kind
 
-		templateVariables := patchvariables.ToMap(item.Variables)
+		templateVariables := topologymutation.ToMap(item.Variables)
 
 		// Calculate the list of patches which match the current template.
 		matchingPatches := []clusterv1.PatchDefinition{}
@@ -79,15 +82,15 @@ func (j *jsonPatchGenerator) Generate(_ context.Context, _ client.Object, req *r
 		}
 
 		// Merge template-specific and global variables.
-		variables, err := patchvariables.MergeVariableMaps(globalVariables, templateVariables)
+		variables, err := topologymutation.MergeVariableMaps(globalVariables, templateVariables)
 		if err != nil {
-			errs = append(errs, errors.Wrapf(err, "failed to merge global and template-specific variables for item with uid %q", item.UID))
+			errs = append(errs, errors.Wrapf(err, "failed to merge global and template-specific variables for %q", objectKind))
 			continue
 		}
 
 		enabled, err := patchIsEnabled(j.patch.EnabledIf, variables)
 		if err != nil {
-			errs = append(errs, errors.Wrapf(err, "failed to calculate if patch %s is enabled for item with uid %q", j.patch.Name, item.UID))
+			errs = append(errs, errors.Wrapf(err, "failed to calculate if patch is enabled for %q", objectKind))
 			continue
 		}
 		if !enabled {
@@ -100,7 +103,7 @@ func (j *jsonPatchGenerator) Generate(_ context.Context, _ client.Object, req *r
 			// Generate JSON patches.
 			jsonPatches, err := generateJSONPatches(patch.JSONPatches, variables)
 			if err != nil {
-				errs = append(errs, errors.Wrapf(err, "failed to generate JSON patches for item with uid %q", item.UID))
+				errs = append(errs, errors.Wrapf(err, "failed to generate JSON patches for %q", objectKind))
 				continue
 			}
 
@@ -133,7 +136,7 @@ func matchesSelector(req *runtimehooksv1.GeneratePatchesRequestItem, templateVar
 	}
 
 	// Check if the request is for an InfrastructureCluster.
-	if selector.MatchResources.InfrastructureCluster {
+	if ptr.Deref(selector.MatchResources.InfrastructureCluster, false) {
 		// Cluster.spec.infrastructureRef holds the InfrastructureCluster.
 		if req.HolderReference.Kind == "Cluster" && req.HolderReference.FieldPath == "spec.infrastructureRef" {
 			return true
@@ -141,12 +144,17 @@ func matchesSelector(req *runtimehooksv1.GeneratePatchesRequestItem, templateVar
 	}
 
 	// Check if the request is for a ControlPlane or the InfrastructureMachineTemplate of a ControlPlane.
-	if selector.MatchResources.ControlPlane {
+	if ptr.Deref(selector.MatchResources.ControlPlane, false) {
 		// Cluster.spec.controlPlaneRef holds the ControlPlane.
 		if req.HolderReference.Kind == "Cluster" && req.HolderReference.FieldPath == "spec.controlPlaneRef" {
 			return true
 		}
 		// *.spec.machineTemplate.infrastructureRef holds the InfrastructureMachineTemplate of a ControlPlane.
+		// Note: this field path is only used in this context.
+		if req.HolderReference.FieldPath == strings.Join(contract.ControlPlane().MachineTemplate().InfrastructureV1Beta1Ref().Path(), ".") {
+			return true
+		}
+		// *.spec.machineTemplate.spec.infrastructureRef holds the InfrastructureMachineTemplate of a ControlPlane.
 		// Note: this field path is only used in this context.
 		if req.HolderReference.FieldPath == strings.Join(contract.ControlPlane().MachineTemplate().InfrastructureRef().Path(), ".") {
 			return true
@@ -170,7 +178,43 @@ func matchesSelector(req *runtimehooksv1.GeneratePatchesRequestItem, templateVar
 				// If templateMDClass matches one of the configured MachineDeploymentClasses.
 				for _, mdClass := range selector.MatchResources.MachineDeploymentClass.Names {
 					// We have to quote mdClass as templateMDClassJSON is a JSON string (e.g. "default-worker").
-					if string(templateMDClassJSON.Raw) == strconv.Quote(mdClass) {
+					if mdClass == "*" || string(templateMDClassJSON.Raw) == strconv.Quote(mdClass) {
+						return true
+					}
+					unquoted, _ := strconv.Unquote(string(templateMDClassJSON.Raw))
+					if strings.HasPrefix(mdClass, "*") && strings.HasSuffix(unquoted, strings.TrimPrefix(mdClass, "*")) {
+						return true
+					}
+					if strings.HasSuffix(mdClass, "*") && strings.HasPrefix(unquoted, strings.TrimSuffix(mdClass, "*")) {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	// Check if the request is for a BootstrapConfigTemplate or an InfrastructureMachinePoolTemplate
+	// of one of the configured MachinePoolClasses.
+	if selector.MatchResources.MachinePoolClass != nil {
+		if req.HolderReference.Kind == "MachinePool" &&
+			(req.HolderReference.FieldPath == "spec.template.spec.bootstrap.configRef" ||
+				req.HolderReference.FieldPath == "spec.template.spec.infrastructureRef") {
+			// Read the builtin.machinePool.class variable.
+			templateMPClassJSON, err := patchvariables.GetVariableValue(templateVariables, "builtin.machinePool.class")
+
+			// If the builtin variable could be read.
+			if err == nil {
+				// If templateMPClass matches one of the configured MachinePoolClasses.
+				for _, mpClass := range selector.MatchResources.MachinePoolClass.Names {
+					// We have to quote mpClass as templateMPClassJSON is a JSON string (e.g. "default-worker").
+					if mpClass == "*" || string(templateMPClassJSON.Raw) == strconv.Quote(mpClass) {
+						return true
+					}
+					unquoted, _ := strconv.Unquote(string(templateMPClassJSON.Raw))
+					if strings.HasPrefix(mpClass, "*") && strings.HasSuffix(unquoted, strings.TrimPrefix(mpClass, "*")) {
+						return true
+					}
+					if strings.HasSuffix(mpClass, "*") && strings.HasPrefix(unquoted, strings.TrimSuffix(mpClass, "*")) {
 						return true
 					}
 				}
@@ -181,14 +225,14 @@ func matchesSelector(req *runtimehooksv1.GeneratePatchesRequestItem, templateVar
 	return false
 }
 
-func patchIsEnabled(enabledIf *string, variables map[string]apiextensionsv1.JSON) (bool, error) {
+func patchIsEnabled(enabledIf string, variables map[string]apiextensionsv1.JSON) (bool, error) {
 	// If enabledIf is not set, patch is enabled.
-	if enabledIf == nil {
+	if enabledIf == "" {
 		return true, nil
 	}
 
 	// Rendered template.
-	value, err := renderValueTemplate(*enabledIf, variables)
+	value, err := renderValueTemplate(enabledIf, variables)
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to calculate value for enabledIf")
 	}
@@ -243,10 +287,10 @@ func calculateValue(patch clusterv1.JSONPatch, variables map[string]apiextension
 	if patch.Value != nil && patch.ValueFrom != nil {
 		return nil, errors.Errorf("failed to calculate value: both .value and .valueFrom are set")
 	}
-	if patch.ValueFrom != nil && patch.ValueFrom.Variable == nil && patch.ValueFrom.Template == nil {
+	if patch.ValueFrom != nil && patch.ValueFrom.Variable == "" && patch.ValueFrom.Template == "" {
 		return nil, errors.Errorf("failed to calculate value: .valueFrom is set, but neither .valueFrom.variable nor .valueFrom.template are set")
 	}
-	if patch.ValueFrom != nil && patch.ValueFrom.Variable != nil && patch.ValueFrom.Template != nil {
+	if patch.ValueFrom != nil && patch.ValueFrom.Variable != "" && patch.ValueFrom.Template != "" {
 		return nil, errors.Errorf("failed to calculate value: .valueFrom is set, but both .valueFrom.variable and .valueFrom.template are set")
 	}
 
@@ -256,8 +300,8 @@ func calculateValue(patch clusterv1.JSONPatch, variables map[string]apiextension
 	}
 
 	// Return variable.
-	if patch.ValueFrom.Variable != nil {
-		value, err := patchvariables.GetVariableValue(variables, *patch.ValueFrom.Variable)
+	if patch.ValueFrom.Variable != "" {
+		value, err := patchvariables.GetVariableValue(variables, patch.ValueFrom.Variable)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to calculate value")
 		}
@@ -265,7 +309,7 @@ func calculateValue(patch clusterv1.JSONPatch, variables map[string]apiextension
 	}
 
 	// Return rendered value template.
-	value, err := renderValueTemplate(*patch.ValueFrom.Template, variables)
+	value, err := renderValueTemplate(patch.ValueFrom.Template, variables)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to calculate value for template")
 	}
@@ -308,24 +352,24 @@ func renderValueTemplate(valueTemplate string, variables map[string]apiextension
 // calculateTemplateData calculates data for the template, by converting
 // the variables to their Go types.
 // Example:
-// * Input:
-//   map[string]apiextensionsv1.JSON{
+//   - Input:
+//     map[string]apiextensionsv1.JSON{
 //     "builtin": {Raw: []byte(`{"cluster":{"name":"cluster-name"}}`},
 //     "integerVariable": {Raw: []byte("4")},
 //     "numberVariable": {Raw: []byte("2.5")},
 //     "booleanVariable": {Raw: []byte("true")},
-//   }
-// * Output:
-//   map[string]interface{}{
+//     }
+//   - Output:
+//     map[string]interface{}{
 //     "builtin": map[string]interface{}{
-//       "cluster": map[string]interface{}{
-//         "name": <string>"cluster-name"
-//       }
+//     "cluster": map[string]interface{}{
+//     "name": <string>"cluster-name"
+//     }
 //     },
 //     "integerVariable": <float64>4,
 //     "numberVariable": <float64>2.5,
 //     "booleanVariable": <bool>true,
-//   }
+//     }
 func calculateTemplateData(variables map[string]apiextensionsv1.JSON) (map[string]interface{}, error) {
 	res := make(map[string]interface{}, len(variables))
 

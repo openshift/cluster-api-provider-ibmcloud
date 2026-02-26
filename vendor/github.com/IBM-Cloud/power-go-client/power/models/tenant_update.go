@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -52,11 +53,15 @@ func (m *TenantUpdate) validatePeeringNetworks(formats strfmt.Registry) error {
 
 		if m.PeeringNetworks[i] != nil {
 			if err := m.PeeringNetworks[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("peeringNetworks" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("peeringNetworks" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -85,12 +90,21 @@ func (m *TenantUpdate) contextValidatePeeringNetworks(ctx context.Context, forma
 	for i := 0; i < len(m.PeeringNetworks); i++ {
 
 		if m.PeeringNetworks[i] != nil {
+
+			if swag.IsZero(m.PeeringNetworks[i]) { // not required
+				return nil
+			}
+
 			if err := m.PeeringNetworks[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("peeringNetworks" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("peeringNetworks" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

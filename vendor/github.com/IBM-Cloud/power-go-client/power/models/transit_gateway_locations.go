@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -52,11 +53,15 @@ func (m *TransitGatewayLocations) validateTransitGatewayLocations(formats strfmt
 
 		if m.TransitGatewayLocations[i] != nil {
 			if err := m.TransitGatewayLocations[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("transitGatewayLocations" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("transitGatewayLocations" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -85,12 +90,21 @@ func (m *TransitGatewayLocations) contextValidateTransitGatewayLocations(ctx con
 	for i := 0; i < len(m.TransitGatewayLocations); i++ {
 
 		if m.TransitGatewayLocations[i] != nil {
+
+			if swag.IsZero(m.TransitGatewayLocations[i]) { // not required
+				return nil
+			}
+
 			if err := m.TransitGatewayLocations[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("transitGatewayLocations" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("transitGatewayLocations" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

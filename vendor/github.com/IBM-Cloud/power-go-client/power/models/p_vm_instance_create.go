@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -21,7 +22,13 @@ import (
 // swagger:model PVMInstanceCreate
 type PVMInstanceCreate struct {
 
-	// Custom Deployment Type Information (For Internal Use Only)
+	// Indicates if the boot volume should be replication enabled or not
+	BootVolumeReplicationEnabled *bool `json:"bootVolumeReplicationEnabled,omitempty"`
+
+	// The deployment of a dedicated host
+	DeploymentTarget *DeploymentTarget `json:"deploymentTarget,omitempty"`
+
+	// The custom deployment type
 	DeploymentType string `json:"deploymentType,omitempty"`
 
 	// Image ID of the image to use for the server
@@ -53,9 +60,12 @@ type PVMInstanceCreate struct {
 	// The placement group for the server
 	PlacementGroup string `json:"placementGroup,omitempty"`
 
+	// processor compatibility mode
+	PreferredProcessorCompatibilityMode string `json:"preferredProcessorCompatibilityMode,omitempty"`
+
 	// Processor type (dedicated, shared, capped)
 	// Required: true
-	// Enum: [dedicated shared capped]
+	// Enum: ["dedicated","shared","capped"]
 	ProcType *string `json:"procType"`
 
 	// Number of processors allocated
@@ -63,15 +73,19 @@ type PVMInstanceCreate struct {
 	Processors *float64 `json:"processors"`
 
 	// Affinity policy for replicants being created; affinity for the same host, anti-affinity for different hosts, none for no preference
-	// Enum: [affinity anti-affinity none]
+	// Enum: ["affinity","anti-affinity","none"]
 	ReplicantAffinityPolicy *string `json:"replicantAffinityPolicy,omitempty"`
 
 	// How to name the created vms
-	// Enum: [prefix suffix]
+	// Enum: ["prefix","suffix"]
 	ReplicantNamingScheme *string `json:"replicantNamingScheme,omitempty"`
 
 	// Number of duplicate instances to create in this request
-	Replicants float64 `json:"replicants,omitempty"`
+	// Minimum: 1
+	Replicants *float64 `json:"replicants,omitempty"`
+
+	// Indicates the replication site of the boot volume
+	ReplicationSites []string `json:"replicationSites"`
 
 	// Name of the server to create
 	// Required: true
@@ -83,35 +97,55 @@ type PVMInstanceCreate struct {
 	// The pvm instance Software Licenses
 	SoftwareLicenses *SoftwareLicenses `json:"softwareLicenses,omitempty"`
 
-	// The storage affinity data; ignored if storagePool is provided; Only valid when you deploy one of the IBM supplied stock images. Storage type and pool for a custom image (an imported image or an image that is created from a PVMInstance capture) defaults to the storage type and pool the image was created in
+	// The storage affinity data; ignored if storagePool is provided; Only valid when you deploy one of the IBM supplied stock images. Storage pool for a custom image (an imported image or an image that is created from a PVMInstance capture) defaults to the storage pool the image was created in
 	StorageAffinity *StorageAffinity `json:"storageAffinity,omitempty"`
 
 	// The storage connection type
-	// Enum: [vSCSI]
+	// Enum: ["vSCSI","maxVolumeSupport"]
 	StorageConnection string `json:"storageConnection,omitempty"`
 
-	// Storage Pool for server deployment; if provided then storageAffinity and storageType will be ignored; Only valid when you deploy one of the IBM supplied stock images. Storage type and pool for a custom image (an imported image or an image that is created from a PVMInstance capture) defaults to the storage type and pool the image was created in
+	// The storage connection type
+	// Enum: ["vSCSI","maxVolumeSupport"]
+	StorageConnectionV2 string `json:"storageConnectionV2,omitempty"`
+
+	// Storage Pool for server deployment; if provided then storageAffinity will be ignored; Only valid when you deploy one of the IBM supplied stock images. Storage pool for a custom image (an imported image or an image that is created from a PVMInstance capture) defaults to the storage pool the image was created in
 	StoragePool string `json:"storagePool,omitempty"`
 
-	// Storage type for server deployment; will be ignored if storagePool or storageAffinity is provided; Only valid when you deploy one of the IBM supplied stock images. Storage type and pool for a custom image (an imported image or an image that is created from a PVMInstance capture) defaults to the storage type and pool the image was created in
+	// Indicates if all volumes attached to the PVMInstance must reside in the same storage pool. If set to false, volumes from any storage pool can be attached to the PVMInstance. This flag only impacts PVMInstance snapshot and capture operations. For capture, only volumes that reside in the same storage pool as the PVMInstance's boot volume can be included. For snapshots, all volumes included in the snapshot must reside in the same storage pool.
+	StoragePoolAffinity *bool `json:"storagePoolAffinity,omitempty"`
+
+	// Storage type for server deployment; if storageType is not provided the storage type will default to 'tier3'.
 	StorageType string `json:"storageType,omitempty"`
 
 	// System type used to host the instance
 	SysType string `json:"sysType,omitempty"`
 
-	// Cloud init user defined data
+	// Cloud init user defined data; For FLS, only cloud-config user-data is supported and data must not be compressed or exceed 63K
 	UserData string `json:"userData,omitempty"`
+
+	// user tags
+	UserTags Tags `json:"userTags,omitempty"`
 
 	// The pvm instance virtual CPU information
 	VirtualCores *VirtualCores `json:"virtualCores,omitempty"`
 
+	// Virtual Serial Number information
+	VirtualSerialNumber *CreateServerVirtualSerialNumber `json:"virtualSerialNumber,omitempty"`
+
 	// List of volume IDs
 	VolumeIDs []string `json:"volumeIDs"`
+
+	// The vPMEM volumes information
+	VpmemVolumes []*VPMemVolumeCreate `json:"vpmemVolumes"`
 }
 
 // Validate validates this p VM instance create
 func (m *PVMInstanceCreate) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.validateDeploymentTarget(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.validateImageID(formats); err != nil {
 		res = append(res, err)
@@ -145,6 +179,10 @@ func (m *PVMInstanceCreate) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateReplicants(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateServerName(formats); err != nil {
 		res = append(res, err)
 	}
@@ -161,13 +199,52 @@ func (m *PVMInstanceCreate) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateStorageConnectionV2(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUserTags(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateVirtualCores(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVirtualSerialNumber(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVpmemVolumes(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *PVMInstanceCreate) validateDeploymentTarget(formats strfmt.Registry) error {
+	if swag.IsZero(m.DeploymentTarget) { // not required
+		return nil
+	}
+
+	if m.DeploymentTarget != nil {
+		if err := m.DeploymentTarget.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("deploymentTarget")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("deploymentTarget")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -201,11 +278,15 @@ func (m *PVMInstanceCreate) validateNetworks(formats strfmt.Registry) error {
 
 		if m.Networks[i] != nil {
 			if err := m.Networks[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("networks" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("networks" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -221,18 +302,22 @@ func (m *PVMInstanceCreate) validatePinPolicy(formats strfmt.Registry) error {
 	}
 
 	if err := m.PinPolicy.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
 			return ve.ValidateName("pinPolicy")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
 			return ce.ValidateName("pinPolicy")
 		}
+
 		return err
 	}
 
 	return nil
 }
 
-var pVmInstanceCreateTypeProcTypePropEnum []interface{}
+var pVmInstanceCreateTypeProcTypePropEnum []any
 
 func init() {
 	var res []string
@@ -287,7 +372,7 @@ func (m *PVMInstanceCreate) validateProcessors(formats strfmt.Registry) error {
 	return nil
 }
 
-var pVmInstanceCreateTypeReplicantAffinityPolicyPropEnum []interface{}
+var pVmInstanceCreateTypeReplicantAffinityPolicyPropEnum []any
 
 func init() {
 	var res []string
@@ -332,7 +417,7 @@ func (m *PVMInstanceCreate) validateReplicantAffinityPolicy(formats strfmt.Regis
 	return nil
 }
 
-var pVmInstanceCreateTypeReplicantNamingSchemePropEnum []interface{}
+var pVmInstanceCreateTypeReplicantNamingSchemePropEnum []any
 
 func init() {
 	var res []string
@@ -374,6 +459,18 @@ func (m *PVMInstanceCreate) validateReplicantNamingScheme(formats strfmt.Registr
 	return nil
 }
 
+func (m *PVMInstanceCreate) validateReplicants(formats strfmt.Registry) error {
+	if swag.IsZero(m.Replicants) { // not required
+		return nil
+	}
+
+	if err := validate.Minimum("replicants", "body", *m.Replicants, 1, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *PVMInstanceCreate) validateServerName(formats strfmt.Registry) error {
 
 	if err := validate.Required("serverName", "body", m.ServerName); err != nil {
@@ -390,11 +487,15 @@ func (m *PVMInstanceCreate) validateSoftwareLicenses(formats strfmt.Registry) er
 
 	if m.SoftwareLicenses != nil {
 		if err := m.SoftwareLicenses.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("softwareLicenses")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("softwareLicenses")
 			}
+
 			return err
 		}
 	}
@@ -409,11 +510,15 @@ func (m *PVMInstanceCreate) validateStorageAffinity(formats strfmt.Registry) err
 
 	if m.StorageAffinity != nil {
 		if err := m.StorageAffinity.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("storageAffinity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("storageAffinity")
 			}
+
 			return err
 		}
 	}
@@ -421,11 +526,11 @@ func (m *PVMInstanceCreate) validateStorageAffinity(formats strfmt.Registry) err
 	return nil
 }
 
-var pVmInstanceCreateTypeStorageConnectionPropEnum []interface{}
+var pVmInstanceCreateTypeStorageConnectionPropEnum []any
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["vSCSI"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["vSCSI","maxVolumeSupport"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -437,6 +542,9 @@ const (
 
 	// PVMInstanceCreateStorageConnectionVSCSI captures enum value "vSCSI"
 	PVMInstanceCreateStorageConnectionVSCSI string = "vSCSI"
+
+	// PVMInstanceCreateStorageConnectionMaxVolumeSupport captures enum value "maxVolumeSupport"
+	PVMInstanceCreateStorageConnectionMaxVolumeSupport string = "maxVolumeSupport"
 )
 
 // prop value enum
@@ -460,6 +568,69 @@ func (m *PVMInstanceCreate) validateStorageConnection(formats strfmt.Registry) e
 	return nil
 }
 
+var pVmInstanceCreateTypeStorageConnectionV2PropEnum []any
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["vSCSI","maxVolumeSupport"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		pVmInstanceCreateTypeStorageConnectionV2PropEnum = append(pVmInstanceCreateTypeStorageConnectionV2PropEnum, v)
+	}
+}
+
+const (
+
+	// PVMInstanceCreateStorageConnectionV2VSCSI captures enum value "vSCSI"
+	PVMInstanceCreateStorageConnectionV2VSCSI string = "vSCSI"
+
+	// PVMInstanceCreateStorageConnectionV2MaxVolumeSupport captures enum value "maxVolumeSupport"
+	PVMInstanceCreateStorageConnectionV2MaxVolumeSupport string = "maxVolumeSupport"
+)
+
+// prop value enum
+func (m *PVMInstanceCreate) validateStorageConnectionV2Enum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, pVmInstanceCreateTypeStorageConnectionV2PropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *PVMInstanceCreate) validateStorageConnectionV2(formats strfmt.Registry) error {
+	if swag.IsZero(m.StorageConnectionV2) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateStorageConnectionV2Enum("storageConnectionV2", "body", m.StorageConnectionV2); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *PVMInstanceCreate) validateUserTags(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserTags) { // not required
+		return nil
+	}
+
+	if err := m.UserTags.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 func (m *PVMInstanceCreate) validateVirtualCores(formats strfmt.Registry) error {
 	if swag.IsZero(m.VirtualCores) { // not required
 		return nil
@@ -467,13 +638,70 @@ func (m *PVMInstanceCreate) validateVirtualCores(formats strfmt.Registry) error 
 
 	if m.VirtualCores != nil {
 		if err := m.VirtualCores.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("virtualCores")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("virtualCores")
 			}
+
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *PVMInstanceCreate) validateVirtualSerialNumber(formats strfmt.Registry) error {
+	if swag.IsZero(m.VirtualSerialNumber) { // not required
+		return nil
+	}
+
+	if m.VirtualSerialNumber != nil {
+		if err := m.VirtualSerialNumber.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("virtualSerialNumber")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("virtualSerialNumber")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *PVMInstanceCreate) validateVpmemVolumes(formats strfmt.Registry) error {
+	if swag.IsZero(m.VpmemVolumes) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.VpmemVolumes); i++ {
+		if swag.IsZero(m.VpmemVolumes[i]) { // not required
+			continue
+		}
+
+		if m.VpmemVolumes[i] != nil {
+			if err := m.VpmemVolumes[i].Validate(formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("vpmemVolumes" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("vpmemVolumes" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
 	}
 
 	return nil
@@ -482,6 +710,10 @@ func (m *PVMInstanceCreate) validateVirtualCores(formats strfmt.Registry) error 
 // ContextValidate validate this p VM instance create based on the context it is used
 func (m *PVMInstanceCreate) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.contextValidateDeploymentTarget(ctx, formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.contextValidateNetworks(ctx, formats); err != nil {
 		res = append(res, err)
@@ -499,7 +731,19 @@ func (m *PVMInstanceCreate) ContextValidate(ctx context.Context, formats strfmt.
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateUserTags(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateVirtualCores(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateVirtualSerialNumber(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateVpmemVolumes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -509,17 +753,51 @@ func (m *PVMInstanceCreate) ContextValidate(ctx context.Context, formats strfmt.
 	return nil
 }
 
+func (m *PVMInstanceCreate) contextValidateDeploymentTarget(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.DeploymentTarget != nil {
+
+		if swag.IsZero(m.DeploymentTarget) { // not required
+			return nil
+		}
+
+		if err := m.DeploymentTarget.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("deploymentTarget")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("deploymentTarget")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *PVMInstanceCreate) contextValidateNetworks(ctx context.Context, formats strfmt.Registry) error {
 
 	for i := 0; i < len(m.Networks); i++ {
 
 		if m.Networks[i] != nil {
+
+			if swag.IsZero(m.Networks[i]) { // not required
+				return nil
+			}
+
 			if err := m.Networks[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("networks" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("networks" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -531,12 +809,20 @@ func (m *PVMInstanceCreate) contextValidateNetworks(ctx context.Context, formats
 
 func (m *PVMInstanceCreate) contextValidatePinPolicy(ctx context.Context, formats strfmt.Registry) error {
 
+	if swag.IsZero(m.PinPolicy) { // not required
+		return nil
+	}
+
 	if err := m.PinPolicy.ContextValidate(ctx, formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
 			return ve.ValidateName("pinPolicy")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
 			return ce.ValidateName("pinPolicy")
 		}
+
 		return err
 	}
 
@@ -546,12 +832,21 @@ func (m *PVMInstanceCreate) contextValidatePinPolicy(ctx context.Context, format
 func (m *PVMInstanceCreate) contextValidateSoftwareLicenses(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.SoftwareLicenses != nil {
+
+		if swag.IsZero(m.SoftwareLicenses) { // not required
+			return nil
+		}
+
 		if err := m.SoftwareLicenses.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("softwareLicenses")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("softwareLicenses")
 			}
+
 			return err
 		}
 	}
@@ -562,14 +857,41 @@ func (m *PVMInstanceCreate) contextValidateSoftwareLicenses(ctx context.Context,
 func (m *PVMInstanceCreate) contextValidateStorageAffinity(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.StorageAffinity != nil {
+
+		if swag.IsZero(m.StorageAffinity) { // not required
+			return nil
+		}
+
 		if err := m.StorageAffinity.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("storageAffinity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("storageAffinity")
 			}
+
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *PVMInstanceCreate) contextValidateUserTags(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserTags.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
 	}
 
 	return nil
@@ -578,14 +900,77 @@ func (m *PVMInstanceCreate) contextValidateStorageAffinity(ctx context.Context, 
 func (m *PVMInstanceCreate) contextValidateVirtualCores(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.VirtualCores != nil {
+
+		if swag.IsZero(m.VirtualCores) { // not required
+			return nil
+		}
+
 		if err := m.VirtualCores.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("virtualCores")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("virtualCores")
 			}
+
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *PVMInstanceCreate) contextValidateVirtualSerialNumber(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.VirtualSerialNumber != nil {
+
+		if swag.IsZero(m.VirtualSerialNumber) { // not required
+			return nil
+		}
+
+		if err := m.VirtualSerialNumber.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("virtualSerialNumber")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("virtualSerialNumber")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *PVMInstanceCreate) contextValidateVpmemVolumes(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.VpmemVolumes); i++ {
+
+		if m.VpmemVolumes[i] != nil {
+
+			if swag.IsZero(m.VpmemVolumes[i]) { // not required
+				return nil
+			}
+
+			if err := m.VpmemVolumes[i].ContextValidate(ctx, formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("vpmemVolumes" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("vpmemVolumes" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
 	}
 
 	return nil

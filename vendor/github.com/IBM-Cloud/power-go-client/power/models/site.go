@@ -7,7 +7,10 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
+	"strconv"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -16,6 +19,9 @@ import (
 //
 // swagger:model Site
 type Site struct {
+
+	// replication pool map
+	ReplicationPoolMap []*StoragePoolMap `json:"ReplicationPoolMap,omitempty"`
 
 	// true if location is active , otherwise it is false
 	IsActive bool `json:"isActive,omitempty"`
@@ -26,11 +32,88 @@ type Site struct {
 
 // Validate validates this site
 func (m *Site) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateReplicationPoolMap(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this site based on context it is used
+func (m *Site) validateReplicationPoolMap(formats strfmt.Registry) error {
+	if swag.IsZero(m.ReplicationPoolMap) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.ReplicationPoolMap); i++ {
+		if swag.IsZero(m.ReplicationPoolMap[i]) { // not required
+			continue
+		}
+
+		if m.ReplicationPoolMap[i] != nil {
+			if err := m.ReplicationPoolMap[i].Validate(formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("ReplicationPoolMap" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("ReplicationPoolMap" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this site based on the context it is used
 func (m *Site) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateReplicationPoolMap(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Site) contextValidateReplicationPoolMap(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.ReplicationPoolMap); i++ {
+
+		if m.ReplicationPoolMap[i] != nil {
+
+			if swag.IsZero(m.ReplicationPoolMap[i]) { // not required
+				return nil
+			}
+
+			if err := m.ReplicationPoolMap[i].ContextValidate(ctx, formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("ReplicationPoolMap" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("ReplicationPoolMap" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

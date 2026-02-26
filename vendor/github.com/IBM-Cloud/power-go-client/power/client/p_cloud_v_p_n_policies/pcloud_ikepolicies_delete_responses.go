@@ -6,6 +6,8 @@ package p_cloud_v_p_n_policies
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 
@@ -21,7 +23,7 @@ type PcloudIkepoliciesDeleteReader struct {
 }
 
 // ReadResponse reads a server response into the received o.
-func (o *PcloudIkepoliciesDeleteReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
+func (o *PcloudIkepoliciesDeleteReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (any, error) {
 	switch response.Code() {
 	case 200:
 		result := NewPcloudIkepoliciesDeleteOK()
@@ -60,7 +62,7 @@ func (o *PcloudIkepoliciesDeleteReader) ReadResponse(response runtime.ClientResp
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}] pcloud.ikepolicies.delete", response, response.Code())
 	}
 }
 
@@ -69,7 +71,8 @@ func NewPcloudIkepoliciesDeleteOK() *PcloudIkepoliciesDeleteOK {
 	return &PcloudIkepoliciesDeleteOK{}
 }
 
-/* PcloudIkepoliciesDeleteOK describes a response with status code 200, with default header values.
+/*
+PcloudIkepoliciesDeleteOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -77,9 +80,46 @@ type PcloudIkepoliciesDeleteOK struct {
 	Payload models.Object
 }
 
-func (o *PcloudIkepoliciesDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteOK  %+v", 200, o.Payload)
+// IsSuccess returns true when this pcloud ikepolicies delete o k response has a 2xx status code
+func (o *PcloudIkepoliciesDeleteOK) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud ikepolicies delete o k response has a 3xx status code
+func (o *PcloudIkepoliciesDeleteOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud ikepolicies delete o k response has a 4xx status code
+func (o *PcloudIkepoliciesDeleteOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud ikepolicies delete o k response has a 5xx status code
+func (o *PcloudIkepoliciesDeleteOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud ikepolicies delete o k response a status code equal to that given
+func (o *PcloudIkepoliciesDeleteOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the pcloud ikepolicies delete o k response
+func (o *PcloudIkepoliciesDeleteOK) Code() int {
+	return 200
+}
+
+func (o *PcloudIkepoliciesDeleteOK) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteOK %s", 200, payload)
+}
+
+func (o *PcloudIkepoliciesDeleteOK) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteOK %s", 200, payload)
+}
+
 func (o *PcloudIkepoliciesDeleteOK) GetPayload() models.Object {
 	return o.Payload
 }
@@ -87,7 +127,7 @@ func (o *PcloudIkepoliciesDeleteOK) GetPayload() models.Object {
 func (o *PcloudIkepoliciesDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -99,7 +139,8 @@ func NewPcloudIkepoliciesDeleteBadRequest() *PcloudIkepoliciesDeleteBadRequest {
 	return &PcloudIkepoliciesDeleteBadRequest{}
 }
 
-/* PcloudIkepoliciesDeleteBadRequest describes a response with status code 400, with default header values.
+/*
+PcloudIkepoliciesDeleteBadRequest describes a response with status code 400, with default header values.
 
 Bad Request
 */
@@ -107,9 +148,46 @@ type PcloudIkepoliciesDeleteBadRequest struct {
 	Payload *models.Error
 }
 
-func (o *PcloudIkepoliciesDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteBadRequest  %+v", 400, o.Payload)
+// IsSuccess returns true when this pcloud ikepolicies delete bad request response has a 2xx status code
+func (o *PcloudIkepoliciesDeleteBadRequest) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud ikepolicies delete bad request response has a 3xx status code
+func (o *PcloudIkepoliciesDeleteBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud ikepolicies delete bad request response has a 4xx status code
+func (o *PcloudIkepoliciesDeleteBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud ikepolicies delete bad request response has a 5xx status code
+func (o *PcloudIkepoliciesDeleteBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud ikepolicies delete bad request response a status code equal to that given
+func (o *PcloudIkepoliciesDeleteBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the pcloud ikepolicies delete bad request response
+func (o *PcloudIkepoliciesDeleteBadRequest) Code() int {
+	return 400
+}
+
+func (o *PcloudIkepoliciesDeleteBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteBadRequest %s", 400, payload)
+}
+
+func (o *PcloudIkepoliciesDeleteBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteBadRequest %s", 400, payload)
+}
+
 func (o *PcloudIkepoliciesDeleteBadRequest) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -119,7 +197,7 @@ func (o *PcloudIkepoliciesDeleteBadRequest) readResponse(response runtime.Client
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -131,7 +209,8 @@ func NewPcloudIkepoliciesDeleteUnauthorized() *PcloudIkepoliciesDeleteUnauthoriz
 	return &PcloudIkepoliciesDeleteUnauthorized{}
 }
 
-/* PcloudIkepoliciesDeleteUnauthorized describes a response with status code 401, with default header values.
+/*
+PcloudIkepoliciesDeleteUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized
 */
@@ -139,9 +218,46 @@ type PcloudIkepoliciesDeleteUnauthorized struct {
 	Payload *models.Error
 }
 
-func (o *PcloudIkepoliciesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteUnauthorized  %+v", 401, o.Payload)
+// IsSuccess returns true when this pcloud ikepolicies delete unauthorized response has a 2xx status code
+func (o *PcloudIkepoliciesDeleteUnauthorized) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud ikepolicies delete unauthorized response has a 3xx status code
+func (o *PcloudIkepoliciesDeleteUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud ikepolicies delete unauthorized response has a 4xx status code
+func (o *PcloudIkepoliciesDeleteUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud ikepolicies delete unauthorized response has a 5xx status code
+func (o *PcloudIkepoliciesDeleteUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud ikepolicies delete unauthorized response a status code equal to that given
+func (o *PcloudIkepoliciesDeleteUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the pcloud ikepolicies delete unauthorized response
+func (o *PcloudIkepoliciesDeleteUnauthorized) Code() int {
+	return 401
+}
+
+func (o *PcloudIkepoliciesDeleteUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteUnauthorized %s", 401, payload)
+}
+
+func (o *PcloudIkepoliciesDeleteUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteUnauthorized %s", 401, payload)
+}
+
 func (o *PcloudIkepoliciesDeleteUnauthorized) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -151,7 +267,7 @@ func (o *PcloudIkepoliciesDeleteUnauthorized) readResponse(response runtime.Clie
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -163,7 +279,8 @@ func NewPcloudIkepoliciesDeleteForbidden() *PcloudIkepoliciesDeleteForbidden {
 	return &PcloudIkepoliciesDeleteForbidden{}
 }
 
-/* PcloudIkepoliciesDeleteForbidden describes a response with status code 403, with default header values.
+/*
+PcloudIkepoliciesDeleteForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -171,9 +288,46 @@ type PcloudIkepoliciesDeleteForbidden struct {
 	Payload *models.Error
 }
 
-func (o *PcloudIkepoliciesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteForbidden  %+v", 403, o.Payload)
+// IsSuccess returns true when this pcloud ikepolicies delete forbidden response has a 2xx status code
+func (o *PcloudIkepoliciesDeleteForbidden) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud ikepolicies delete forbidden response has a 3xx status code
+func (o *PcloudIkepoliciesDeleteForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud ikepolicies delete forbidden response has a 4xx status code
+func (o *PcloudIkepoliciesDeleteForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud ikepolicies delete forbidden response has a 5xx status code
+func (o *PcloudIkepoliciesDeleteForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud ikepolicies delete forbidden response a status code equal to that given
+func (o *PcloudIkepoliciesDeleteForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the pcloud ikepolicies delete forbidden response
+func (o *PcloudIkepoliciesDeleteForbidden) Code() int {
+	return 403
+}
+
+func (o *PcloudIkepoliciesDeleteForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteForbidden %s", 403, payload)
+}
+
+func (o *PcloudIkepoliciesDeleteForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteForbidden %s", 403, payload)
+}
+
 func (o *PcloudIkepoliciesDeleteForbidden) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -183,7 +337,7 @@ func (o *PcloudIkepoliciesDeleteForbidden) readResponse(response runtime.ClientR
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -195,7 +349,8 @@ func NewPcloudIkepoliciesDeleteNotFound() *PcloudIkepoliciesDeleteNotFound {
 	return &PcloudIkepoliciesDeleteNotFound{}
 }
 
-/* PcloudIkepoliciesDeleteNotFound describes a response with status code 404, with default header values.
+/*
+PcloudIkepoliciesDeleteNotFound describes a response with status code 404, with default header values.
 
 Not Found
 */
@@ -203,9 +358,46 @@ type PcloudIkepoliciesDeleteNotFound struct {
 	Payload *models.Error
 }
 
-func (o *PcloudIkepoliciesDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteNotFound  %+v", 404, o.Payload)
+// IsSuccess returns true when this pcloud ikepolicies delete not found response has a 2xx status code
+func (o *PcloudIkepoliciesDeleteNotFound) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud ikepolicies delete not found response has a 3xx status code
+func (o *PcloudIkepoliciesDeleteNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud ikepolicies delete not found response has a 4xx status code
+func (o *PcloudIkepoliciesDeleteNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud ikepolicies delete not found response has a 5xx status code
+func (o *PcloudIkepoliciesDeleteNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud ikepolicies delete not found response a status code equal to that given
+func (o *PcloudIkepoliciesDeleteNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the pcloud ikepolicies delete not found response
+func (o *PcloudIkepoliciesDeleteNotFound) Code() int {
+	return 404
+}
+
+func (o *PcloudIkepoliciesDeleteNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteNotFound %s", 404, payload)
+}
+
+func (o *PcloudIkepoliciesDeleteNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteNotFound %s", 404, payload)
+}
+
 func (o *PcloudIkepoliciesDeleteNotFound) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -215,7 +407,7 @@ func (o *PcloudIkepoliciesDeleteNotFound) readResponse(response runtime.ClientRe
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -227,7 +419,8 @@ func NewPcloudIkepoliciesDeleteInternalServerError() *PcloudIkepoliciesDeleteInt
 	return &PcloudIkepoliciesDeleteInternalServerError{}
 }
 
-/* PcloudIkepoliciesDeleteInternalServerError describes a response with status code 500, with default header values.
+/*
+PcloudIkepoliciesDeleteInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -235,9 +428,46 @@ type PcloudIkepoliciesDeleteInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *PcloudIkepoliciesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this pcloud ikepolicies delete internal server error response has a 2xx status code
+func (o *PcloudIkepoliciesDeleteInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud ikepolicies delete internal server error response has a 3xx status code
+func (o *PcloudIkepoliciesDeleteInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud ikepolicies delete internal server error response has a 4xx status code
+func (o *PcloudIkepoliciesDeleteInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud ikepolicies delete internal server error response has a 5xx status code
+func (o *PcloudIkepoliciesDeleteInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud ikepolicies delete internal server error response a status code equal to that given
+func (o *PcloudIkepoliciesDeleteInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the pcloud ikepolicies delete internal server error response
+func (o *PcloudIkepoliciesDeleteInternalServerError) Code() int {
+	return 500
+}
+
+func (o *PcloudIkepoliciesDeleteInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteInternalServerError %s", 500, payload)
+}
+
+func (o *PcloudIkepoliciesDeleteInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /pcloud/v1/cloud-instances/{cloud_instance_id}/vpn/ike-policies/{ike_policy_id}][%d] pcloudIkepoliciesDeleteInternalServerError %s", 500, payload)
+}
+
 func (o *PcloudIkepoliciesDeleteInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -247,7 +477,7 @@ func (o *PcloudIkepoliciesDeleteInternalServerError) readResponse(response runti
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 

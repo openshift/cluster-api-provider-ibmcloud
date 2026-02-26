@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"cmp"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -25,15 +27,18 @@ func newEncoder(tab bool, indent int) *encoder {
 	return &encoder{w: new(bytes.Buffer), tab: tab, indent: indent}
 }
 
-func (e *encoder) marshal(v interface{}, w io.Writer) error {
-	e.out = w
-	e.encode(v)
-	_, err := w.Write(e.w.Bytes())
+func (e *encoder) flush() error {
+	_, err := e.out.Write(e.w.Bytes())
 	e.w.Reset()
 	return err
 }
 
-func (e *encoder) encode(v interface{}) {
+func (e *encoder) marshal(v any, w io.Writer) error {
+	e.out = w
+	return cmp.Or(e.encode(v), e.flush())
+}
+
+func (e *encoder) encode(v any) error {
 	switch v := v.(type) {
 	case nil:
 		e.write([]byte("null"), nullColor)
@@ -49,19 +54,25 @@ func (e *encoder) encode(v interface{}) {
 		e.encodeFloat64(v)
 	case *big.Int:
 		e.write(v.Append(e.buf[:0], 10), numberColor)
+	case json.Number:
+		e.write([]byte(v.String()), numberColor)
 	case string:
 		e.encodeString(v, stringColor)
-	case []interface{}:
-		e.encodeArray(v)
-	case map[string]interface{}:
-		e.encodeMap(v)
+	case []any:
+		if err := e.encodeArray(v); err != nil {
+			return err
+		}
+	case map[string]any:
+		if err := e.encodeObject(v); err != nil {
+			return err
+		}
 	default:
 		panic(fmt.Sprintf("invalid type: %[1]T (%[1]v)", v))
 	}
 	if e.w.Len() > 8*1024 {
-		e.out.Write(e.w.Bytes())
-		e.w.Reset()
+		return e.flush()
 	}
+	return nil
 }
 
 // ref: floatEncoder in encoding/json
@@ -70,17 +81,13 @@ func (e *encoder) encodeFloat64(f float64) {
 		e.write([]byte("null"), nullColor)
 		return
 	}
-	if f >= math.MaxFloat64 {
-		f = math.MaxFloat64
-	} else if f <= -math.MaxFloat64 {
-		f = -math.MaxFloat64
-	}
-	fmt := byte('f')
+	f = min(max(f, -math.MaxFloat64), math.MaxFloat64)
+	format := byte('f')
 	if x := math.Abs(f); x != 0 && x < 1e-6 || x >= 1e21 {
-		fmt = 'e'
+		format = 'e'
 	}
-	buf := strconv.AppendFloat(e.buf[:0], f, fmt, -1, 64)
-	if fmt == 'e' {
+	buf := strconv.AppendFloat(e.buf[:0], f, format, -1, 64)
+	if format == 'e' {
 		// clean up e-09 to e-9
 		if n := len(buf); n >= 4 && buf[n-4] == 'e' && buf[n-3] == '-' && buf[n-2] == '0' {
 			buf[n-2] = buf[n-1]
@@ -152,31 +159,34 @@ func (e *encoder) encodeString(s string, color []byte) {
 	}
 }
 
-func (e *encoder) encodeArray(vs []interface{}) {
+func (e *encoder) encodeArray(vs []any) error {
 	e.writeByte('[', arrayColor)
 	e.depth += e.indent
 	for i, v := range vs {
 		if i > 0 {
 			e.writeByte(',', arrayColor)
 		}
-		if e.indent != 0 {
+		if e.indent >= 0 {
 			e.writeIndent()
 		}
-		e.encode(v)
+		if err := e.encode(v); err != nil {
+			return err
+		}
 	}
 	e.depth -= e.indent
-	if len(vs) > 0 && e.indent != 0 {
+	if len(vs) > 0 && e.indent >= 0 {
 		e.writeIndent()
 	}
 	e.writeByte(']', arrayColor)
+	return nil
 }
 
-func (e *encoder) encodeMap(vs map[string]interface{}) {
+func (e *encoder) encodeObject(vs map[string]any) error {
 	e.writeByte('{', objectColor)
 	e.depth += e.indent
 	type keyVal struct {
 		key string
-		val interface{}
+		val any
 	}
 	kvs := make([]keyVal, len(vs))
 	var i int
@@ -191,40 +201,47 @@ func (e *encoder) encodeMap(vs map[string]interface{}) {
 		if i > 0 {
 			e.writeByte(',', objectColor)
 		}
-		if e.indent != 0 {
+		if e.indent >= 0 {
 			e.writeIndent()
 		}
 		e.encodeString(kv.key, objectKeyColor)
 		e.writeByte(':', objectColor)
-		if e.indent != 0 {
+		if e.indent >= 0 {
 			e.w.WriteByte(' ')
 		}
-		e.encode(kv.val)
+		if err := e.encode(kv.val); err != nil {
+			return err
+		}
 	}
 	e.depth -= e.indent
-	if len(vs) > 0 && e.indent != 0 {
+	if len(vs) > 0 && e.indent >= 0 {
 		e.writeIndent()
 	}
 	e.writeByte('}', objectColor)
+	return nil
 }
 
 func (e *encoder) writeIndent() {
 	e.w.WriteByte('\n')
 	if n := e.depth; n > 0 {
 		if e.tab {
-			const tabs = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t"
-			for n > len(tabs) {
-				e.w.Write([]byte(tabs))
-				n -= len(tabs)
-			}
-			e.w.Write([]byte(tabs)[:n])
+			e.writeIndentInternal(n, "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t")
 		} else {
-			const spaces = "                                                                "
-			for n > len(spaces) {
-				e.w.Write([]byte(spaces))
-				n -= len(spaces)
+			e.writeIndentInternal(n, "                                ")
+		}
+	}
+}
+
+func (e *encoder) writeIndentInternal(n int, spaces string) {
+	if l := len(spaces); n <= l {
+		e.w.WriteString(spaces[:n])
+	} else {
+		e.w.WriteString(spaces)
+		for n -= l; n > 0; n, l = n-l, l*2 {
+			if n < l {
+				l = n
 			}
-			e.w.Write([]byte(spaces)[:n])
+			e.w.Write(e.w.Bytes()[e.w.Len()-l:])
 		}
 	}
 }
@@ -239,7 +256,7 @@ func (e *encoder) writeByte(b byte, color []byte) {
 	}
 }
 
-func (e *encoder) write(bs []byte, color []byte) {
+func (e *encoder) write(bs, color []byte) {
 	if color == nil {
 		e.w.Write(bs)
 	} else {

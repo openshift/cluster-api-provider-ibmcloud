@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -52,11 +53,15 @@ func (m *CloudConnectionEndpointVPC) validateVpcs(formats strfmt.Registry) error
 
 		if m.Vpcs[i] != nil {
 			if err := m.Vpcs[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("vpcs" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("vpcs" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -85,12 +90,21 @@ func (m *CloudConnectionEndpointVPC) contextValidateVpcs(ctx context.Context, fo
 	for i := 0; i < len(m.Vpcs); i++ {
 
 		if m.Vpcs[i] != nil {
+
+			if swag.IsZero(m.Vpcs[i]) { // not required
+				return nil
+			}
+
 			if err := m.Vpcs[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("vpcs" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("vpcs" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

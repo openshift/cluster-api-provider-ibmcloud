@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -19,22 +20,57 @@ import (
 // swagger:model SnapshotCreateResponse
 type SnapshotCreateResponse struct {
 
+	// crn
+	Crn CRN `json:"crn,omitempty"`
+
 	// ID of the PVM instance snapshot
 	// Required: true
 	SnapshotID *string `json:"snapshotID"`
+
+	// user tags
+	UserTags Tags `json:"userTags,omitempty"`
 }
 
 // Validate validates this snapshot create response
 func (m *SnapshotCreateResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateCrn(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateSnapshotID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUserTags(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *SnapshotCreateResponse) validateCrn(formats strfmt.Registry) error {
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("crn")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("crn")
+		}
+
+		return err
+	}
+
 	return nil
 }
 
@@ -47,8 +83,82 @@ func (m *SnapshotCreateResponse) validateSnapshotID(formats strfmt.Registry) err
 	return nil
 }
 
-// ContextValidate validates this snapshot create response based on context it is used
+func (m *SnapshotCreateResponse) validateUserTags(formats strfmt.Registry) error {
+	if swag.IsZero(m.UserTags) { // not required
+		return nil
+	}
+
+	if err := m.UserTags.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this snapshot create response based on the context it is used
 func (m *SnapshotCreateResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateCrn(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUserTags(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *SnapshotCreateResponse) contextValidateCrn(ctx context.Context, formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("crn")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("crn")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+func (m *SnapshotCreateResponse) contextValidateUserTags(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.UserTags.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("userTags")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("userTags")
+		}
+
+		return err
+	}
+
 	return nil
 }
 

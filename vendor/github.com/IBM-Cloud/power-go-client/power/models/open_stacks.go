@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -52,11 +53,15 @@ func (m *OpenStacks) validateOpenStacks(formats strfmt.Registry) error {
 
 		if m.OpenStacks[i] != nil {
 			if err := m.OpenStacks[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("openStacks" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("openStacks" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -85,12 +90,21 @@ func (m *OpenStacks) contextValidateOpenStacks(ctx context.Context, formats strf
 	for i := 0; i < len(m.OpenStacks); i++ {
 
 		if m.OpenStacks[i] != nil {
+
+			if swag.IsZero(m.OpenStacks[i]) { // not required
+				return nil
+			}
+
 			if err := m.OpenStacks[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("openStacks" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("openStacks" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

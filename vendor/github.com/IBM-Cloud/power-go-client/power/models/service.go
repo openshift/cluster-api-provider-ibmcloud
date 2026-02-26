@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -123,11 +124,15 @@ func (m *Service) validateDashboardClient(formats strfmt.Registry) error {
 
 	if m.DashboardClient != nil {
 		if err := m.DashboardClient.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("dashboard_client")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("dashboard_client")
 			}
+
 			return err
 		}
 	}
@@ -175,11 +180,15 @@ func (m *Service) validatePlans(formats strfmt.Registry) error {
 
 		if m.Plans[i] != nil {
 			if err := m.Plans[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("plans" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("plans" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -189,7 +198,7 @@ func (m *Service) validatePlans(formats strfmt.Registry) error {
 	return nil
 }
 
-var serviceRequiresItemsEnum []interface{}
+var serviceRequiresItemsEnum []any
 
 func init() {
 	var res []string
@@ -246,12 +255,21 @@ func (m *Service) ContextValidate(ctx context.Context, formats strfmt.Registry) 
 func (m *Service) contextValidateDashboardClient(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.DashboardClient != nil {
+
+		if swag.IsZero(m.DashboardClient) { // not required
+			return nil
+		}
+
 		if err := m.DashboardClient.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("dashboard_client")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("dashboard_client")
 			}
+
 			return err
 		}
 	}
@@ -264,12 +282,21 @@ func (m *Service) contextValidatePlans(ctx context.Context, formats strfmt.Regis
 	for i := 0; i < len(m.Plans); i++ {
 
 		if m.Plans[i] != nil {
+
+			if swag.IsZero(m.Plans[i]) { // not required
+				return nil
+			}
+
 			if err := m.Plans[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("plans" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("plans" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

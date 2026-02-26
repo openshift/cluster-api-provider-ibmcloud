@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -33,7 +34,7 @@ type CloneTaskStatus struct {
 
 	// Status of the clone volumes task
 	// Required: true
-	// Enum: [running completed failed unknown]
+	// Enum: ["running","completed","failed","unknown"]
 	Status *string `json:"status"`
 }
 
@@ -71,11 +72,15 @@ func (m *CloneTaskStatus) validateClonedVolumes(formats strfmt.Registry) error {
 
 		if m.ClonedVolumes[i] != nil {
 			if err := m.ClonedVolumes[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("clonedVolumes" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("clonedVolumes" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -94,7 +99,7 @@ func (m *CloneTaskStatus) validatePercentComplete(formats strfmt.Registry) error
 	return nil
 }
 
-var cloneTaskStatusTypeStatusPropEnum []interface{}
+var cloneTaskStatusTypeStatusPropEnum []any
 
 func init() {
 	var res []string
@@ -162,12 +167,21 @@ func (m *CloneTaskStatus) contextValidateClonedVolumes(ctx context.Context, form
 	for i := 0; i < len(m.ClonedVolumes); i++ {
 
 		if m.ClonedVolumes[i] != nil {
+
+			if swag.IsZero(m.ClonedVolumes[i]) { // not required
+				return nil
+			}
+
 			if err := m.ClonedVolumes[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("clonedVolumes" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("clonedVolumes" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

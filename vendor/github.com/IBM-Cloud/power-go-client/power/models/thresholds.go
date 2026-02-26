@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -71,11 +72,15 @@ func (m *Thresholds) validateCapacity(formats strfmt.Registry) error {
 
 	if m.Capacity != nil {
 		if err := m.Capacity.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("capacity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("capacity")
 			}
+
 			return err
 		}
 	}
@@ -90,11 +95,15 @@ func (m *Thresholds) validateOvercommit(formats strfmt.Registry) error {
 
 	if m.Overcommit != nil {
 		if err := m.Overcommit.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("overcommit")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("overcommit")
 			}
+
 			return err
 		}
 	}
@@ -109,11 +118,15 @@ func (m *Thresholds) validatePhysicalCapacity(formats strfmt.Registry) error {
 
 	if m.PhysicalCapacity != nil {
 		if err := m.PhysicalCapacity.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("physicalCapacity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("physicalCapacity")
 			}
+
 			return err
 		}
 	}
@@ -128,11 +141,15 @@ func (m *Thresholds) validateVdiskCapacity(formats strfmt.Registry) error {
 
 	if m.VdiskCapacity != nil {
 		if err := m.VdiskCapacity.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("vdiskCapacity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("vdiskCapacity")
 			}
+
 			return err
 		}
 	}
@@ -147,11 +164,15 @@ func (m *Thresholds) validateVdiskLimit(formats strfmt.Registry) error {
 
 	if m.VdiskLimit != nil {
 		if err := m.VdiskLimit.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("vdiskLimit")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("vdiskLimit")
 			}
+
 			return err
 		}
 	}
@@ -192,12 +213,21 @@ func (m *Thresholds) ContextValidate(ctx context.Context, formats strfmt.Registr
 func (m *Thresholds) contextValidateCapacity(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Capacity != nil {
+
+		if swag.IsZero(m.Capacity) { // not required
+			return nil
+		}
+
 		if err := m.Capacity.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("capacity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("capacity")
 			}
+
 			return err
 		}
 	}
@@ -208,12 +238,21 @@ func (m *Thresholds) contextValidateCapacity(ctx context.Context, formats strfmt
 func (m *Thresholds) contextValidateOvercommit(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Overcommit != nil {
+
+		if swag.IsZero(m.Overcommit) { // not required
+			return nil
+		}
+
 		if err := m.Overcommit.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("overcommit")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("overcommit")
 			}
+
 			return err
 		}
 	}
@@ -224,12 +263,21 @@ func (m *Thresholds) contextValidateOvercommit(ctx context.Context, formats strf
 func (m *Thresholds) contextValidatePhysicalCapacity(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.PhysicalCapacity != nil {
+
+		if swag.IsZero(m.PhysicalCapacity) { // not required
+			return nil
+		}
+
 		if err := m.PhysicalCapacity.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("physicalCapacity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("physicalCapacity")
 			}
+
 			return err
 		}
 	}
@@ -240,12 +288,21 @@ func (m *Thresholds) contextValidatePhysicalCapacity(ctx context.Context, format
 func (m *Thresholds) contextValidateVdiskCapacity(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.VdiskCapacity != nil {
+
+		if swag.IsZero(m.VdiskCapacity) { // not required
+			return nil
+		}
+
 		if err := m.VdiskCapacity.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("vdiskCapacity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("vdiskCapacity")
 			}
+
 			return err
 		}
 	}
@@ -256,12 +313,21 @@ func (m *Thresholds) contextValidateVdiskCapacity(ctx context.Context, formats s
 func (m *Thresholds) contextValidateVdiskLimit(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.VdiskLimit != nil {
+
+		if swag.IsZero(m.VdiskLimit) { // not required
+			return nil
+		}
+
 		if err := m.VdiskLimit.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("vdiskLimit")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("vdiskLimit")
 			}
+
 			return err
 		}
 	}

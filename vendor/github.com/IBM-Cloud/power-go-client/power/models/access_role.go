@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -49,11 +50,15 @@ func (m *AccessRole) validatePermissions(formats strfmt.Registry) error {
 
 	if m.Permissions != nil {
 		if err := m.Permissions.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("permissions")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("permissions")
 			}
+
 			return err
 		}
 	}
@@ -78,12 +83,17 @@ func (m *AccessRole) ContextValidate(ctx context.Context, formats strfmt.Registr
 func (m *AccessRole) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Permissions != nil {
+
 		if err := m.Permissions.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("permissions")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("permissions")
 			}
+
 			return err
 		}
 	}

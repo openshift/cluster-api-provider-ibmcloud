@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -49,11 +50,15 @@ func (m *VolumesClones) validateVolumesClone(formats strfmt.Registry) error {
 
 		if m.VolumesClone[i] != nil {
 			if err := m.VolumesClone[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("volumesClone" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("volumesClone" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -82,12 +87,21 @@ func (m *VolumesClones) contextValidateVolumesClone(ctx context.Context, formats
 	for i := 0; i < len(m.VolumesClone); i++ {
 
 		if m.VolumesClone[i] != nil {
+
+			if swag.IsZero(m.VolumesClone[i]) { // not required
+				return nil
+			}
+
 			if err := m.VolumesClone[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("volumesClone" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("volumesClone" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

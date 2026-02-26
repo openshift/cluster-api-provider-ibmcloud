@@ -6,6 +6,8 @@ package p_cloud_p_vm_instances
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 
@@ -21,7 +23,7 @@ type PcloudPvminstancesCapturePostReader struct {
 }
 
 // ReadResponse reads a server response into the received o.
-func (o *PcloudPvminstancesCapturePostReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
+func (o *PcloudPvminstancesCapturePostReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (any, error) {
 	switch response.Code() {
 	case 200:
 		result := NewPcloudPvminstancesCapturePostOK()
@@ -47,6 +49,24 @@ func (o *PcloudPvminstancesCapturePostReader) ReadResponse(response runtime.Clie
 			return nil, err
 		}
 		return nil, result
+	case 403:
+		result := NewPcloudPvminstancesCapturePostForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 404:
+		result := NewPcloudPvminstancesCapturePostNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 409:
+		result := NewPcloudPvminstancesCapturePostConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewPcloudPvminstancesCapturePostUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -60,7 +80,7 @@ func (o *PcloudPvminstancesCapturePostReader) ReadResponse(response runtime.Clie
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture] pcloud.pvminstances.capture.post", response, response.Code())
 	}
 }
 
@@ -69,7 +89,8 @@ func NewPcloudPvminstancesCapturePostOK() *PcloudPvminstancesCapturePostOK {
 	return &PcloudPvminstancesCapturePostOK{}
 }
 
-/* PcloudPvminstancesCapturePostOK describes a response with status code 200, with default header values.
+/*
+PcloudPvminstancesCapturePostOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -77,9 +98,46 @@ type PcloudPvminstancesCapturePostOK struct {
 	Payload models.Object
 }
 
-func (o *PcloudPvminstancesCapturePostOK) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostOK  %+v", 200, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances capture post o k response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostOK) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud pvminstances capture post o k response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post o k response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post o k response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances capture post o k response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the pcloud pvminstances capture post o k response
+func (o *PcloudPvminstancesCapturePostOK) Code() int {
+	return 200
+}
+
+func (o *PcloudPvminstancesCapturePostOK) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostOK %s", 200, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostOK) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostOK %s", 200, payload)
+}
+
 func (o *PcloudPvminstancesCapturePostOK) GetPayload() models.Object {
 	return o.Payload
 }
@@ -87,7 +145,7 @@ func (o *PcloudPvminstancesCapturePostOK) GetPayload() models.Object {
 func (o *PcloudPvminstancesCapturePostOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -99,7 +157,8 @@ func NewPcloudPvminstancesCapturePostAccepted() *PcloudPvminstancesCapturePostAc
 	return &PcloudPvminstancesCapturePostAccepted{}
 }
 
-/* PcloudPvminstancesCapturePostAccepted describes a response with status code 202, with default header values.
+/*
+PcloudPvminstancesCapturePostAccepted describes a response with status code 202, with default header values.
 
 Accepted, upload to cloud storage in progress
 */
@@ -107,9 +166,46 @@ type PcloudPvminstancesCapturePostAccepted struct {
 	Payload models.Object
 }
 
-func (o *PcloudPvminstancesCapturePostAccepted) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostAccepted  %+v", 202, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances capture post accepted response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostAccepted) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud pvminstances capture post accepted response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostAccepted) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post accepted response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostAccepted) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post accepted response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostAccepted) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances capture post accepted response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostAccepted) IsCode(code int) bool {
+	return code == 202
+}
+
+// Code gets the status code for the pcloud pvminstances capture post accepted response
+func (o *PcloudPvminstancesCapturePostAccepted) Code() int {
+	return 202
+}
+
+func (o *PcloudPvminstancesCapturePostAccepted) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostAccepted %s", 202, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostAccepted) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostAccepted %s", 202, payload)
+}
+
 func (o *PcloudPvminstancesCapturePostAccepted) GetPayload() models.Object {
 	return o.Payload
 }
@@ -117,7 +213,7 @@ func (o *PcloudPvminstancesCapturePostAccepted) GetPayload() models.Object {
 func (o *PcloudPvminstancesCapturePostAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -129,7 +225,8 @@ func NewPcloudPvminstancesCapturePostBadRequest() *PcloudPvminstancesCapturePost
 	return &PcloudPvminstancesCapturePostBadRequest{}
 }
 
-/* PcloudPvminstancesCapturePostBadRequest describes a response with status code 400, with default header values.
+/*
+PcloudPvminstancesCapturePostBadRequest describes a response with status code 400, with default header values.
 
 Bad Request
 */
@@ -137,9 +234,46 @@ type PcloudPvminstancesCapturePostBadRequest struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesCapturePostBadRequest) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostBadRequest  %+v", 400, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances capture post bad request response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostBadRequest) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances capture post bad request response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post bad request response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post bad request response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances capture post bad request response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the pcloud pvminstances capture post bad request response
+func (o *PcloudPvminstancesCapturePostBadRequest) Code() int {
+	return 400
+}
+
+func (o *PcloudPvminstancesCapturePostBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostBadRequest %s", 400, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostBadRequest %s", 400, payload)
+}
+
 func (o *PcloudPvminstancesCapturePostBadRequest) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -149,7 +283,7 @@ func (o *PcloudPvminstancesCapturePostBadRequest) readResponse(response runtime.
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -161,7 +295,8 @@ func NewPcloudPvminstancesCapturePostUnauthorized() *PcloudPvminstancesCapturePo
 	return &PcloudPvminstancesCapturePostUnauthorized{}
 }
 
-/* PcloudPvminstancesCapturePostUnauthorized describes a response with status code 401, with default header values.
+/*
+PcloudPvminstancesCapturePostUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized
 */
@@ -169,9 +304,46 @@ type PcloudPvminstancesCapturePostUnauthorized struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesCapturePostUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostUnauthorized  %+v", 401, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances capture post unauthorized response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostUnauthorized) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances capture post unauthorized response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post unauthorized response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post unauthorized response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances capture post unauthorized response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the pcloud pvminstances capture post unauthorized response
+func (o *PcloudPvminstancesCapturePostUnauthorized) Code() int {
+	return 401
+}
+
+func (o *PcloudPvminstancesCapturePostUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostUnauthorized %s", 401, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostUnauthorized %s", 401, payload)
+}
+
 func (o *PcloudPvminstancesCapturePostUnauthorized) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -181,7 +353,217 @@ func (o *PcloudPvminstancesCapturePostUnauthorized) readResponse(response runtim
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudPvminstancesCapturePostForbidden creates a PcloudPvminstancesCapturePostForbidden with default headers values
+func NewPcloudPvminstancesCapturePostForbidden() *PcloudPvminstancesCapturePostForbidden {
+	return &PcloudPvminstancesCapturePostForbidden{}
+}
+
+/*
+PcloudPvminstancesCapturePostForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type PcloudPvminstancesCapturePostForbidden struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud pvminstances capture post forbidden response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud pvminstances capture post forbidden response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post forbidden response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post forbidden response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances capture post forbidden response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the pcloud pvminstances capture post forbidden response
+func (o *PcloudPvminstancesCapturePostForbidden) Code() int {
+	return 403
+}
+
+func (o *PcloudPvminstancesCapturePostForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostForbidden %s", 403, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostForbidden %s", 403, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostForbidden) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudPvminstancesCapturePostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudPvminstancesCapturePostNotFound creates a PcloudPvminstancesCapturePostNotFound with default headers values
+func NewPcloudPvminstancesCapturePostNotFound() *PcloudPvminstancesCapturePostNotFound {
+	return &PcloudPvminstancesCapturePostNotFound{}
+}
+
+/*
+PcloudPvminstancesCapturePostNotFound describes a response with status code 404, with default header values.
+
+Not Found
+*/
+type PcloudPvminstancesCapturePostNotFound struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud pvminstances capture post not found response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud pvminstances capture post not found response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post not found response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post not found response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances capture post not found response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the pcloud pvminstances capture post not found response
+func (o *PcloudPvminstancesCapturePostNotFound) Code() int {
+	return 404
+}
+
+func (o *PcloudPvminstancesCapturePostNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostNotFound %s", 404, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostNotFound %s", 404, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostNotFound) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudPvminstancesCapturePostNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudPvminstancesCapturePostConflict creates a PcloudPvminstancesCapturePostConflict with default headers values
+func NewPcloudPvminstancesCapturePostConflict() *PcloudPvminstancesCapturePostConflict {
+	return &PcloudPvminstancesCapturePostConflict{}
+}
+
+/*
+PcloudPvminstancesCapturePostConflict describes a response with status code 409, with default header values.
+
+Conflict
+*/
+type PcloudPvminstancesCapturePostConflict struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud pvminstances capture post conflict response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud pvminstances capture post conflict response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post conflict response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post conflict response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances capture post conflict response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the pcloud pvminstances capture post conflict response
+func (o *PcloudPvminstancesCapturePostConflict) Code() int {
+	return 409
+}
+
+func (o *PcloudPvminstancesCapturePostConflict) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostConflict %s", 409, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostConflict) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostConflict %s", 409, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostConflict) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudPvminstancesCapturePostConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -193,7 +575,8 @@ func NewPcloudPvminstancesCapturePostUnprocessableEntity() *PcloudPvminstancesCa
 	return &PcloudPvminstancesCapturePostUnprocessableEntity{}
 }
 
-/* PcloudPvminstancesCapturePostUnprocessableEntity describes a response with status code 422, with default header values.
+/*
+PcloudPvminstancesCapturePostUnprocessableEntity describes a response with status code 422, with default header values.
 
 Unprocessable Entity
 */
@@ -201,9 +584,46 @@ type PcloudPvminstancesCapturePostUnprocessableEntity struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesCapturePostUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostUnprocessableEntity  %+v", 422, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances capture post unprocessable entity response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostUnprocessableEntity) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances capture post unprocessable entity response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post unprocessable entity response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post unprocessable entity response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud pvminstances capture post unprocessable entity response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the pcloud pvminstances capture post unprocessable entity response
+func (o *PcloudPvminstancesCapturePostUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *PcloudPvminstancesCapturePostUnprocessableEntity) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostUnprocessableEntity %s", 422, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostUnprocessableEntity) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostUnprocessableEntity %s", 422, payload)
+}
+
 func (o *PcloudPvminstancesCapturePostUnprocessableEntity) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -213,7 +633,7 @@ func (o *PcloudPvminstancesCapturePostUnprocessableEntity) readResponse(response
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -225,7 +645,8 @@ func NewPcloudPvminstancesCapturePostInternalServerError() *PcloudPvminstancesCa
 	return &PcloudPvminstancesCapturePostInternalServerError{}
 }
 
-/* PcloudPvminstancesCapturePostInternalServerError describes a response with status code 500, with default header values.
+/*
+PcloudPvminstancesCapturePostInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -233,9 +654,46 @@ type PcloudPvminstancesCapturePostInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *PcloudPvminstancesCapturePostInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this pcloud pvminstances capture post internal server error response has a 2xx status code
+func (o *PcloudPvminstancesCapturePostInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud pvminstances capture post internal server error response has a 3xx status code
+func (o *PcloudPvminstancesCapturePostInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud pvminstances capture post internal server error response has a 4xx status code
+func (o *PcloudPvminstancesCapturePostInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud pvminstances capture post internal server error response has a 5xx status code
+func (o *PcloudPvminstancesCapturePostInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud pvminstances capture post internal server error response a status code equal to that given
+func (o *PcloudPvminstancesCapturePostInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the pcloud pvminstances capture post internal server error response
+func (o *PcloudPvminstancesCapturePostInternalServerError) Code() int {
+	return 500
+}
+
+func (o *PcloudPvminstancesCapturePostInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostInternalServerError %s", 500, payload)
+}
+
+func (o *PcloudPvminstancesCapturePostInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /pcloud/v1/cloud-instances/{cloud_instance_id}/pvm-instances/{pvm_instance_id}/capture][%d] pcloudPvminstancesCapturePostInternalServerError %s", 500, payload)
+}
+
 func (o *PcloudPvminstancesCapturePostInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -245,7 +703,7 @@ func (o *PcloudPvminstancesCapturePostInternalServerError) readResponse(response
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 

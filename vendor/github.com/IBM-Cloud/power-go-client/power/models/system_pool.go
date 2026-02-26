@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -21,6 +22,9 @@ type SystemPool struct {
 
 	// Advertised capacity cores and memory (GB)
 	Capacity *System `json:"capacity,omitempty"`
+
+	// Core allocation increment
+	CoreIncrement float64 `json:"coreIncrement,omitempty"`
 
 	// Processor to Memory (GB) Ratio
 	CoreMemoryRatio float64 `json:"coreMemoryRatio,omitempty"`
@@ -85,11 +89,15 @@ func (m *SystemPool) validateCapacity(formats strfmt.Registry) error {
 
 	if m.Capacity != nil {
 		if err := m.Capacity.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("capacity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("capacity")
 			}
+
 			return err
 		}
 	}
@@ -104,11 +112,15 @@ func (m *SystemPool) validateMaxAvailable(formats strfmt.Registry) error {
 
 	if m.MaxAvailable != nil {
 		if err := m.MaxAvailable.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("maxAvailable")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("maxAvailable")
 			}
+
 			return err
 		}
 	}
@@ -123,11 +135,15 @@ func (m *SystemPool) validateMaxCoresAvailable(formats strfmt.Registry) error {
 
 	if m.MaxCoresAvailable != nil {
 		if err := m.MaxCoresAvailable.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("maxCoresAvailable")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("maxCoresAvailable")
 			}
+
 			return err
 		}
 	}
@@ -142,11 +158,15 @@ func (m *SystemPool) validateMaxMemoryAvailable(formats strfmt.Registry) error {
 
 	if m.MaxMemoryAvailable != nil {
 		if err := m.MaxMemoryAvailable.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("maxMemoryAvailable")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("maxMemoryAvailable")
 			}
+
 			return err
 		}
 	}
@@ -161,11 +181,15 @@ func (m *SystemPool) validateSharedCoreRatio(formats strfmt.Registry) error {
 
 	if m.SharedCoreRatio != nil {
 		if err := m.SharedCoreRatio.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("sharedCoreRatio")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("sharedCoreRatio")
 			}
+
 			return err
 		}
 	}
@@ -185,11 +209,15 @@ func (m *SystemPool) validateSystems(formats strfmt.Registry) error {
 
 		if m.Systems[i] != nil {
 			if err := m.Systems[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("systems" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("systems" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -236,12 +264,21 @@ func (m *SystemPool) ContextValidate(ctx context.Context, formats strfmt.Registr
 func (m *SystemPool) contextValidateCapacity(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Capacity != nil {
+
+		if swag.IsZero(m.Capacity) { // not required
+			return nil
+		}
+
 		if err := m.Capacity.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("capacity")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("capacity")
 			}
+
 			return err
 		}
 	}
@@ -252,12 +289,21 @@ func (m *SystemPool) contextValidateCapacity(ctx context.Context, formats strfmt
 func (m *SystemPool) contextValidateMaxAvailable(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.MaxAvailable != nil {
+
+		if swag.IsZero(m.MaxAvailable) { // not required
+			return nil
+		}
+
 		if err := m.MaxAvailable.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("maxAvailable")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("maxAvailable")
 			}
+
 			return err
 		}
 	}
@@ -268,12 +314,21 @@ func (m *SystemPool) contextValidateMaxAvailable(ctx context.Context, formats st
 func (m *SystemPool) contextValidateMaxCoresAvailable(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.MaxCoresAvailable != nil {
+
+		if swag.IsZero(m.MaxCoresAvailable) { // not required
+			return nil
+		}
+
 		if err := m.MaxCoresAvailable.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("maxCoresAvailable")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("maxCoresAvailable")
 			}
+
 			return err
 		}
 	}
@@ -284,12 +339,21 @@ func (m *SystemPool) contextValidateMaxCoresAvailable(ctx context.Context, forma
 func (m *SystemPool) contextValidateMaxMemoryAvailable(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.MaxMemoryAvailable != nil {
+
+		if swag.IsZero(m.MaxMemoryAvailable) { // not required
+			return nil
+		}
+
 		if err := m.MaxMemoryAvailable.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("maxMemoryAvailable")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("maxMemoryAvailable")
 			}
+
 			return err
 		}
 	}
@@ -300,12 +364,21 @@ func (m *SystemPool) contextValidateMaxMemoryAvailable(ctx context.Context, form
 func (m *SystemPool) contextValidateSharedCoreRatio(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.SharedCoreRatio != nil {
+
+		if swag.IsZero(m.SharedCoreRatio) { // not required
+			return nil
+		}
+
 		if err := m.SharedCoreRatio.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("sharedCoreRatio")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("sharedCoreRatio")
 			}
+
 			return err
 		}
 	}
@@ -318,12 +391,21 @@ func (m *SystemPool) contextValidateSystems(ctx context.Context, formats strfmt.
 	for i := 0; i < len(m.Systems); i++ {
 
 		if m.Systems[i] != nil {
+
+			if swag.IsZero(m.Systems[i]) { // not required
+				return nil
+			}
+
 			if err := m.Systems[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("systems" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("systems" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

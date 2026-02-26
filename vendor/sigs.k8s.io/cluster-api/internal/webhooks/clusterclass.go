@@ -19,116 +19,94 @@ package webhooks
 import (
 	"context"
 	"fmt"
-	"reflect"
+	"strings"
 
+	"github.com/blang/semver/v4"
 	"github.com/pkg/errors"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/api/v1beta1/index"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/api/core/v1beta2/index"
 	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/internal/topology/check"
+	topologynames "sigs.k8s.io/cluster-api/internal/topology/names"
 	"sigs.k8s.io/cluster-api/internal/topology/variables"
+	clog "sigs.k8s.io/cluster-api/util/log"
+	"sigs.k8s.io/cluster-api/util/version"
 )
 
 func (webhook *ClusterClass) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&clusterv1.ClusterClass{}).
-		WithDefaulter(webhook).
 		WithValidator(webhook).
 		Complete()
 }
 
-// +kubebuilder:webhook:verbs=create;update;delete,path=/validate-cluster-x-k8s-io-v1beta1-clusterclass,mutating=false,failurePolicy=fail,matchPolicy=Equivalent,groups=cluster.x-k8s.io,resources=clusterclasses,versions=v1beta1,name=validation.clusterclass.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1;v1beta1
-// +kubebuilder:webhook:verbs=create;update,path=/mutate-cluster-x-k8s-io-v1beta1-clusterclass,mutating=true,failurePolicy=fail,matchPolicy=Equivalent,groups=cluster.x-k8s.io,resources=clusterclasses,versions=v1beta1,name=default.clusterclass.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1;v1beta1
+// +kubebuilder:webhook:verbs=create;update;delete,path=/validate-cluster-x-k8s-io-v1beta2-clusterclass,mutating=false,failurePolicy=fail,matchPolicy=Equivalent,groups=cluster.x-k8s.io,resources=clusterclasses,versions=v1beta2,name=validation.clusterclass.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1;v1beta1
 
 // ClusterClass implements a validation and defaulting webhook for ClusterClass.
 type ClusterClass struct {
 	Client client.Reader
 }
 
-var _ webhook.CustomDefaulter = &ClusterClass{}
 var _ webhook.CustomValidator = &ClusterClass{}
 
-// Default implements defaulting for ClusterClass create and update.
-func (webhook *ClusterClass) Default(_ context.Context, obj runtime.Object) error {
-	in, ok := obj.(*clusterv1.ClusterClass)
-	if !ok {
-		return apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", obj))
-	}
-	// Default all namespaces in the references to the object namespace.
-	defaultNamespace(in.Spec.Infrastructure.Ref, in.Namespace)
-	defaultNamespace(in.Spec.ControlPlane.Ref, in.Namespace)
-
-	if in.Spec.ControlPlane.MachineInfrastructure != nil {
-		defaultNamespace(in.Spec.ControlPlane.MachineInfrastructure.Ref, in.Namespace)
-	}
-
-	for i := range in.Spec.Workers.MachineDeployments {
-		defaultNamespace(in.Spec.Workers.MachineDeployments[i].Template.Bootstrap.Ref, in.Namespace)
-		defaultNamespace(in.Spec.Workers.MachineDeployments[i].Template.Infrastructure.Ref, in.Namespace)
-	}
-	return nil
-}
-
-func defaultNamespace(ref *corev1.ObjectReference, namespace string) {
-	if ref != nil && ref.Namespace == "" {
-		ref.Namespace = namespace
-	}
-}
-
 // ValidateCreate implements validation for ClusterClass create.
-func (webhook *ClusterClass) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (webhook *ClusterClass) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	in, ok := obj.(*clusterv1.ClusterClass)
 	if !ok {
-		return apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", obj))
+		return nil, apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", obj))
 	}
-	return webhook.validate(ctx, nil, in)
+	return nil, webhook.validate(ctx, nil, in)
 }
 
 // ValidateUpdate implements validation for ClusterClass update.
-func (webhook *ClusterClass) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (webhook *ClusterClass) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	newClusterClass, ok := newObj.(*clusterv1.ClusterClass)
 	if !ok {
-		return apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", newObj))
+		return nil, apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", newObj))
 	}
 	oldClusterClass, ok := oldObj.(*clusterv1.ClusterClass)
 	if !ok {
-		return apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", oldObj))
+		return nil, apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", oldObj))
 	}
-	return webhook.validate(ctx, oldClusterClass, newClusterClass)
+	return nil, webhook.validate(ctx, oldClusterClass, newClusterClass)
 }
 
 // ValidateDelete implements validation for ClusterClass delete.
-func (webhook *ClusterClass) ValidateDelete(ctx context.Context, obj runtime.Object) error {
+func (webhook *ClusterClass) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	clusterClass, ok := obj.(*clusterv1.ClusterClass)
 	if !ok {
-		return apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", obj))
+		return nil, apierrors.NewBadRequest(fmt.Sprintf("expected a ClusterClass but got a %T", obj))
 	}
 
 	clusters, err := webhook.getClustersUsingClusterClass(ctx, clusterClass)
 	if err != nil {
-		return apierrors.NewInternalError(errors.Wrapf(err, "could not retrieve Clusters using ClusterClass"))
+		return nil, apierrors.NewInternalError(errors.Wrapf(err, "could not retrieve Clusters using ClusterClass"))
 	}
 
 	if len(clusters) > 0 {
-		// TODO(killianmuldoon): Improve error here to include the names of some clusters using the clusterClass.
-		return apierrors.NewForbidden(clusterv1.GroupVersion.WithResource("ClusterClass").GroupResource(), clusterClass.Name,
-			fmt.Errorf("ClusterClass cannot be deleted because it is used by %d Cluster(s)", len(clusters)))
+		clustersList := clog.ListToString(clusters, func(cluster clusterv1.Cluster) string {
+			return klog.KObj(&cluster).String()
+		}, 3)
+		return nil, apierrors.NewForbidden(clusterv1.GroupVersion.WithResource("ClusterClass").GroupResource(), clusterClass.Name,
+			fmt.Errorf("ClusterClass cannot be deleted because it is used by Cluster(s): %s", clustersList))
 	}
-	return nil
+	return nil, nil
 }
 
 func (webhook *ClusterClass) validate(ctx context.Context, oldClusterClass, newClusterClass *clusterv1.ClusterClass) error {
 	// NOTE: ClusterClass and managed topologies are behind ClusterTopology feature gate flag; the web hook
-	// must prevent creating new objects new case the feature flag is disabled.
+	// must prevent creating new objects when the feature flag is disabled.
 	if !feature.Gates.Enabled(feature.ClusterTopology) {
 		return field.Forbidden(
 			field.NewPath("spec"),
@@ -137,22 +115,40 @@ func (webhook *ClusterClass) validate(ctx context.Context, oldClusterClass, newC
 	}
 	var allErrs field.ErrorList
 
-	// Ensure all references are valid.
-	allErrs = append(allErrs, check.ClusterClassReferencesAreValid(newClusterClass)...)
+	// Ensure all template references are valid.
+	allErrs = append(allErrs, check.ClusterClassTemplatesAreValid(newClusterClass)...)
 
 	// Ensure all MachineDeployment classes are unique.
 	allErrs = append(allErrs, check.MachineDeploymentClassesAreUnique(newClusterClass)...)
 
+	// Ensure all MachinePool classes are unique.
+	allErrs = append(allErrs, check.MachinePoolClassesAreUnique(newClusterClass)...)
+
+	allErrs = append(allErrs, validateClusterClassRollout(newClusterClass)...)
+
 	// Ensure MachineHealthChecks are valid.
 	allErrs = append(allErrs, validateMachineHealthCheckClasses(newClusterClass)...)
 
+	// Ensure NamingStrategies are valid.
+	allErrs = append(allErrs, validateNamingStrategies(newClusterClass)...)
+
 	// Validate variables.
+	var oldClusterClassVariables []clusterv1.ClusterClassVariable
+	if oldClusterClass != nil {
+		oldClusterClassVariables = oldClusterClass.Spec.Variables
+	}
 	allErrs = append(allErrs,
-		variables.ValidateClusterClassVariables(ctx, newClusterClass.Spec.Variables, field.NewPath("spec", "variables"))...,
+		variables.ValidateClusterClassVariables(ctx, oldClusterClassVariables, newClusterClass.Spec.Variables, field.NewPath("spec", "variables"))...,
 	)
 
 	// Validate patches.
 	allErrs = append(allErrs, validatePatches(newClusterClass)...)
+
+	// Validate metadata
+	allErrs = append(allErrs, validateClusterClassMetadata(newClusterClass)...)
+
+	// Ensure all kubernetes versions are valid.
+	allErrs = append(allErrs, validateKubernetesVersions(newClusterClass.Spec.KubernetesVersions)...)
 
 	// If this is an update run additional validation.
 	if oldClusterClass != nil {
@@ -167,13 +163,24 @@ func (webhook *ClusterClass) validate(ctx context.Context, oldClusterClass, newC
 			return apierrors.NewInvalid(clusterv1.GroupVersion.WithKind("ClusterClass").GroupKind(), newClusterClass.Name, allErrs)
 		}
 
+		// Ensure New ClusterClass contains Kubernetes versions of all the Clusters of ClusterClass.
+		allErrs = append(allErrs,
+			webhook.validateKubernetesVersionsOfClusters(clusters, oldClusterClass, newClusterClass)...)
+
 		// Ensure no MachineDeploymentClass currently in use has been removed from the ClusterClass.
 		allErrs = append(allErrs,
 			webhook.validateRemovedMachineDeploymentClassesAreNotUsed(clusters, oldClusterClass, newClusterClass)...)
 
-		// Ensure no Variable would be invalidated by the update in spec
+		// Ensure no MachinePoolClass currently in use has been removed from the ClusterClass.
 		allErrs = append(allErrs,
-			validateVariableUpdates(clusters, oldClusterClass, newClusterClass, field.NewPath("spec", "variables"))...)
+			webhook.validateRemovedMachinePoolClassesAreNotUsed(clusters, oldClusterClass, newClusterClass)...)
+
+		// Ensure no MachineHealthCheck currently in use has been removed from the ClusterClass.
+		allErrs = append(allErrs,
+			validateUpdatesToMachineHealthCheckClasses(clusters, oldClusterClass, newClusterClass)...)
+
+		allErrs = append(allErrs,
+			validateAutoscalerAnnotationsForClusterClass(clusters, newClusterClass)...)
 	}
 
 	if len(allErrs) > 0 {
@@ -182,222 +189,97 @@ func (webhook *ClusterClass) validate(ctx context.Context, oldClusterClass, newC
 	return nil
 }
 
-// validateVariableUpdates checks if the updates made to ClusterClassVariables are valid.
-// It retrieves a list of variables of interest and validates:
-// 1) Altered ClusterClassVariables defined on any exiting Cluster are still valid with the updated Schema.
-// 2) Removed ClusterClassVariables are not in use on any Cluster using the ClusterClass.
-// 3) Added ClusterClassVariables defined on any exiting Cluster are still valid with the updated Schema.
-// 4) Required ClusterClassVariables are defined on each Cluster using the ClusterClass.
-func validateVariableUpdates(clusters []clusterv1.Cluster, oldClusterClass, newClusterClass *clusterv1.ClusterClass, path *field.Path) field.ErrorList {
-	tracker := map[string][]string{}
+// validateUpdatesToMachineHealthCheckClasses checks if the updates made to MachineHealthChecks are valid.
+// It makes sure that if a MachineHealthCheck definition is dropped from the ClusterClass then none of the
+// clusters using the ClusterClass rely on it to create a MachineHealthCheck.
+// A cluster relies on an MachineHealthCheck in the ClusterClass if in cluster topology MachineHealthCheck
+// is explicitly enabled and it does not provide a MachineHealthCheckOverride.
+func validateUpdatesToMachineHealthCheckClasses(clusters []clusterv1.Cluster, oldClusterClass, newClusterClass *clusterv1.ClusterClass) field.ErrorList {
+	var allErrs field.ErrorList
 
-	// Get the old ClusterClassVariables as a map
-	oldVars, _ := getClusterClassVariablesMapWithReverseIndex(oldClusterClass.Spec.Variables)
-
-	// Get the new ClusterClassVariables as a map with an index linking them to their place in the ClusterClass Variable array.
-	// Note: The index is used to improve the error recording below.
-	newVars, clusterClassVariablesIndex := getClusterClassVariablesMapWithReverseIndex(newClusterClass.Spec.Variables)
-
-	// Compute the diff between old and new ClusterClassVariables.
-	varsDiff := getClusterClassVariablesForValidation(oldVars, newVars)
-
-	errorInfo := errorAggregator{}
-	allClusters := []string{}
-
-	// Validate the variable values on each Cluster ensuring they are still compatible with the new ClusterClass.
-	for _, cluster := range clusters {
-		allClusters = append(allClusters, cluster.Name)
-		for _, c := range cluster.Spec.Topology.Variables {
-			// copy variable to avoid memory aliasing.
-			clusterVar := c
-
-			// Add Cluster Variable entry in clusterVariableReferences to track where it is in use.
-			tracker[clusterVar.Name] = append(tracker[clusterVar.Name], cluster.Name)
-
-			// 1) Error if a variable with a schema altered in the update is no longer valid on the Cluster.
-			if alteredVar, ok := varsDiff[variableValidationKey{clusterVar.Name, altered}]; ok {
-				if errs := variables.ValidateClusterVariable(&clusterVar, alteredVar, field.NewPath("")); len(errs) > 0 {
-					errorInfo.add(alteredVar.Name, altered, cluster.Name)
-				}
-				continue
-			}
-
-			// 2) Error if a variable removed in the update is still in use in some Clusters.
-			if _, ok := varsDiff[variableValidationKey{clusterVar.Name, removed}]; ok {
-				errorInfo.add(clusterVar.Name, removed, cluster.Name)
-				continue
-			}
-
-			// 3) Error if a variable has been added in the update check is no longer valid on the Cluster.
-			// NOTE: This can't occur in normal circumstances as a variable must be defined in a ClusterClass in order to be introduced in
-			// a Cluster. This check may catch errors in cases involving broken Clusters.
-			if addedVar, ok := varsDiff[variableValidationKey{clusterVar.Name, added}]; ok {
-				if errs := variables.ValidateClusterVariable(&clusterVar, addedVar, field.NewPath("")); len(errs) > 0 {
-					errorInfo.add(addedVar.Name, added, cluster.Name)
-				}
-				continue
+	// Check if the MachineHealthCheck for the control plane is dropped.
+	if oldClusterClass.Spec.ControlPlane.HealthCheck.IsDefined() && !newClusterClass.Spec.ControlPlane.HealthCheck.IsDefined() {
+		// Make sure that none of the clusters are using this MachineHealthCheck.
+		clustersUsingMHC := []string{}
+		for _, cluster := range clusters {
+			if cluster.Spec.Topology.ControlPlane.HealthCheck.Enabled != nil &&
+				*cluster.Spec.Topology.ControlPlane.HealthCheck.Enabled &&
+				!cluster.Spec.Topology.ControlPlane.HealthCheck.IsDefined() {
+				clustersUsingMHC = append(clustersUsingMHC, cluster.Name)
 			}
 		}
+		if len(clustersUsingMHC) != 0 {
+			allErrs = append(allErrs, field.Forbidden(
+				field.NewPath("spec", "controlPlane", "healthCheck"),
+				fmt.Sprintf("healthCheck cannot be deleted because it is used by Cluster(s) %q", strings.Join(clustersUsingMHC, ",")),
+			))
+		}
+	}
 
-		if cluster.Spec.Topology.Workers == nil {
+	// For each MachineDeploymentClass check if the MachineHealthCheck definition is dropped.
+	for _, newMdClass := range newClusterClass.Spec.Workers.MachineDeployments {
+		oldMdClass := machineDeploymentClassOfName(oldClusterClass, newMdClass.Class)
+		if oldMdClass == nil {
+			// This is a new MachineDeploymentClass. Nothing to do here.
 			continue
 		}
-
-		for _, md := range cluster.Spec.Topology.Workers.MachineDeployments {
-			// Continue if there are no variable overrides.
-			if md.Variables == nil || len(md.Variables.Overrides) == 0 {
-				continue
-			}
-
-			for _, c := range md.Variables.Overrides {
-				// copy variable to avoid memory aliasing.
-				clusterVar := c
-
-				// 1) Error if a variable with a schema altered in the update is no longer valid on the Cluster.
-				if alteredVar, ok := varsDiff[variableValidationKey{clusterVar.Name, altered}]; ok {
-					if errs := variables.ValidateClusterVariable(&clusterVar, alteredVar, field.NewPath("")); len(errs) > 0 {
-						errorInfo.add(fmt.Sprintf("%s/%s", md.Name, alteredVar.Name), altered, cluster.Name)
+		// If the MachineHealthCheck is dropped then check that no cluster is using it.
+		if oldMdClass.HealthCheck.IsDefined() && !newMdClass.HealthCheck.IsDefined() {
+			clustersUsingMHC := []string{}
+			for _, cluster := range clusters {
+				for _, mdTopology := range cluster.Spec.Topology.Workers.MachineDeployments {
+					if mdTopology.Class == newMdClass.Class {
+						if mdTopology.HealthCheck.Enabled != nil &&
+							*mdTopology.HealthCheck.Enabled &&
+							!mdTopology.HealthCheck.IsDefined() {
+							clustersUsingMHC = append(clustersUsingMHC, cluster.Name)
+							break
+						}
 					}
-					continue
 				}
-
-				// 2) Error if a variable removed in the update is still in use in some Clusters.
-				if _, ok := varsDiff[variableValidationKey{clusterVar.Name, removed}]; ok {
-					errorInfo.add(fmt.Sprintf("%s/%s", md.Name, clusterVar.Name), removed, cluster.Name)
-					continue
-				}
-
-				// 3) Error if a variable has been added in the update check is no longer valid on the Cluster.
-				// NOTE: This can't occur in normal circumstances as a variable must be defined in a ClusterClass in order to be introduced in
-				// a Cluster. This check may catch errors in cases involving broken Clusters.
-				if addedVar, ok := varsDiff[variableValidationKey{clusterVar.Name, added}]; ok {
-					if errs := variables.ValidateClusterVariable(&clusterVar, addedVar, field.NewPath("")); len(errs) > 0 {
-						errorInfo.add(fmt.Sprintf("%s/%s", md.Name, addedVar.Name), added, cluster.Name)
-					}
-					continue
-				}
+			}
+			if len(clustersUsingMHC) != 0 {
+				allErrs = append(allErrs, field.Forbidden(
+					field.NewPath("spec", "workers", "machineDeployments").Key(newMdClass.Class).Child("healthCheck"),
+					fmt.Sprintf("healthCheck cannot be deleted because it is used by Cluster(s) %q", strings.Join(clustersUsingMHC, ",")),
+				))
 			}
 		}
 	}
-
-	// 4) Error if a required variable is not defined top-level in every cluster using the ClusterClass.
-	for v := range varsDiff {
-		if v.action == required {
-			clustersMissingVariable := clustersWithoutVar(allClusters, tracker[v.name])
-			if len(clustersMissingVariable) > 0 {
-				errorInfo.add(v.name, v.action, clustersMissingVariable...)
-			}
-		}
-	}
-
-	// Aggregate the errors from the validation checks and return one error message of each type for each variable with a list of violating clusters.
-	return aggregateErrors(errorInfo, clusterClassVariablesIndex, path)
-}
-
-type errorAggregator map[variableValidationKey][]string
-
-func (e errorAggregator) add(name string, action variableValidationType, references ...string) {
-	e[variableValidationKey{name, action}] = append(e[variableValidationKey{name, action}], references...)
-}
-
-func aggregateErrors(errs map[variableValidationKey][]string, clusterClassVariablesIndex map[string]int, path *field.Path) field.ErrorList {
-	var allErrs, addedErrs, alteredErrs, removedErrs, requiredErrs field.ErrorList
-	// Look through the errors and append aggregated error messages naming the Clusters blocking changes to existing variables.
-	for variable, clusters := range errs {
-		switch variable.action {
-		case altered:
-			alteredErrs = append(alteredErrs,
-				field.Forbidden(path.Index(clusterClassVariablesIndex[variable.name]),
-					fmt.Sprintf("variable schema change for %s is invalid. It failed validation in Clusters %v", variable.name, clusters),
-				))
-		case removed:
-			removedErrs = append(removedErrs,
-				field.Forbidden(path.Index(clusterClassVariablesIndex[variable.name]),
-					fmt.Sprintf("variable %s can not be removed. It is used in Clusters %v", variable.name, clusters),
-				))
-		case added:
-			addedErrs = append(addedErrs,
-				field.Forbidden(path.Index(clusterClassVariablesIndex[variable.name]),
-					fmt.Sprintf("variable %s can not be added. It failed validation in Clusters %v", variable.name, clusters),
-				))
-		case required:
-			requiredErrs = append(requiredErrs,
-				field.Forbidden(path.Index(clusterClassVariablesIndex[variable.name]),
-					fmt.Sprintf("variable %v is required but is not defined in Clusters %v", variable.name, clusters),
-				))
-		}
-	}
-
-	// Add the slices of errors one by one to maintain a defined order.
-	allErrs = append(allErrs, alteredErrs...)
-	allErrs = append(allErrs, removedErrs...)
-	allErrs = append(allErrs, addedErrs...)
-	allErrs = append(allErrs, requiredErrs...)
 
 	return allErrs
 }
 
-func clustersWithoutVar(allClusters, clustersWithVar []string) []string {
-	clustersWithVarMap := make(map[string]interface{})
-	for _, cluster := range clustersWithVar {
-		clustersWithVarMap[cluster] = nil
+func (webhook *ClusterClass) validateKubernetesVersionsOfClusters(clusters []clusterv1.Cluster, _, newClusterClass *clusterv1.ClusterClass) field.ErrorList {
+	var allErrs field.ErrorList
+
+	// If there is no KubernetesVersions is set in the ClusterClass return early.
+	if len(newClusterClass.Spec.KubernetesVersions) == 0 {
+		return allErrs
 	}
-	var clusterDiff []string
-	for _, cluster := range allClusters {
-		if _, found := clustersWithVarMap[cluster]; !found {
-			clusterDiff = append(clusterDiff, cluster)
+
+	kubernetesVersions := sets.Set[string]{}
+	for _, v := range newClusterClass.Spec.KubernetesVersions {
+		kubernetesVersions.Insert(v)
+	}
+
+	// Error if any Cluster's Kubernetes version is not set in the ClusterClass.
+	for _, c := range clusters {
+		if !kubernetesVersions.Has(c.Spec.Topology.Version) {
+			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "kubernetesVersions"),
+				fmt.Sprintf("Kubernetes Version %s is used by Cluster %q but not set in ClusterClass",
+					c.Spec.Topology.Version, c.Name),
+			))
 		}
 	}
-	return clusterDiff
-}
 
-type variableValidationType int
-
-const (
-	added variableValidationType = iota
-	altered
-	removed
-	required
-)
-
-// variableValidationKey holds the name of the variable and a validation action to perform on it.
-type variableValidationKey struct {
-	name   string
-	action variableValidationType
-}
-
-// getClusterClassVariablesForValidation returns a struct with the four classes of ClusterClass Variables that require validation:
-// - added which have been added to the ClusterClass on update.
-// - altered which have had their schemas changed on update.
-// - removed which have been removed from the ClusterClass on update.
-// - required (with 'required' : true) from the new ClusterClass.
-func getClusterClassVariablesForValidation(oldVars, newVars map[string]*clusterv1.ClusterClassVariable) map[variableValidationKey]*clusterv1.ClusterClassVariable {
-	out := map[variableValidationKey]*clusterv1.ClusterClassVariable{}
-
-	// Compare the old Variable map to the new one to discover which variables have been removed and which have been altered.
-	for k, v := range oldVars {
-		if _, ok := newVars[k]; !ok {
-			out[variableValidationKey{action: removed, name: k}] = v
-		} else if !reflect.DeepEqual(v.Schema, newVars[k].Schema) {
-			out[variableValidationKey{action: altered, name: k}] = newVars[k]
-		}
-	}
-	// Compare the new ClusterClassVariables to the new ClusterClassVariables to find out what variables have been added and which are now required.
-	for k, v := range newVars {
-		if _, ok := oldVars[k]; !ok {
-			out[variableValidationKey{action: added, name: k}] = v
-		}
-		if v.Required {
-			out[variableValidationKey{action: required, name: v.Name}] = v
-		}
-	}
-	return out
+	return allErrs
 }
 
 func (webhook *ClusterClass) validateRemovedMachineDeploymentClassesAreNotUsed(clusters []clusterv1.Cluster, oldClusterClass, newClusterClass *clusterv1.ClusterClass) field.ErrorList {
 	var allErrs field.ErrorList
 
-	removedClasses := webhook.removedMachineClasses(oldClusterClass, newClusterClass)
+	removedClasses := webhook.removedMachineDeploymentClasses(oldClusterClass, newClusterClass)
 	// If no classes have been removed return early as no further checks are needed.
 	if len(removedClasses) == 0 {
 		return nil
@@ -418,22 +300,67 @@ func (webhook *ClusterClass) validateRemovedMachineDeploymentClassesAreNotUsed(c
 	return allErrs
 }
 
-func (webhook *ClusterClass) removedMachineClasses(oldClusterClass, newClusterClass *clusterv1.ClusterClass) sets.String {
-	removedClasses := sets.NewString()
+func (webhook *ClusterClass) validateRemovedMachinePoolClassesAreNotUsed(clusters []clusterv1.Cluster, oldClusterClass, newClusterClass *clusterv1.ClusterClass) field.ErrorList {
+	var allErrs field.ErrorList
 
-	classes := webhook.classNamesFromWorkerClass(newClusterClass.Spec.Workers)
+	removedClasses := webhook.removedMachinePoolClasses(oldClusterClass, newClusterClass)
+	// If no classes have been removed return early as no further checks are needed.
+	if len(removedClasses) == 0 {
+		return nil
+	}
+	// Error if any Cluster using the ClusterClass uses a MachinePoolClass that has been removed.
+	for _, c := range clusters {
+		for _, machinePoolTopology := range c.Spec.Topology.Workers.MachinePools {
+			if removedClasses.Has(machinePoolTopology.Class) {
+				// TODO(killianmuldoon): Improve error printing here so large scale changes don't flood the error log e.g. deduplication, only example usages given.
+				// TODO: consider if we get the index of the MachinePoolClass being deleted
+				allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "workers", "machinePools"),
+					fmt.Sprintf("MachinePoolClass %q cannot be deleted because it is used by Cluster %q",
+						machinePoolTopology.Class, c.Name),
+				))
+			}
+		}
+	}
+	return allErrs
+}
+
+func (webhook *ClusterClass) removedMachineDeploymentClasses(oldClusterClass, newClusterClass *clusterv1.ClusterClass) sets.Set[string] {
+	removedClasses := sets.Set[string]{}
+
+	mdClasses := webhook.classNamesFromMDWorkerClass(newClusterClass.Spec.Workers)
 	for _, oldClass := range oldClusterClass.Spec.Workers.MachineDeployments {
-		if !classes.Has(oldClass.Class) {
+		if !mdClasses.Has(oldClass.Class) {
 			removedClasses.Insert(oldClass.Class)
 		}
 	}
 	return removedClasses
 }
 
-// classNamesFromWorkerClass returns the set of MachineDeployment class names.
-func (webhook *ClusterClass) classNamesFromWorkerClass(w clusterv1.WorkersClass) sets.String {
-	classes := sets.NewString()
+func (webhook *ClusterClass) removedMachinePoolClasses(oldClusterClass, newClusterClass *clusterv1.ClusterClass) sets.Set[string] {
+	removedClasses := sets.Set[string]{}
+
+	mpClasses := webhook.classNamesFromMPWorkerClass(newClusterClass.Spec.Workers)
+	for _, oldClass := range oldClusterClass.Spec.Workers.MachinePools {
+		if !mpClasses.Has(oldClass.Class) {
+			removedClasses.Insert(oldClass.Class)
+		}
+	}
+	return removedClasses
+}
+
+// classNamesFromMDWorkerClass returns the set of MachineDeployment class names.
+func (webhook *ClusterClass) classNamesFromMDWorkerClass(w clusterv1.WorkersClass) sets.Set[string] {
+	classes := sets.Set[string]{}
 	for _, class := range w.MachineDeployments {
+		classes.Insert(class.Class)
+	}
+	return classes
+}
+
+// classNamesFromMPWorkerClass returns the set of MachinePool class names.
+func (webhook *ClusterClass) classNamesFromMPWorkerClass(w clusterv1.WorkersClass) sets.Set[string] {
+	classes := sets.Set[string]{}
+	for _, class := range w.MachinePools {
 		classes.Insert(class.Class)
 	}
 	return classes
@@ -442,12 +369,14 @@ func (webhook *ClusterClass) classNamesFromWorkerClass(w clusterv1.WorkersClass)
 func (webhook *ClusterClass) getClustersUsingClusterClass(ctx context.Context, clusterClass *clusterv1.ClusterClass) ([]clusterv1.Cluster, error) {
 	clusters := &clusterv1.ClusterList{}
 	err := webhook.Client.List(ctx, clusters,
-		client.MatchingFields{index.ClusterClassNameField: clusterClass.Name},
-		client.InNamespace(clusterClass.Namespace),
+		client.MatchingFields{
+			index.ClusterClassRefPath: index.ClusterClassRef(clusterClass),
+		},
 	)
 	if err != nil {
 		return nil, err
 	}
+
 	return clusters.Items, nil
 }
 
@@ -462,38 +391,185 @@ func getClusterClassVariablesMapWithReverseIndex(clusterClassVariables []cluster
 	return variablesMap, variablesIndexMap
 }
 
+func validateClusterClassRollout(clusterClass *clusterv1.ClusterClass) field.ErrorList {
+	var allErrs field.ErrorList
+
+	for _, md := range clusterClass.Spec.Workers.MachineDeployments {
+		fldPath := field.NewPath("spec", "workers", "machineDeployments").Key(md.Class).Child("rollout")
+		allErrs = append(allErrs, validateRolloutStrategy(fldPath.Child("strategy"), md.Rollout.Strategy.RollingUpdate.MaxUnavailable, md.Rollout.Strategy.RollingUpdate.MaxSurge)...)
+	}
+
+	return allErrs
+}
+
 func validateMachineHealthCheckClasses(clusterClass *clusterv1.ClusterClass) field.ErrorList {
 	var allErrs field.ErrorList
 
 	// Validate ControlPlane MachineHealthCheck if defined.
-	if clusterClass.Spec.ControlPlane.MachineHealthCheck != nil {
+	if clusterClass.Spec.ControlPlane.HealthCheck.IsDefined() {
+		fldPath := field.NewPath("spec", "controlPlane", "healthCheck")
+
+		allErrs = append(allErrs, validateMachineHealthCheckNodeStartupTimeoutSeconds(fldPath, clusterClass.Spec.ControlPlane.HealthCheck.Checks.NodeStartupTimeoutSeconds)...)
+		allErrs = append(allErrs, validateMachineHealthCheckUnhealthyLessThanOrEqualTo(fldPath, clusterClass.Spec.ControlPlane.HealthCheck.Remediation.TriggerIf.UnhealthyLessThanOrEqualTo)...)
+
 		// Ensure ControlPlane does not define a MachineHealthCheck if it does not define MachineInfrastructure.
-		if clusterClass.Spec.ControlPlane.MachineInfrastructure == nil {
+		if !clusterClass.Spec.ControlPlane.MachineInfrastructure.TemplateRef.IsDefined() {
 			allErrs = append(allErrs, field.Forbidden(
-				field.NewPath("spec", "controlPlane", "machineHealthCheck"),
-				"can be set only if spec.controlPlane.machineInfrastructure is set",
-			))
-		}
-		// Ensure ControlPlane MachineHealthCheck defines UnhealthyConditions.
-		if len(clusterClass.Spec.ControlPlane.MachineHealthCheck.UnhealthyConditions) == 0 {
-			allErrs = append(allErrs, field.Forbidden(
-				field.NewPath("spec", "controlPlane", "machineHealthCheck", "unhealthyConditions"),
-				"must be defined and have at least one value",
+				fldPath,
+				"can be only set if spec.controlPlane.machineInfrastructure is set",
 			))
 		}
 	}
 
-	// Ensure MachineDeployment MachineHealthChecks define UnhealthyConditions.
-	for i, md := range clusterClass.Spec.Workers.MachineDeployments {
-		if md.MachineHealthCheck == nil {
+	// Validate MachineDeployment MachineHealthChecks.
+	for _, md := range clusterClass.Spec.Workers.MachineDeployments {
+		if !md.HealthCheck.IsDefined() {
 			continue
 		}
-		if len(md.MachineHealthCheck.UnhealthyConditions) == 0 {
-			allErrs = append(allErrs, field.Forbidden(
-				field.NewPath("spec", "workers", "machineDeployments", "machineHealthCheck").Index(i).Child("unhealthyConditions"),
-				"must be defined and have at least one value",
-			))
+		fldPath := field.NewPath("spec", "workers", "machineDeployments").Key(md.Class).Child("healthCheck")
+
+		allErrs = append(allErrs, validateMachineHealthCheckNodeStartupTimeoutSeconds(fldPath, md.HealthCheck.Checks.NodeStartupTimeoutSeconds)...)
+		allErrs = append(allErrs, validateMachineHealthCheckUnhealthyLessThanOrEqualTo(fldPath, md.HealthCheck.Remediation.TriggerIf.UnhealthyLessThanOrEqualTo)...)
+		allErrs = append(allErrs, validateRemediationMaxInFlight(fldPath.Child("remediation"), md.HealthCheck.Remediation.MaxInFlight)...)
+	}
+	return allErrs
+}
+
+func validateNamingStrategies(clusterClass *clusterv1.ClusterClass) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if clusterClass.Spec.Infrastructure.Naming.Template != "" {
+		name, err := topologynames.InfraClusterNameGenerator(clusterClass.Spec.Infrastructure.Naming.Template, "cluster").GenerateName()
+		templateFldPath := field.NewPath("spec", "infrastructure", "naming", "template")
+		if err != nil {
+			allErrs = append(allErrs,
+				field.Invalid(
+					templateFldPath,
+					clusterClass.Spec.Infrastructure.Naming.Template,
+					fmt.Sprintf("invalid InfraCluster name template: %v", err),
+				))
+		} else {
+			for _, err := range validation.IsDNS1123Subdomain(name) {
+				allErrs = append(allErrs, field.Invalid(templateFldPath, clusterClass.Spec.Infrastructure.Naming.Template, err))
+			}
 		}
+	}
+
+	if clusterClass.Spec.ControlPlane.Naming.Template != "" {
+		name, err := topologynames.ControlPlaneNameGenerator(clusterClass.Spec.ControlPlane.Naming.Template, "cluster").GenerateName()
+		templateFldPath := field.NewPath("spec", "controlPlane", "naming", "template")
+		if err != nil {
+			allErrs = append(allErrs,
+				field.Invalid(
+					templateFldPath,
+					clusterClass.Spec.ControlPlane.Naming.Template,
+					fmt.Sprintf("invalid ControlPlane name template: %v", err),
+				))
+		} else {
+			for _, err := range validation.IsDNS1123Subdomain(name) {
+				allErrs = append(allErrs, field.Invalid(templateFldPath, clusterClass.Spec.ControlPlane.Naming.Template, err))
+			}
+		}
+	}
+
+	for _, md := range clusterClass.Spec.Workers.MachineDeployments {
+		if md.Naming.Template == "" {
+			continue
+		}
+		name, err := topologynames.MachineDeploymentNameGenerator(md.Naming.Template, "cluster", "mdtopology").GenerateName()
+		templateFldPath := field.NewPath("spec", "workers", "machineDeployments").Key(md.Class).Child("naming", "template")
+		if err != nil {
+			allErrs = append(allErrs,
+				field.Invalid(
+					templateFldPath,
+					md.Naming.Template,
+					fmt.Sprintf("invalid MachineDeployment name template: %v", err),
+				))
+		} else {
+			for _, err := range validation.IsDNS1123Subdomain(name) {
+				allErrs = append(allErrs, field.Invalid(templateFldPath, md.Naming.Template, err))
+			}
+		}
+	}
+
+	for _, mp := range clusterClass.Spec.Workers.MachinePools {
+		if mp.Naming.Template == "" {
+			continue
+		}
+		name, err := topologynames.MachinePoolNameGenerator(mp.Naming.Template, "cluster", "mptopology").GenerateName()
+		templateFldPath := field.NewPath("spec", "workers", "machinePools").Key(mp.Class).Child("naming", "template")
+		if err != nil {
+			allErrs = append(allErrs,
+				field.Invalid(
+					templateFldPath,
+					mp.Naming.Template,
+					fmt.Sprintf("invalid MachinePool name template: %v", err),
+				))
+		} else {
+			for _, err := range validation.IsDNS1123Subdomain(name) {
+				allErrs = append(allErrs, field.Invalid(templateFldPath, mp.Naming.Template, err))
+			}
+		}
+	}
+
+	return allErrs
+}
+
+func validateClusterClassMetadata(clusterClass *clusterv1.ClusterClass) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, clusterClass.Spec.ControlPlane.Metadata.Validate(field.NewPath("spec", "controlPlane", "metadata"))...)
+	for _, m := range clusterClass.Spec.Workers.MachineDeployments {
+		allErrs = append(allErrs, m.Metadata.Validate(field.NewPath("spec", "workers", "machineDeployments").Key(m.Class).Child("template", "metadata"))...)
+	}
+	for _, m := range clusterClass.Spec.Workers.MachinePools {
+		allErrs = append(allErrs, m.Metadata.Validate(field.NewPath("spec", "workers", "machinePools").Key(m.Class).Child("template", "metadata"))...)
+	}
+	return allErrs
+}
+
+// validateAutoscalerAnnotationsForClusterClass iterates over a list of Clusters that use a ClusterClass and returns
+// errors if the ClusterClass contains autoscaler annotations while a Cluster has worker replicas.
+func validateAutoscalerAnnotationsForClusterClass(clusters []clusterv1.Cluster, newClusterClass *clusterv1.ClusterClass) field.ErrorList {
+	var allErrs field.ErrorList
+	for _, c := range clusters {
+		allErrs = append(allErrs, validateAutoscalerAnnotationsForCluster(&c, newClusterClass)...)
+	}
+	return allErrs
+}
+
+// validateKubernetesVersions iterates over a list of versions and check they are valid.
+func validateKubernetesVersions(versions []string) field.ErrorList {
+	var allErrs field.ErrorList
+	var previousVersion *semver.Version
+	for i, v := range versions {
+		semV, err := semver.ParseTolerant(v)
+		if err != nil {
+			allErrs = append(allErrs, field.Invalid(
+				field.NewPath("spec", "kubernetesVersion").Index(i),
+				v,
+				"version must be a valid semantic version",
+			))
+			continue
+		}
+		if previousVersion != nil {
+			// Note: we tolerate having one version followed by another with the same major.minor.patch but different build tags (version.Compare==2)
+			if version.Compare(semV, *previousVersion, version.WithBuildTags()) <= 0 {
+				allErrs = append(allErrs, field.Invalid(
+					field.NewPath("spec", "kubernetesVersion").Index(i),
+					v,
+					fmt.Sprintf("version must be greater than v%s", previousVersion.String()),
+				))
+			}
+
+			if previousVersion.Minor != semV.Minor && previousVersion.Minor+1 != semV.Minor {
+				allErrs = append(allErrs, field.Invalid(
+					field.NewPath("spec", "kubernetesVersion").Index(i),
+					v,
+					fmt.Sprintf("expecting a version with minor %d or %d, found version %s", previousVersion.Minor, previousVersion.Minor+1, semV),
+				))
+			}
+		}
+		previousVersion = &semV
 	}
 	return allErrs
 }

@@ -23,20 +23,21 @@ import (
 	"strings"
 	"text/template"
 
-	sprig "github.com/Masterminds/sprig/v3"
+	"github.com/Masterminds/sprig/v3"
 	"github.com/pkg/errors"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/feature"
 )
 
 // validatePatches returns errors if the Patches in the ClusterClass violate any validation rules.
 func validatePatches(clusterClass *clusterv1.ClusterClass) field.ErrorList {
 	var allErrs field.ErrorList
-	names := sets.String{}
+	names := sets.Set[string]{}
 	for i, patch := range clusterClass.Spec.Patches {
 		allErrs = append(
 			allErrs,
@@ -47,7 +48,7 @@ func validatePatches(clusterClass *clusterv1.ClusterClass) field.ErrorList {
 	return allErrs
 }
 
-func validatePatch(patch clusterv1.ClusterClassPatch, names sets.String, clusterClass *clusterv1.ClusterClass, path *field.Path) field.ErrorList {
+func validatePatch(patch clusterv1.ClusterClassPatch, names sets.Set[string], clusterClass *clusterv1.ClusterClass, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs,
 		validatePatchName(patch, names, path)...,
@@ -58,13 +59,21 @@ func validatePatch(patch clusterv1.ClusterClassPatch, names sets.String, cluster
 	return allErrs
 }
 
-func validatePatchName(patch clusterv1.ClusterClassPatch, names sets.String, path *field.Path) field.ErrorList {
+func validatePatchName(patch clusterv1.ClusterClassPatch, names sets.Set[string], path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if patch.Name == "" {
 		allErrs = append(allErrs,
 			field.Required(
 				path.Child("name"),
 				"patch name must be defined",
+			),
+		)
+	}
+	if patch.Name == clusterv1.VariableDefinitionFromInline {
+		allErrs = append(allErrs,
+			field.Required(
+				path.Child("name"),
+				fmt.Sprintf("%q can not be used as the name of a patch", clusterv1.VariableDefinitionFromInline),
 			),
 		)
 	}
@@ -119,12 +128,12 @@ func validatePatchDefinitions(patch clusterv1.ClusterClassPatch, clusterClass *c
 					"patch.external can be used only if the RuntimeSDK feature flag is enabled",
 				))
 		}
-		if patch.External.ValidateExtension == nil && patch.External.GenerateExtension == nil {
+		if patch.External.ValidateTopologyExtension == "" && patch.External.GeneratePatchesExtension == "" {
 			allErrs = append(allErrs,
 				field.Invalid(
 					path.Child("external"),
 					patch.External,
-					"one of validateExtension and generateExtension must be defined",
+					"one of validateTopologyExtension and generatePatchesExtension must be defined",
 				))
 		}
 	}
@@ -132,17 +141,17 @@ func validatePatchDefinitions(patch clusterv1.ClusterClassPatch, clusterClass *c
 }
 
 // validateSelectors validates if enabledIf is a valid template if it is set.
-func validateEnabledIf(enabledIf *string, path *field.Path) field.ErrorList {
+func validateEnabledIf(enabledIf string, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if enabledIf != nil {
+	if enabledIf != "" {
 		// Error if template can not be parsed.
-		_, err := template.New("enabledIf").Funcs(sprig.HermeticTxtFuncMap()).Parse(*enabledIf)
+		_, err := template.New("enabledIf").Funcs(sprig.HermeticTxtFuncMap()).Parse(enabledIf)
 		if err != nil {
 			allErrs = append(allErrs,
 				field.Invalid(
 					path,
-					*enabledIf,
+					enabledIf,
 					fmt.Sprintf("template can not be parsed: %v", err),
 				))
 		}
@@ -157,8 +166,9 @@ func validateSelectors(selector clusterv1.PatchSelector, class *clusterv1.Cluste
 	var allErrs field.ErrorList
 
 	// Return an error if none of the possible selectors are enabled.
-	if !(selector.MatchResources.InfrastructureCluster || selector.MatchResources.ControlPlane ||
-		(selector.MatchResources.MachineDeploymentClass != nil && len(selector.MatchResources.MachineDeploymentClass.Names) > 0)) {
+	if !ptr.Deref(selector.MatchResources.InfrastructureCluster, false) && !ptr.Deref(selector.MatchResources.ControlPlane, false) &&
+		(selector.MatchResources.MachineDeploymentClass == nil || len(selector.MatchResources.MachineDeploymentClass.Names) == 0) &&
+		(selector.MatchResources.MachinePoolClass == nil || len(selector.MatchResources.MachinePoolClass.Names) == 0) {
 		return append(allErrs,
 			field.Invalid(
 				path,
@@ -166,55 +176,146 @@ func validateSelectors(selector clusterv1.PatchSelector, class *clusterv1.Cluste
 				"no selector enabled",
 			))
 	}
-	if selector.MatchResources.InfrastructureCluster {
-		if selectorMatchTemplate(selector, class.Spec.Infrastructure.Ref) {
-			return nil
-		}
-	}
-	if selector.MatchResources.ControlPlane {
-		if selectorMatchTemplate(selector, class.Spec.ControlPlane.Ref) {
-			return nil
+
+	if ptr.Deref(selector.MatchResources.InfrastructureCluster, false) {
+		if !selectorMatchTemplate(selector, class.Spec.Infrastructure.TemplateRef) {
+			allErrs = append(allErrs, field.Invalid(
+				path.Child("matchResources", "infrastructureCluster"),
+				selector.MatchResources.InfrastructureCluster,
+				"selector is enabled but does not match the infrastructure ref",
+			))
 		}
 	}
 
-	if selector.MatchResources.ControlPlane && class.Spec.ControlPlane.MachineInfrastructure != nil {
-		if selectorMatchTemplate(selector, class.Spec.ControlPlane.MachineInfrastructure.Ref) {
-			return nil
+	if ptr.Deref(selector.MatchResources.ControlPlane, false) {
+		match := false
+		if selectorMatchTemplate(selector, class.Spec.ControlPlane.TemplateRef) {
+			match = true
+		}
+		if class.Spec.ControlPlane.MachineInfrastructure.TemplateRef.IsDefined() &&
+			selectorMatchTemplate(selector, class.Spec.ControlPlane.MachineInfrastructure.TemplateRef) {
+			match = true
+		}
+		if !match {
+			allErrs = append(allErrs, field.Invalid(
+				path.Child("matchResources", "controlPlane"),
+				selector.MatchResources.ControlPlane,
+				"selector is enabled but matches neither the controlPlane ref nor the controlPlane machineInfrastructure ref",
+			))
 		}
 	}
 
 	if selector.MatchResources.MachineDeploymentClass != nil && len(selector.MatchResources.MachineDeploymentClass.Names) > 0 {
-		for _, name := range selector.MatchResources.MachineDeploymentClass.Names {
+		for i, name := range selector.MatchResources.MachineDeploymentClass.Names {
+			match := false
+			err := validateSelectorName(name, path, "machineDeploymentClass", i)
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
 			for _, md := range class.Spec.Workers.MachineDeployments {
-				if md.Class == name {
-					if selectorMatchTemplate(selector, md.Template.Infrastructure.Ref) {
-						return nil
-					}
-					if selectorMatchTemplate(selector, md.Template.Bootstrap.Ref) {
-						return nil
+				var matches bool
+				if md.Class == name || name == "*" {
+					matches = true
+				} else if strings.HasPrefix(name, "*") && strings.HasSuffix(md.Class, strings.TrimPrefix(name, "*")) {
+					matches = true
+				} else if strings.HasSuffix(name, "*") && strings.HasPrefix(md.Class, strings.TrimSuffix(name, "*")) {
+					matches = true
+				}
+
+				if matches {
+					if selectorMatchTemplate(selector, md.Infrastructure.TemplateRef) ||
+						selectorMatchTemplate(selector, md.Bootstrap.TemplateRef) {
+						match = true
+						break
 					}
 				}
 			}
+			if !match {
+				allErrs = append(allErrs, field.Invalid(
+					path.Child("matchResources", "machineDeploymentClass", "names").Index(i),
+					name,
+					"selector is enabled but matches neither the bootstrap ref nor the infrastructure ref of a MachineDeployment class",
+				))
+			}
 		}
 	}
-	// if the code has not returned at this point there is no matching template in the ClusterClass. Return an error.
-	return append(allErrs,
-		field.Invalid(
-			path,
-			prettyPrint(selector),
-			"selector did not match any template in the ClusterClass",
-		))
+
+	if selector.MatchResources.MachinePoolClass != nil && len(selector.MatchResources.MachinePoolClass.Names) > 0 {
+		for i, name := range selector.MatchResources.MachinePoolClass.Names {
+			match := false
+			err := validateSelectorName(name, path, "machinePoolClass", i)
+			if err != nil {
+				allErrs = append(allErrs, err)
+				break
+			}
+			for _, mp := range class.Spec.Workers.MachinePools {
+				var matches bool
+				if mp.Class == name || name == "*" {
+					matches = true
+				} else if strings.HasPrefix(name, "*") && strings.HasSuffix(mp.Class, strings.TrimPrefix(name, "*")) {
+					matches = true
+				} else if strings.HasSuffix(name, "*") && strings.HasPrefix(mp.Class, strings.TrimSuffix(name, "*")) {
+					matches = true
+				}
+
+				if matches {
+					if selectorMatchTemplate(selector, mp.Infrastructure.TemplateRef) ||
+						selectorMatchTemplate(selector, mp.Bootstrap.TemplateRef) {
+						match = true
+						break
+					}
+				}
+			}
+			if !match {
+				allErrs = append(allErrs, field.Invalid(
+					path.Child("matchResources", "machinePoolClass", "names").Index(i),
+					name,
+					"selector is enabled but matches neither the bootstrap ref nor the infrastructure ref of a MachinePool class",
+				))
+			}
+		}
+	}
+
+	return allErrs
+}
+
+// validateSelectorName validates if the selector name is valid.
+func validateSelectorName(name string, path *field.Path, resourceName string, index int) *field.Error {
+	if strings.Contains(name, "*") {
+		// selector can at most have a single * rune
+		if strings.Count(name, "*") > 1 {
+			return field.Invalid(
+				path.Child("matchResources", resourceName, "names").Index(index),
+				name,
+				"selector can at most contain a single \"*\" rune")
+		}
+
+		// the * rune can appear only at the beginning, or ending of the selector.
+		if strings.Contains(name, "*") && !strings.HasPrefix(name, "*") && !strings.HasSuffix(name, "*") {
+			// templateMDClass or templateMPClass can only have "*" rune at the start or end of the string
+			return field.Invalid(
+				path.Child("matchResources", resourceName, "names").Index(index),
+				name,
+				"\"*\" rune can only appear at the beginning, or ending of the selector")
+		}
+		// a valid selector without "*" should comply with Kubernetes naming standards.
+		if validation.IsQualifiedName(strings.ReplaceAll(name, "*", "a")) != nil {
+			return field.Invalid(
+				path.Child("matchResources", resourceName, "names").Index(index),
+				name,
+				"selector does not comply with the Kubernetes naming standards")
+		}
+	}
+	return nil
 }
 
 // selectorMatchTemplate returns true if APIVersion and Kind for the given selector match the reference.
-func selectorMatchTemplate(selector clusterv1.PatchSelector, reference *corev1.ObjectReference) bool {
-	if reference == nil {
-		return false
-	}
+func selectorMatchTemplate(selector clusterv1.PatchSelector, reference clusterv1.ClusterClassTemplateReference) bool {
 	return selector.Kind == reference.Kind && selector.APIVersion == reference.APIVersion
 }
 
-var validOps = sets.NewString("add", "replace", "remove")
+var validOps = sets.Set[string]{}.Insert("add", "replace", "remove")
 
 func validateJSONPatches(jsonPatches []clusterv1.JSONPatch, variables []clusterv1.ClusterClassVariable, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
@@ -226,7 +327,7 @@ func validateJSONPatches(jsonPatches []clusterv1.JSONPatch, variables []clusterv
 				field.NotSupported(
 					path.Index(i).Child("op"),
 					prettyPrint(jsonPatch),
-					validOps.List(),
+					sets.List(validOps),
 				))
 		}
 
@@ -291,7 +392,7 @@ func validateJSONPatchValues(jsonPatch clusterv1.JSONPatch, variableSet map[stri
 				))
 		}
 	}
-	if jsonPatch.ValueFrom != nil && jsonPatch.ValueFrom.Template == nil && jsonPatch.ValueFrom.Variable == nil {
+	if jsonPatch.ValueFrom != nil && jsonPatch.ValueFrom.Template == "" && jsonPatch.ValueFrom.Variable == "" {
 		allErrs = append(allErrs,
 			field.Invalid(
 				path.Child("valueFrom"),
@@ -299,7 +400,7 @@ func validateJSONPatchValues(jsonPatch clusterv1.JSONPatch, variableSet map[stri
 				"valueFrom must set either template or variable",
 			))
 	}
-	if jsonPatch.ValueFrom != nil && jsonPatch.ValueFrom.Template != nil && jsonPatch.ValueFrom.Variable != nil {
+	if jsonPatch.ValueFrom != nil && jsonPatch.ValueFrom.Template != "" && jsonPatch.ValueFrom.Variable != "" {
 		allErrs = append(allErrs,
 			field.Invalid(
 				path.Child("valueFrom"),
@@ -308,28 +409,28 @@ func validateJSONPatchValues(jsonPatch clusterv1.JSONPatch, variableSet map[stri
 			))
 	}
 
-	if jsonPatch.ValueFrom != nil && jsonPatch.ValueFrom.Template != nil {
+	if jsonPatch.ValueFrom != nil && jsonPatch.ValueFrom.Template != "" {
 		// Error if template can not be parsed.
-		_, err := template.New("valueFrom.template").Funcs(sprig.HermeticTxtFuncMap()).Parse(*jsonPatch.ValueFrom.Template)
+		_, err := template.New("valueFrom.template").Funcs(sprig.HermeticTxtFuncMap()).Parse(jsonPatch.ValueFrom.Template)
 		if err != nil {
 			allErrs = append(allErrs,
 				field.Invalid(
 					path.Child("valueFrom", "template"),
-					*jsonPatch.ValueFrom.Template,
+					jsonPatch.ValueFrom.Template,
 					fmt.Sprintf("template can not be parsed: %v", err),
 				))
 		}
 	}
 
 	// If set validate that the variable is valid.
-	if jsonPatch.ValueFrom != nil && jsonPatch.ValueFrom.Variable != nil {
+	if jsonPatch.ValueFrom != nil && jsonPatch.ValueFrom.Variable != "" {
 		// If the variable is one of the list of builtin variables it's valid.
-		if strings.HasPrefix(*jsonPatch.ValueFrom.Variable, "builtin.") {
-			if _, ok := builtinVariables[*jsonPatch.ValueFrom.Variable]; !ok {
+		if strings.HasPrefix(jsonPatch.ValueFrom.Variable, "builtin.") {
+			if _, ok := builtinVariables[jsonPatch.ValueFrom.Variable]; !ok {
 				allErrs = append(allErrs,
 					field.Invalid(
 						path.Child("valueFrom", "variable"),
-						*jsonPatch.ValueFrom.Variable,
+						jsonPatch.ValueFrom.Variable,
 						"not a defined builtin variable",
 					))
 			}
@@ -338,13 +439,13 @@ func validateJSONPatchValues(jsonPatch clusterv1.JSONPatch, variableSet map[stri
 			// validating if the whole path is an existing variable.
 			// This could be done by re-using getVariableValue of the json patch
 			// generator but requires a refactoring first.
-			variableName := getVariableName(*jsonPatch.ValueFrom.Variable)
+			variableName := getVariableName(jsonPatch.ValueFrom.Variable)
 			if _, ok := variableSet[variableName]; !ok {
 				allErrs = append(allErrs,
 					field.Invalid(
 						path.Child("valueFrom", "variable"),
-						*jsonPatch.ValueFrom.Variable,
-						fmt.Sprintf("variable with name %s cannot be found", *jsonPatch.ValueFrom.Variable),
+						jsonPatch.ValueFrom.Variable,
+						fmt.Sprintf("variable with name %s cannot be found", jsonPatch.ValueFrom.Variable),
 					))
 			}
 		}
@@ -360,17 +461,23 @@ func getVariableName(variable string) string {
 
 // This contains a list of all of the valid builtin variables.
 // TODO(killianmuldoon): Match this list to controllers/topology/internal/extensions/patches/variables as those structs become available across the code base i.e. public or top-level internal.
-var builtinVariables = sets.NewString(
+var builtinVariables = sets.Set[string]{}.Insert(
 	"builtin",
 
 	// Cluster builtins.
 	"builtin.cluster",
 	"builtin.cluster.name",
 	"builtin.cluster.namespace",
+	"builtin.cluster.uid",
+	"builtin.cluster.metadata.labels",
+	"builtin.cluster.metadata.annotations",
 
 	// ClusterTopology builtins.
 	"builtin.cluster.topology",
+	"builtin.cluster.topology.classRef.name",
+	"builtin.cluster.topology.classRef.namespace",
 	"builtin.cluster.topology.class",
+	"builtin.cluster.topology.classNamespace",
 	"builtin.cluster.topology.version",
 
 	// ClusterNetwork builtins
@@ -378,13 +485,14 @@ var builtinVariables = sets.NewString(
 	"builtin.cluster.network.serviceDomain",
 	"builtin.cluster.network.services",
 	"builtin.cluster.network.pods",
-	"builtin.cluster.network.ipFamily",
 
 	// ControlPlane builtins.
 	"builtin.controlPlane",
 	"builtin.controlPlane.name",
 	"builtin.controlPlane.replicas",
 	"builtin.controlPlane.version",
+	"builtin.controlPlane.metadata.labels",
+	"builtin.controlPlane.metadata.annotations",
 	// ControlPlane ref builtins.
 	"builtin.controlPlane.machineTemplate.infrastructureRef.name",
 
@@ -395,9 +503,24 @@ var builtinVariables = sets.NewString(
 	"builtin.machineDeployment.replicas",
 	"builtin.machineDeployment.topologyName",
 	"builtin.machineDeployment.version",
+	"builtin.machineDeployment.metadata.labels",
+	"builtin.machineDeployment.metadata.annotations",
 	// MachineDeployment ref builtins.
 	"builtin.machineDeployment.bootstrap.configRef.name",
 	"builtin.machineDeployment.infrastructureRef.name",
+
+	// MachinePool builtins.
+	"builtin.machinePool",
+	"builtin.machinePool.class",
+	"builtin.machinePool.name",
+	"builtin.machinePool.replicas",
+	"builtin.machinePool.topologyName",
+	"builtin.machinePool.version",
+	"builtin.machinePool.metadata.labels",
+	"builtin.machinePool.metadata.annotations",
+	// MachinePool ref builtins.
+	"builtin.machinePool.bootstrap.configRef.name",
+	"builtin.machinePool.infrastructureRef.name",
 )
 
 // validateIndexAccess checks to see if the jsonPath is attempting to add an element in the array i.e. access by number

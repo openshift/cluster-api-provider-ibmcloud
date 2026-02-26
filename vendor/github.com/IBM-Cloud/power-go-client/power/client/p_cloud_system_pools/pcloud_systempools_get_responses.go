@@ -6,6 +6,8 @@ package p_cloud_system_pools
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 
@@ -21,7 +23,7 @@ type PcloudSystempoolsGetReader struct {
 }
 
 // ReadResponse reads a server response into the received o.
-func (o *PcloudSystempoolsGetReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
+func (o *PcloudSystempoolsGetReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (any, error) {
 	switch response.Code() {
 	case 200:
 		result := NewPcloudSystempoolsGetOK()
@@ -29,8 +31,26 @@ func (o *PcloudSystempoolsGetReader) ReadResponse(response runtime.ClientRespons
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewPcloudSystempoolsGetBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewPcloudSystempoolsGetUnauthorized()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 403:
+		result := NewPcloudSystempoolsGetForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 404:
+		result := NewPcloudSystempoolsGetNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -42,7 +62,7 @@ func (o *PcloudSystempoolsGetReader) ReadResponse(response runtime.ClientRespons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools] pcloud.systempools.get", response, response.Code())
 	}
 }
 
@@ -51,7 +71,8 @@ func NewPcloudSystempoolsGetOK() *PcloudSystempoolsGetOK {
 	return &PcloudSystempoolsGetOK{}
 }
 
-/* PcloudSystempoolsGetOK describes a response with status code 200, with default header values.
+/*
+PcloudSystempoolsGetOK describes a response with status code 200, with default header values.
 
 OK
 */
@@ -59,9 +80,46 @@ type PcloudSystempoolsGetOK struct {
 	Payload models.SystemPools
 }
 
-func (o *PcloudSystempoolsGetOK) Error() string {
-	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetOK  %+v", 200, o.Payload)
+// IsSuccess returns true when this pcloud systempools get o k response has a 2xx status code
+func (o *PcloudSystempoolsGetOK) IsSuccess() bool {
+	return true
 }
+
+// IsRedirect returns true when this pcloud systempools get o k response has a 3xx status code
+func (o *PcloudSystempoolsGetOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud systempools get o k response has a 4xx status code
+func (o *PcloudSystempoolsGetOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud systempools get o k response has a 5xx status code
+func (o *PcloudSystempoolsGetOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud systempools get o k response a status code equal to that given
+func (o *PcloudSystempoolsGetOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the pcloud systempools get o k response
+func (o *PcloudSystempoolsGetOK) Code() int {
+	return 200
+}
+
+func (o *PcloudSystempoolsGetOK) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetOK %s", 200, payload)
+}
+
+func (o *PcloudSystempoolsGetOK) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetOK %s", 200, payload)
+}
+
 func (o *PcloudSystempoolsGetOK) GetPayload() models.SystemPools {
 	return o.Payload
 }
@@ -69,7 +127,77 @@ func (o *PcloudSystempoolsGetOK) GetPayload() models.SystemPools {
 func (o *PcloudSystempoolsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudSystempoolsGetBadRequest creates a PcloudSystempoolsGetBadRequest with default headers values
+func NewPcloudSystempoolsGetBadRequest() *PcloudSystempoolsGetBadRequest {
+	return &PcloudSystempoolsGetBadRequest{}
+}
+
+/*
+PcloudSystempoolsGetBadRequest describes a response with status code 400, with default header values.
+
+Bad Request
+*/
+type PcloudSystempoolsGetBadRequest struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud systempools get bad request response has a 2xx status code
+func (o *PcloudSystempoolsGetBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud systempools get bad request response has a 3xx status code
+func (o *PcloudSystempoolsGetBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud systempools get bad request response has a 4xx status code
+func (o *PcloudSystempoolsGetBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud systempools get bad request response has a 5xx status code
+func (o *PcloudSystempoolsGetBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud systempools get bad request response a status code equal to that given
+func (o *PcloudSystempoolsGetBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the pcloud systempools get bad request response
+func (o *PcloudSystempoolsGetBadRequest) Code() int {
+	return 400
+}
+
+func (o *PcloudSystempoolsGetBadRequest) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetBadRequest %s", 400, payload)
+}
+
+func (o *PcloudSystempoolsGetBadRequest) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetBadRequest %s", 400, payload)
+}
+
+func (o *PcloudSystempoolsGetBadRequest) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudSystempoolsGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -81,7 +209,8 @@ func NewPcloudSystempoolsGetUnauthorized() *PcloudSystempoolsGetUnauthorized {
 	return &PcloudSystempoolsGetUnauthorized{}
 }
 
-/* PcloudSystempoolsGetUnauthorized describes a response with status code 401, with default header values.
+/*
+PcloudSystempoolsGetUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized
 */
@@ -89,9 +218,46 @@ type PcloudSystempoolsGetUnauthorized struct {
 	Payload *models.Error
 }
 
-func (o *PcloudSystempoolsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetUnauthorized  %+v", 401, o.Payload)
+// IsSuccess returns true when this pcloud systempools get unauthorized response has a 2xx status code
+func (o *PcloudSystempoolsGetUnauthorized) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud systempools get unauthorized response has a 3xx status code
+func (o *PcloudSystempoolsGetUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud systempools get unauthorized response has a 4xx status code
+func (o *PcloudSystempoolsGetUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud systempools get unauthorized response has a 5xx status code
+func (o *PcloudSystempoolsGetUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud systempools get unauthorized response a status code equal to that given
+func (o *PcloudSystempoolsGetUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the pcloud systempools get unauthorized response
+func (o *PcloudSystempoolsGetUnauthorized) Code() int {
+	return 401
+}
+
+func (o *PcloudSystempoolsGetUnauthorized) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetUnauthorized %s", 401, payload)
+}
+
+func (o *PcloudSystempoolsGetUnauthorized) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetUnauthorized %s", 401, payload)
+}
+
 func (o *PcloudSystempoolsGetUnauthorized) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -101,7 +267,147 @@ func (o *PcloudSystempoolsGetUnauthorized) readResponse(response runtime.ClientR
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudSystempoolsGetForbidden creates a PcloudSystempoolsGetForbidden with default headers values
+func NewPcloudSystempoolsGetForbidden() *PcloudSystempoolsGetForbidden {
+	return &PcloudSystempoolsGetForbidden{}
+}
+
+/*
+PcloudSystempoolsGetForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type PcloudSystempoolsGetForbidden struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud systempools get forbidden response has a 2xx status code
+func (o *PcloudSystempoolsGetForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud systempools get forbidden response has a 3xx status code
+func (o *PcloudSystempoolsGetForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud systempools get forbidden response has a 4xx status code
+func (o *PcloudSystempoolsGetForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud systempools get forbidden response has a 5xx status code
+func (o *PcloudSystempoolsGetForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud systempools get forbidden response a status code equal to that given
+func (o *PcloudSystempoolsGetForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the pcloud systempools get forbidden response
+func (o *PcloudSystempoolsGetForbidden) Code() int {
+	return 403
+}
+
+func (o *PcloudSystempoolsGetForbidden) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetForbidden %s", 403, payload)
+}
+
+func (o *PcloudSystempoolsGetForbidden) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetForbidden %s", 403, payload)
+}
+
+func (o *PcloudSystempoolsGetForbidden) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudSystempoolsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
+}
+
+// NewPcloudSystempoolsGetNotFound creates a PcloudSystempoolsGetNotFound with default headers values
+func NewPcloudSystempoolsGetNotFound() *PcloudSystempoolsGetNotFound {
+	return &PcloudSystempoolsGetNotFound{}
+}
+
+/*
+PcloudSystempoolsGetNotFound describes a response with status code 404, with default header values.
+
+Not Found
+*/
+type PcloudSystempoolsGetNotFound struct {
+	Payload *models.Error
+}
+
+// IsSuccess returns true when this pcloud systempools get not found response has a 2xx status code
+func (o *PcloudSystempoolsGetNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this pcloud systempools get not found response has a 3xx status code
+func (o *PcloudSystempoolsGetNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud systempools get not found response has a 4xx status code
+func (o *PcloudSystempoolsGetNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this pcloud systempools get not found response has a 5xx status code
+func (o *PcloudSystempoolsGetNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this pcloud systempools get not found response a status code equal to that given
+func (o *PcloudSystempoolsGetNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the pcloud systempools get not found response
+func (o *PcloudSystempoolsGetNotFound) Code() int {
+	return 404
+}
+
+func (o *PcloudSystempoolsGetNotFound) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetNotFound %s", 404, payload)
+}
+
+func (o *PcloudSystempoolsGetNotFound) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetNotFound %s", 404, payload)
+}
+
+func (o *PcloudSystempoolsGetNotFound) GetPayload() *models.Error {
+	return o.Payload
+}
+
+func (o *PcloudSystempoolsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.Error)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 
@@ -113,7 +419,8 @@ func NewPcloudSystempoolsGetInternalServerError() *PcloudSystempoolsGetInternalS
 	return &PcloudSystempoolsGetInternalServerError{}
 }
 
-/* PcloudSystempoolsGetInternalServerError describes a response with status code 500, with default header values.
+/*
+PcloudSystempoolsGetInternalServerError describes a response with status code 500, with default header values.
 
 Internal Server Error
 */
@@ -121,9 +428,46 @@ type PcloudSystempoolsGetInternalServerError struct {
 	Payload *models.Error
 }
 
-func (o *PcloudSystempoolsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetInternalServerError  %+v", 500, o.Payload)
+// IsSuccess returns true when this pcloud systempools get internal server error response has a 2xx status code
+func (o *PcloudSystempoolsGetInternalServerError) IsSuccess() bool {
+	return false
 }
+
+// IsRedirect returns true when this pcloud systempools get internal server error response has a 3xx status code
+func (o *PcloudSystempoolsGetInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this pcloud systempools get internal server error response has a 4xx status code
+func (o *PcloudSystempoolsGetInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this pcloud systempools get internal server error response has a 5xx status code
+func (o *PcloudSystempoolsGetInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this pcloud systempools get internal server error response a status code equal to that given
+func (o *PcloudSystempoolsGetInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the pcloud systempools get internal server error response
+func (o *PcloudSystempoolsGetInternalServerError) Code() int {
+	return 500
+}
+
+func (o *PcloudSystempoolsGetInternalServerError) Error() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetInternalServerError %s", 500, payload)
+}
+
+func (o *PcloudSystempoolsGetInternalServerError) String() string {
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /pcloud/v1/cloud-instances/{cloud_instance_id}/system-pools][%d] pcloudSystempoolsGetInternalServerError %s", 500, payload)
+}
+
 func (o *PcloudSystempoolsGetInternalServerError) GetPayload() *models.Error {
 	return o.Payload
 }
@@ -133,7 +477,7 @@ func (o *PcloudSystempoolsGetInternalServerError) readResponse(response runtime.
 	o.Payload = new(models.Error)
 
 	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && !stderrors.Is(err, io.EOF) {
 		return err
 	}
 

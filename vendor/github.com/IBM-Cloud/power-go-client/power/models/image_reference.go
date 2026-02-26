@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -23,6 +24,9 @@ type ImageReference struct {
 	// Required: true
 	// Format: date-time
 	CreationDate *strfmt.DateTime `json:"creationDate"`
+
+	// crn
+	Crn CRN `json:"crn,omitempty"`
 
 	// Description
 	// Required: true
@@ -67,6 +71,10 @@ func (m *ImageReference) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCreationDate(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateCrn(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -119,6 +127,27 @@ func (m *ImageReference) validateCreationDate(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("creationDate", "body", "date-time", m.CreationDate.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ImageReference) validateCrn(formats strfmt.Registry) error {
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("crn")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("crn")
+		}
+
 		return err
 	}
 
@@ -182,11 +211,15 @@ func (m *ImageReference) validateSpecifications(formats strfmt.Registry) error {
 
 	if m.Specifications != nil {
 		if err := m.Specifications.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("specifications")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("specifications")
 			}
+
 			return err
 		}
 	}
@@ -225,6 +258,10 @@ func (m *ImageReference) validateStorageType(formats strfmt.Registry) error {
 func (m *ImageReference) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateCrn(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateSpecifications(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -235,15 +272,42 @@ func (m *ImageReference) ContextValidate(ctx context.Context, formats strfmt.Reg
 	return nil
 }
 
+func (m *ImageReference) contextValidateCrn(ctx context.Context, formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Crn) { // not required
+		return nil
+	}
+
+	if err := m.Crn.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("crn")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("crn")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 func (m *ImageReference) contextValidateSpecifications(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Specifications != nil {
+
 		if err := m.Specifications.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("specifications")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("specifications")
 			}
+
 			return err
 		}
 	}

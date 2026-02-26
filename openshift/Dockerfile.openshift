@@ -1,19 +1,19 @@
-FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.24-openshift-4.22 AS builder
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.24-openshift-4.20 AS builder
 
 WORKDIR /build
 COPY . .
 RUN GO111MODULE=on CGO_ENABLED=0 GOOS=${GOOS} GOPROXY=${GOPROXY} go build \
   -ldflags="-w -s -X 'main.version=${VERSION}'" \
-  -o=manager \
+  -o=cluster-api-provider-ibmcloud-controller-manager \
   main.go
 
-FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
+FROM registry.ci.openshift.org/ocp/4.20:base-rhel9
 
 LABEL description="Cluster API Provider IBM Cloud Controller Manager"
 
 COPY --from=builder /build/manager /manager
 COPY openshift/capi-operator-manifests /capi-operator-manifests
 
-ENTRYPOINT [ "/manager" ]
+ENTRYPOINT [ "/bin/cluster-api-provider-ibmcloud-controller-manager" ]
 
 LABEL io.openshift.release.operator true

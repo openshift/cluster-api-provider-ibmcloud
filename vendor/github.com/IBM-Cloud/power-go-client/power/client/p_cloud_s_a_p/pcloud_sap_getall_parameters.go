@@ -52,10 +52,12 @@ func NewPcloudSapGetallParamsWithHTTPClient(client *http.Client) *PcloudSapGetal
 	}
 }
 
-/* PcloudSapGetallParams contains all the parameters to send to the API endpoint
-   for the pcloud sap getall operation.
+/*
+PcloudSapGetallParams contains all the parameters to send to the API endpoint
 
-   Typically these are written to a http.Request.
+	for the pcloud sap getall operation.
+
+	Typically these are written to a http.Request.
 */
 type PcloudSapGetallParams struct {
 
@@ -64,6 +66,18 @@ type PcloudSapGetallParams struct {
 	   Cloud Instance ID of a PCloud Instance
 	*/
 	CloudInstanceID string
+
+	/* ProfileFamily.
+
+	   SAP profile family to filter by
+	*/
+	ProfileFamily *string
+
+	/* ProfilePrefix.
+
+	   SAP profile prefix to filter by
+	*/
+	ProfilePrefix *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -129,6 +143,28 @@ func (o *PcloudSapGetallParams) SetCloudInstanceID(cloudInstanceID string) {
 	o.CloudInstanceID = cloudInstanceID
 }
 
+// WithProfileFamily adds the profileFamily to the pcloud sap getall params
+func (o *PcloudSapGetallParams) WithProfileFamily(profileFamily *string) *PcloudSapGetallParams {
+	o.SetProfileFamily(profileFamily)
+	return o
+}
+
+// SetProfileFamily adds the profileFamily to the pcloud sap getall params
+func (o *PcloudSapGetallParams) SetProfileFamily(profileFamily *string) {
+	o.ProfileFamily = profileFamily
+}
+
+// WithProfilePrefix adds the profilePrefix to the pcloud sap getall params
+func (o *PcloudSapGetallParams) WithProfilePrefix(profilePrefix *string) *PcloudSapGetallParams {
+	o.SetProfilePrefix(profilePrefix)
+	return o
+}
+
+// SetProfilePrefix adds the profilePrefix to the pcloud sap getall params
+func (o *PcloudSapGetallParams) SetProfilePrefix(profilePrefix *string) {
+	o.ProfilePrefix = profilePrefix
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *PcloudSapGetallParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -140,6 +176,40 @@ func (o *PcloudSapGetallParams) WriteToRequest(r runtime.ClientRequest, reg strf
 	// path param cloud_instance_id
 	if err := r.SetPathParam("cloud_instance_id", o.CloudInstanceID); err != nil {
 		return err
+	}
+
+	if o.ProfileFamily != nil {
+
+		// query param profile_family
+		var qrProfileFamily string
+
+		if o.ProfileFamily != nil {
+			qrProfileFamily = *o.ProfileFamily
+		}
+		qProfileFamily := qrProfileFamily
+		if qProfileFamily != "" {
+
+			if err := r.SetQueryParam("profile_family", qProfileFamily); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.ProfilePrefix != nil {
+
+		// query param profile_prefix
+		var qrProfilePrefix string
+
+		if o.ProfilePrefix != nil {
+			qrProfilePrefix = *o.ProfilePrefix
+		}
+		qProfilePrefix := qrProfilePrefix
+		if qProfilePrefix != "" {
+
+			if err := r.SetQueryParam("profile_prefix", qProfilePrefix); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

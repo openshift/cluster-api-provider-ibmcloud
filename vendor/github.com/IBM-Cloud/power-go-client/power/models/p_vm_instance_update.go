@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -19,6 +20,9 @@ import (
 //
 // swagger:model PVMInstanceUpdate
 type PVMInstanceUpdate struct {
+
+	// Cloud Initialization Volume operations
+	CloudInitialization *CloudInitialization `json:"cloudInitialization,omitempty"`
 
 	// The VTL license repository capacity TB value
 	LicenseRepositoryCapacity int64 `json:"licenseRepositoryCapacity,omitempty"`
@@ -32,8 +36,11 @@ type PVMInstanceUpdate struct {
 	// pin policy
 	PinPolicy PinPolicy `json:"pinPolicy,omitempty"`
 
+	// Preferred processor compatibility mode
+	PreferredProcessorCompatibilityMode string `json:"preferredProcessorCompatibilityMode,omitempty"`
+
 	// Processor type (dedicated, shared, capped)
-	// Enum: [dedicated shared capped]
+	// Enum: ["dedicated","shared","capped"]
 	ProcType string `json:"procType,omitempty"`
 
 	// Number of processors allocated
@@ -59,6 +66,10 @@ type PVMInstanceUpdate struct {
 func (m *PVMInstanceUpdate) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateCloudInitialization(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validatePinPolicy(formats); err != nil {
 		res = append(res, err)
 	}
@@ -81,24 +92,51 @@ func (m *PVMInstanceUpdate) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *PVMInstanceUpdate) validateCloudInitialization(formats strfmt.Registry) error {
+	if swag.IsZero(m.CloudInitialization) { // not required
+		return nil
+	}
+
+	if m.CloudInitialization != nil {
+		if err := m.CloudInitialization.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("cloudInitialization")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("cloudInitialization")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *PVMInstanceUpdate) validatePinPolicy(formats strfmt.Registry) error {
 	if swag.IsZero(m.PinPolicy) { // not required
 		return nil
 	}
 
 	if err := m.PinPolicy.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
 			return ve.ValidateName("pinPolicy")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
 			return ce.ValidateName("pinPolicy")
 		}
+
 		return err
 	}
 
 	return nil
 }
 
-var pVmInstanceUpdateTypeProcTypePropEnum []interface{}
+var pVmInstanceUpdateTypeProcTypePropEnum []any
 
 func init() {
 	var res []string
@@ -150,11 +188,15 @@ func (m *PVMInstanceUpdate) validateSoftwareLicenses(formats strfmt.Registry) er
 
 	if m.SoftwareLicenses != nil {
 		if err := m.SoftwareLicenses.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("softwareLicenses")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("softwareLicenses")
 			}
+
 			return err
 		}
 	}
@@ -169,11 +211,15 @@ func (m *PVMInstanceUpdate) validateVirtualCores(formats strfmt.Registry) error 
 
 	if m.VirtualCores != nil {
 		if err := m.VirtualCores.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("virtualCores")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("virtualCores")
 			}
+
 			return err
 		}
 	}
@@ -184,6 +230,10 @@ func (m *PVMInstanceUpdate) validateVirtualCores(formats strfmt.Registry) error 
 // ContextValidate validate this p VM instance update based on the context it is used
 func (m *PVMInstanceUpdate) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.contextValidateCloudInitialization(ctx, formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.contextValidatePinPolicy(ctx, formats); err != nil {
 		res = append(res, err)
@@ -203,14 +253,47 @@ func (m *PVMInstanceUpdate) ContextValidate(ctx context.Context, formats strfmt.
 	return nil
 }
 
+func (m *PVMInstanceUpdate) contextValidateCloudInitialization(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.CloudInitialization != nil {
+
+		if swag.IsZero(m.CloudInitialization) { // not required
+			return nil
+		}
+
+		if err := m.CloudInitialization.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("cloudInitialization")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("cloudInitialization")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *PVMInstanceUpdate) contextValidatePinPolicy(ctx context.Context, formats strfmt.Registry) error {
 
+	if swag.IsZero(m.PinPolicy) { // not required
+		return nil
+	}
+
 	if err := m.PinPolicy.ContextValidate(ctx, formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
 			return ve.ValidateName("pinPolicy")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
 			return ce.ValidateName("pinPolicy")
 		}
+
 		return err
 	}
 
@@ -220,12 +303,21 @@ func (m *PVMInstanceUpdate) contextValidatePinPolicy(ctx context.Context, format
 func (m *PVMInstanceUpdate) contextValidateSoftwareLicenses(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.SoftwareLicenses != nil {
+
+		if swag.IsZero(m.SoftwareLicenses) { // not required
+			return nil
+		}
+
 		if err := m.SoftwareLicenses.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("softwareLicenses")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("softwareLicenses")
 			}
+
 			return err
 		}
 	}
@@ -236,12 +328,21 @@ func (m *PVMInstanceUpdate) contextValidateSoftwareLicenses(ctx context.Context,
 func (m *PVMInstanceUpdate) contextValidateVirtualCores(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.VirtualCores != nil {
+
+		if swag.IsZero(m.VirtualCores) { // not required
+			return nil
+		}
+
 		if err := m.VirtualCores.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("virtualCores")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("virtualCores")
 			}
+
 			return err
 		}
 	}

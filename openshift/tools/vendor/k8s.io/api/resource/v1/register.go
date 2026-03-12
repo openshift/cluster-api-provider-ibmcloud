@@ -44,10 +44,14 @@ var (
 // Adds the list of known types to the given scheme.
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
-		&IPAddress{},
-		&IPAddressList{},
-		&ServiceCIDR{},
-		&ServiceCIDRList{},
+		&DeviceClass{},
+		&DeviceClassList{},
+		&ResourceClaim{},
+		&ResourceClaimList{},
+		&ResourceClaimTemplate{},
+		&ResourceClaimTemplateList{},
+		&ResourceSlice{},
+		&ResourceSliceList{},
 	)
 
 	// Add the watch version that applies

@@ -13,14 +13,14 @@
 # limitations under the License.
 
 # Go
-GO_VERSION ?=1.24.6
+GO_VERSION ?=1.24.13
 GO_CONTAINER_IMAGE ?= golang:$(GO_VERSION)
 
 REGISTRY=gcr.io/k8s-staging-capi-ibmcloud
 IMG=powervs-cloud-controller-manager
 
 # POWERVS_CLOUD_CONTROLLER_COMMIT can be fetched from here https://github.com/openshift/cloud-provider-powervs/commits/main
-POWERVS_CLOUD_CONTROLLER_COMMIT?=2424e8d
+POWERVS_CLOUD_CONTROLLER_COMMIT?=5ea9317
 TAG?=$(POWERVS_CLOUD_CONTROLLER_COMMIT)
 
 build-image: init-buildx gcloud-auth

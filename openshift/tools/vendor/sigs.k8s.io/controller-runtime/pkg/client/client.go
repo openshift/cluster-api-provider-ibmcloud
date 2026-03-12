@@ -90,16 +90,6 @@ type CacheOptions struct {
 type NewClientFunc func(config *rest.Config, options Options) (Client, error)
 
 // New returns a new Client using the provided config and Options.
-// The returned client reads *and* writes directly from the server
-// (it doesn't use object caches).  It understands how to work with
-// normal types (both custom resources and aggregated/built-in resources),
-// as well as unstructured types.
-//
-// By default, the client surfaces warnings returned by the server. To
-// suppress warnings, set config.WarningHandlerWithContext = rest.NoWarnings{}. To
-// define custom behavior, implement the rest.WarningHandlerWithContext interface.
-// See [sigs.k8s.io/controller-runtime/pkg/log.KubeAPIWarningLogger] for
-// an example.
 //
 // The client's read behavior is determined by Options.Cache.
 // If either Options.Cache or Options.Cache.Reader is nil,
@@ -134,13 +124,15 @@ func newClient(config *rest.Config, options Options) (*client, error) {
 		config.UserAgent = rest.DefaultKubernetesUserAgent()
 	}
 
-	if config.WarningHandler == nil && config.WarningHandlerWithContext == nil {
-		// By default, we surface warnings.
-		config.WarningHandlerWithContext = log.NewKubeAPIWarningLogger(
-			log.KubeAPIWarningLoggerOptions{
-				Deduplicate: !options.WarningHandler.AllowDuplicateLogs,
-			},
-		)
+	// By default, we de-duplicate and surface warnings.
+	config.WarningHandler = log.NewKubeAPIWarningLogger(
+		log.Log.WithName("KubeAPIWarningLogger"),
+		log.KubeAPIWarningLoggerOptions{
+			Deduplicate: !options.WarningHandler.AllowDuplicateLogs,
+		},
+	)
+	if options.WarningHandler.SuppressWarnings {
+		config.WarningHandler = rest.NoWarnings{}
 	}
 
 	// Use the rest HTTP client for the provided config if unset
@@ -220,7 +212,8 @@ func newClient(config *rest.Config, options Options) (*client, error) {
 
 var _ Client = &client{}
 
-// client is a client.Client that reads and writes directly from/to an API server.
+// client is a client.Client configured to either read from a local cache or directly from the API server.
+// Write operations are always performed directly on the API server.
 // It lazily initializes new clients at the time they are used.
 type client struct {
 	typedClient        typedClient
@@ -535,8 +528,8 @@ func (co *SubResourceCreateOptions) ApplyOptions(opts []SubResourceCreateOption)
 	return co
 }
 
-// ApplyToSubresourceCreate applies the the configuration on the given create options.
-func (co *SubResourceCreateOptions) ApplyToSubresourceCreate(o *SubResourceCreateOptions) {
+// ApplyToSubResourceCreate applies the the configuration on the given create options.
+func (co *SubResourceCreateOptions) ApplyToSubResourceCreate(o *SubResourceCreateOptions) {
 	co.CreateOptions.ApplyToCreate(&co.CreateOptions)
 }
 

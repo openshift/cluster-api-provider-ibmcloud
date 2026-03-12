@@ -441,7 +441,7 @@ func (ws *priorityWriteSchedulerRFC7540) addClosedOrIdleNode(list *[]*priorityNo
 	*list = append(*list, n)
 }
 
-func (ws *priorityWriteSchedulerRFC7540) removeNode(n *priorityNodeRFC7540) {
+func (ws *priorityWriteScheduler) removeNode(n *priorityNode) {
 	for n.kids != nil {
 		n.kids.setParent(n.parent)
 	}

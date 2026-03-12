@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	certmangerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
-	configv1 "github.com/openshift/api/config/v1"
 	admissionregistration "k8s.io/api/admissionregistration/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,22 +17,13 @@ import (
 )
 
 var (
-	allowedPlatformTypes = []string{
-		string(configv1.AWSPlatformType),
-		string(configv1.AzurePlatformType),
-		string(configv1.BareMetalPlatformType),
-		string(configv1.EquinixMetalPlatformType),
-		string(configv1.ExternalPlatformType),
-		string(configv1.GCPPlatformType),
-		string(configv1.IBMCloudPlatformType),
-		string(configv1.KubevirtPlatformType),
-		string(configv1.LibvirtPlatformType),
-		string(configv1.NonePlatformType),
-		string(configv1.NutanixPlatformType),
-		string(configv1.OpenStackPlatformType),
-		string(configv1.PowerVSPlatformType),
-		string(configv1.VSpherePlatformType),
-	}
+	basePath        = flag.String("base-path", "", "path to the root of the provider's repository")
+	manifestsPath   = flag.String("manifests-path", "", "path to the desired directory where to output the generated manifests")
+	kustomizeDir    = flag.String("kustomize-dir", defaultKustomizeComponentsPath, "directory to search for kustomization.yaml file, relative to the base-path")
+	providerName    = flag.String("provider-name", "", "name of the provider")
+	providerType    = flag.String("provider-type", "", "type of the provider")
+	providerVersion = flag.String("provider-version", "", "version of the provider")
+	projDir         string
 
 	scheme = runtime.NewScheme()
 )

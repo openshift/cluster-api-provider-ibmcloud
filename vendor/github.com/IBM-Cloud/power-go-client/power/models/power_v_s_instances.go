@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -52,11 +53,15 @@ func (m *PowerVSInstances) validatePowerVsInstances(formats strfmt.Registry) err
 
 		if m.PowerVsInstances[i] != nil {
 			if err := m.PowerVsInstances[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("powerVsInstances" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("powerVsInstances" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}
@@ -85,12 +90,21 @@ func (m *PowerVSInstances) contextValidatePowerVsInstances(ctx context.Context, 
 	for i := 0; i < len(m.PowerVsInstances); i++ {
 
 		if m.PowerVsInstances[i] != nil {
+
+			if swag.IsZero(m.PowerVsInstances[i]) { // not required
+				return nil
+			}
+
 			if err := m.PowerVsInstances[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
 					return ve.ValidateName("powerVsInstances" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
 					return ce.ValidateName("powerVsInstances" + "." + strconv.Itoa(i))
 				}
+
 				return err
 			}
 		}

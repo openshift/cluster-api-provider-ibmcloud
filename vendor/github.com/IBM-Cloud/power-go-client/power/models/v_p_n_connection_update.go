@@ -8,6 +8,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -16,7 +17,7 @@ import (
 
 // VPNConnectionUpdate VPN Connection object to send during the update
 //
-// Min Properties: 1
+// MinProperties: 1
 //
 // swagger:model VPNConnectionUpdate
 type VPNConnectionUpdate struct {
@@ -38,7 +39,7 @@ type VPNConnectionUpdate struct {
 	PeerGatewayAddress PeerGatewayAddress `json:"peerGatewayAddress,omitempty"`
 
 	// v p n connection update additional properties
-	VPNConnectionUpdateAdditionalProperties map[string]interface{} `json:"-"`
+	VPNConnectionUpdateAdditionalProperties map[string]any `json:"-"`
 }
 
 // UnmarshalJSON unmarshals this object with additional properties from JSON
@@ -85,9 +86,9 @@ func (m *VPNConnectionUpdate) UnmarshalJSON(data []byte) error {
 	delete(stage2, "peerGatewayAddress")
 	// stage 3, add additional properties values
 	if len(stage2) > 0 {
-		result := make(map[string]interface{})
+		result := make(map[string]any)
 		for k, v := range stage2 {
-			var toadd interface{}
+			var toadd any
 			if err := json.Unmarshal(v, &toadd); err != nil {
 				return err
 			}
@@ -191,11 +192,15 @@ func (m *VPNConnectionUpdate) validatePeerGatewayAddress(formats strfmt.Registry
 	}
 
 	if err := m.PeerGatewayAddress.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
 			return ve.ValidateName("peerGatewayAddress")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
 			return ce.ValidateName("peerGatewayAddress")
 		}
+
 		return err
 	}
 
@@ -218,12 +223,20 @@ func (m *VPNConnectionUpdate) ContextValidate(ctx context.Context, formats strfm
 
 func (m *VPNConnectionUpdate) contextValidatePeerGatewayAddress(ctx context.Context, formats strfmt.Registry) error {
 
+	if swag.IsZero(m.PeerGatewayAddress) { // not required
+		return nil
+	}
+
 	if err := m.PeerGatewayAddress.ContextValidate(ctx, formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
 			return ve.ValidateName("peerGatewayAddress")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
 			return ce.ValidateName("peerGatewayAddress")
 		}
+
 		return err
 	}
 

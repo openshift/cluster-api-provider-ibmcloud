@@ -7,6 +7,7 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -69,11 +70,15 @@ func (m *ServiceBindingRequest) validateBindResource(formats strfmt.Registry) er
 
 	if m.BindResource != nil {
 		if err := m.BindResource.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("bind_resource")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("bind_resource")
 			}
+
 			return err
 		}
 	}
@@ -116,12 +121,21 @@ func (m *ServiceBindingRequest) ContextValidate(ctx context.Context, formats str
 func (m *ServiceBindingRequest) contextValidateBindResource(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.BindResource != nil {
+
+		if swag.IsZero(m.BindResource) { // not required
+			return nil
+		}
+
 		if err := m.BindResource.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
 				return ve.ValidateName("bind_resource")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
 				return ce.ValidateName("bind_resource")
 			}
+
 			return err
 		}
 	}

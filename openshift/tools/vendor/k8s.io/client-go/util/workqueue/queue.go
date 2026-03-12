@@ -223,10 +223,9 @@ func (q *Type) Done(item interface{}) {
 	}
 }
 
-// ShutDown will cause q to ignore all new items added to it. Worker
-// goroutines will continue processing items in the queue until it is
-// empty and then receive the shutdown signal.
-func (q *Typed[T]) ShutDown() {
+// ShutDown will cause q to ignore all new items added to it and
+// immediately instruct the worker goroutines to exit.
+func (q *Type) ShutDown() {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
@@ -235,13 +234,16 @@ func (q *Typed[T]) ShutDown() {
 	q.cond.Broadcast()
 }
 
-// ShutDownWithDrain is equivalent to ShutDown but waits until all items
-// in the queue have been processed.
-// ShutDown can be called after ShutDownWithDrain to force
-// ShutDownWithDrain to stop waiting.
-// Workers must call Done on an item after processing it, otherwise
-// ShutDownWithDrain will block indefinitely.
-func (q *Typed[T]) ShutDownWithDrain() {
+// ShutDownWithDrain will cause q to ignore all new items added to it. As soon
+// as the worker goroutines have "drained", i.e: finished processing and called
+// Done on all existing items in the queue; they will be instructed to exit and
+// ShutDownWithDrain will return. Hence: a strict requirement for using this is;
+// your workers must ensure that Done is called on all items in the queue once
+// the shut down has been initiated, if that is not the case: this will block
+// indefinitely. It is, however, safe to call ShutDown after having called
+// ShutDownWithDrain, as to force the queue shut down to terminate immediately
+// without waiting for the drainage.
+func (q *Type) ShutDownWithDrain() {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
@@ -249,51 +251,9 @@ func (q *Typed[T]) ShutDownWithDrain() {
 	q.shuttingDown = true
 	q.cond.Broadcast()
 
-	for q.processing.Len() != 0 && q.drain {
+	for q.processing.len() != 0 && q.drain {
 		q.cond.Wait()
 	}
-}
-
-// isProcessing indicates if there are still items on the work queue being
-// processed. It's used to drain the work queue on an eventual shutdown.
-func (q *Type) isProcessing() bool {
-	q.cond.L.Lock()
-	defer q.cond.L.Unlock()
-	return q.processing.len() != 0
-}
-
-// waitForProcessing waits for the worker goroutines to finish processing items
-// and call Done on them.
-func (q *Type) waitForProcessing() {
-	q.cond.L.Lock()
-	defer q.cond.L.Unlock()
-	// Ensure that we do not wait on a queue which is already empty, as that
-	// could result in waiting for Done to be called on items in an empty queue
-	// which has already been shut down, which will result in waiting
-	// indefinitely.
-	if q.processing.len() == 0 {
-		return
-	}
-	q.cond.Wait()
-}
-
-func (q *Type) setDrain(shouldDrain bool) {
-	q.cond.L.Lock()
-	defer q.cond.L.Unlock()
-	q.drain = shouldDrain
-}
-
-func (q *Type) shouldDrain() bool {
-	q.cond.L.Lock()
-	defer q.cond.L.Unlock()
-	return q.drain
-}
-
-func (q *Type) shutdown() {
-	q.cond.L.Lock()
-	defer q.cond.L.Unlock()
-	q.shuttingDown = true
-	q.cond.Broadcast()
 }
 
 func (q *Type) ShuttingDown() bool {

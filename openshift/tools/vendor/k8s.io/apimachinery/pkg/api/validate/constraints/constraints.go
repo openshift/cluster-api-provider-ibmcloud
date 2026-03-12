@@ -26,7 +26,8 @@ type Unsigned interface {
 	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr
 }
 
-// Integer is a constraint that permits any integer type.
-type Integer interface {
-	Signed | Unsigned
-}
+type ValidatingAdmissionPolicyExpansion interface{}
+
+type ValidatingAdmissionPolicyBindingExpansion interface{}
+
+type ValidatingWebhookConfigurationExpansion interface{}

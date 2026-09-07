@@ -29,7 +29,7 @@ require (
 	github.com/spf13/pflag v1.0.6-0.20210604193023-d5e0c0615ace
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/mock v0.4.0
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.33.0
 	golang.org/x/net v0.33.0
 	golang.org/x/text v0.22.0
 	k8s.io/api v0.29.3
@@ -187,3 +187,5 @@ require (
 	sigs.k8s.io/kind v0.22.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 )
+
+replace golang.org/x/net => github.com/openshift-sustaining/net v0.35.0-sec.4

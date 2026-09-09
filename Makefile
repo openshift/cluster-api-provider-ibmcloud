@@ -62,6 +62,18 @@ PULL_POLICY ?= Always
 
 KUBEBUILDER_ENVTEST_KUBERNETES_VERSION ?= 1.24.1
 
+# envtest assets are published as GitHub releases of kubernetes-sigs/controller-tools.
+# They are fetched directly so that no additional tooling has to be compiled here.
+ENVTEST_DIR := $(abspath $(TOOLS_BIN_DIR)/envtest-$(KUBEBUILDER_ENVTEST_KUBERNETES_VERSION))
+ENVTEST_GOOS := $(shell go env GOOS)
+ifeq ($(ENVTEST_GOOS),darwin)
+ENVTEST_GOARCH := amd64
+else
+ENVTEST_GOARCH := $(shell go env GOARCH)
+endif
+ENVTEST_URL := https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-v$(KUBEBUILDER_ENVTEST_KUBERNETES_VERSION)/envtest-v$(KUBEBUILDER_ENVTEST_KUBERNETES_VERSION)-$(ENVTEST_GOOS)-$(ENVTEST_GOARCH).tar.gz
+KUBEBUILDER_ASSETS ?= $(ENVTEST_DIR)
+
 # main controller
 CORE_IMAGE_NAME ?= cluster-api-ibmcloud-controller
 CORE_CONTROLLER_IMG ?= $(REGISTRY)/$(CORE_IMAGE_NAME)
@@ -185,14 +197,18 @@ endif
 ##@ test:
 
 .PHONY: setup-envtest
-setup-envtest: $(SETUP_ENVTEST) # Build setup-envtest from tools folder
-	@if [ $(shell go env GOOS) == "darwin" ]; then \
-		$(eval KUBEBUILDER_ASSETS := $(shell $(SETUP_ENVTEST) use --use-env -p path --arch amd64 $(KUBEBUILDER_ENVTEST_KUBERNETES_VERSION))) \
-		echo "kube-builder assets set using darwin OS"; \
+setup-envtest: ## Ensure the envtest control-plane binaries are available
+	@if [ "$(KUBEBUILDER_ASSETS)" != "$(ENVTEST_DIR)" ]; then \
+		echo "using KUBEBUILDER_ASSETS from the environment: $(KUBEBUILDER_ASSETS)"; \
+	elif [ -x "$(ENVTEST_DIR)/kube-apiserver" ]; then \
+		echo "envtest assets already present at $(ENVTEST_DIR)"; \
 	else \
-		$(eval KUBEBUILDER_ASSETS := $(shell $(SETUP_ENVTEST) use --use-env -p path $(KUBEBUILDER_ENVTEST_KUBERNETES_VERSION))) \
-		echo "kube-builder assets set using other OS"; \
+		echo "downloading envtest assets from $(ENVTEST_URL)"; \
+		mkdir -p "$(ENVTEST_DIR)"; \
+		curl -fsSL "$(ENVTEST_URL)" | tar -xz -C "$(ENVTEST_DIR)" --strip-components=2; \
 	fi
+	@test -x "$(KUBEBUILDER_ASSETS)/kube-apiserver" || { \
+		echo "ERROR: kube-apiserver not found under $(KUBEBUILDER_ASSETS)"; exit 1; }
 
 # Run unit tests
 test: generate fmt vet manifests setup-envtest $(GOTESTSUM) ## Run tests

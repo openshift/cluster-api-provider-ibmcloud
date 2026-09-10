@@ -10,7 +10,6 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 	"sigs.k8s.io/kustomize/kyaml/errors"
 	"sigs.k8s.io/kustomize/kyaml/sets"
-	yaml "sigs.k8s.io/yaml/goyaml.v3"
 )
 
 // CopyYNode returns a distinct copy of its argument.

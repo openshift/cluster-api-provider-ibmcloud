@@ -18,10 +18,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
-	"golang.org/x/exp/typeparams"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
@@ -73,6 +73,11 @@ type Checker struct {
 	// to typecheck properly, as they're required to implement interfaces.
 	typesImplementing map[*types.Named][]string
 
+	// linknamed records the funcs with a go:linkname directive in their
+	// doc comment, keyed by the position of the func's name, as their
+	// signatures cannot change.
+	linknamed map[token.Pos]bool
+
 	// localCallSites is a very simple form of a callgraph, only recording
 	// direct function calls within a single package.
 	localCallSites map[*ssa.Function][]ssa.CallInstruction
@@ -100,6 +105,9 @@ func (c *Checker) lines(args ...string) ([]string, error) {
 	if packages.PrintErrors(pkgs) > 0 {
 		return nil, fmt.Errorf("encountered errors")
 	}
+	if len(pkgs) == 0 {
+		return nil, fmt.Errorf("no packages to check")
+	}
 
 	prog, _ := ssautil.Packages(pkgs, 0)
 	prog.Build()
@@ -113,7 +121,7 @@ func (c *Checker) lines(args ...string) ([]string, error) {
 	prevLine := ""
 	for _, issue := range issues {
 		fpos := prog.Fset.Position(issue.Pos()).String()
-		if strings.HasPrefix(fpos, c.wd) {
+		if strings.HasPrefix(fpos, c.wd+string(filepath.Separator)) {
 			fpos = fpos[len(c.wd)+1:]
 		}
 		line := fmt.Sprintf("%s: %s", fpos, issue.Message())
@@ -139,7 +147,7 @@ type Issue struct {
 func (i Issue) Pos() token.Pos  { return i.pos }
 func (i Issue) Message() string { return i.fname + " - " + i.msg }
 
-// Program supplies Checker with the needed *loader.Program.
+// Packages supplies Checker with the loaded packages.
 func (c *Checker) Packages(pkgs []*packages.Package) {
 	c.pkgs = pkgs
 }
@@ -154,7 +162,7 @@ func (c *Checker) CheckExportedFuncs(exported bool) {
 	c.exported = exported
 }
 
-func (c *Checker) debug(format string, a ...interface{}) {
+func (c *Checker) debug(format string, a ...any) {
 	if c.debugLog != nil {
 		fmt.Fprintf(c.debugLog, format, a...)
 	}
@@ -167,12 +175,25 @@ func generatedDoc(text string) bool {
 		strings.Contains(text, "DO NOT EDIT")
 }
 
+// linknameDoc reports whether a doc comment contains a go:linkname directive.
+func linknameDoc(doc *ast.CommentGroup) bool {
+	if doc == nil {
+		return false
+	}
+	for _, comment := range doc.List {
+		if strings.HasPrefix(comment.Text, "//go:linkname ") {
+			return true
+		}
+	}
+	return false
+}
+
 // eqlConsts reports whether two constant values, possibly nil, are equal.
 func eqlConsts(c1, c2 *ssa.Const) bool {
 	if c1 == nil || c2 == nil {
 		return c1 == c2
 	}
-	if c1.Type() != c2.Type() {
+	if !types.Identical(c1.Type(), c2.Type()) {
 		return false
 	}
 	if c1.Value == nil || c2.Value == nil {
@@ -190,6 +211,7 @@ func (c *Checker) Check() ([]Issue, error) {
 	c.callByPos = make(map[token.Pos]*ast.CallExpr)
 	c.funcBodyByPos = make(map[token.Pos]*ast.BlockStmt)
 	c.typesImplementing = make(map[*types.Named][]string)
+	c.linknamed = make(map[token.Pos]bool)
 
 	wantPkg := make(map[*types.Package]*packages.Package)
 	genFiles := make(map[string]bool)
@@ -221,6 +243,9 @@ func (c *Checker) Check() ([]Issue, error) {
 				// FuncDecl.Name.
 				case *ast.FuncDecl:
 					c.funcBodyByPos[node.Name.Pos()] = node.Body
+					if linknameDoc(node.Doc) {
+						c.linknamed[node.Name.Pos()] = true
+					}
 				case *ast.FuncLit:
 					c.funcBodyByPos[node.Pos()] = node.Body
 				}
@@ -229,6 +254,30 @@ func (c *Checker) Check() ([]Issue, error) {
 		}
 	}
 	allFuncs := ssautil.AllFunctions(c.prog)
+
+	// ssautil.AllFunctions skips methods of unexported types unless they
+	// are reachable via an interface or an exported type, so we could miss
+	// call sites or entire functions to check. Add all the source-level
+	// funcs and methods from the loaded packages ourselves.
+	// We still want ssautil.AllFunctions for the synthetic wrappers it
+	// finds, such as those for promoted methods called via an interface,
+	// as their bodies record call sites too.
+	var addSrcFunc func(fn *ssa.Function)
+	addSrcFunc = func(fn *ssa.Function) {
+		allFuncs[fn] = true
+		for _, anon := range fn.AnonFuncs {
+			addSrcFunc(anon)
+		}
+	}
+	for _, pkg := range c.pkgs {
+		for _, def := range pkg.TypesInfo.Defs {
+			if def, ok := def.(*types.Func); ok {
+				if fn := c.prog.FuncValue(def); fn != nil {
+					addSrcFunc(fn)
+				}
+			}
+		}
+	}
 
 	// map from *ssa.FreeVar to *ssa.Function, to find function literals
 	// behind closure vars in the simpler scenarios.
@@ -283,15 +332,14 @@ func (c *Checker) Check() ([]Issue, error) {
 						// fn(someFunc()) fixes params
 						c.paramsRequiredBy[fn] = "forwarded call"
 					}
-				}
-				switch instr := instr.(type) {
-				case *ssa.Call:
-					for _, arg := range instr.Call.Args {
+					for _, arg := range instr.Common().Args {
 						if fn := findFunction(freeVars, arg); fn != nil {
-							// someFunc(fn)
+							// someFunc(fn), also via go or defer
 							c.signRequiredBy[fn] = "call"
 						}
 					}
+				}
+				switch instr := instr.(type) {
 				case *ssa.Phi:
 					for _, val := range instr.Edges {
 						if fn := findFunction(freeVars, val); fn != nil {
@@ -300,13 +348,14 @@ func (c *Checker) Check() ([]Issue, error) {
 						}
 					}
 				case *ssa.Return:
-					for _, val := range instr.Results {
+					results := returnValues(instr)
+					for _, val := range results {
 						if fn := findFunction(freeVars, val); fn != nil {
 							// return fn
 							c.signRequiredBy[fn] = "result"
 						}
 					}
-					if call := callExtract(instr, instr.Results); call != nil {
+					if call := callExtract(instr, results); call != nil {
 						if fn := findFunction(freeVars, call.Call.Value); fn != nil {
 							// return fn()
 							c.resultsRequiredBy[fn] = "return"
@@ -329,6 +378,26 @@ func (c *Checker) Check() ([]Issue, error) {
 					}
 					if fn := findFunction(freeVars, instr.Val); fn != nil {
 						c.signRequiredBy[fn] = as
+					}
+				case *ssa.MapUpdate:
+					if fn := findFunction(freeVars, instr.Value); fn != nil {
+						// someMap[someKey] = fn
+						c.signRequiredBy[fn] = "map value"
+					}
+				case *ssa.Send:
+					if fn := findFunction(freeVars, instr.X); fn != nil {
+						// someChan <- fn
+						c.signRequiredBy[fn] = "channel send"
+					}
+				case *ssa.Select:
+					for _, state := range instr.States {
+						if state.Dir != types.SendOnly {
+							continue
+						}
+						if fn := findFunction(freeVars, state.Send); fn != nil {
+							// select { case someChan <- fn: }
+							c.signRequiredBy[fn] = "channel send"
+						}
 					}
 				case *ssa.MakeInterface:
 					// someIface(named)
@@ -388,23 +457,14 @@ func (c *Checker) Check() ([]Issue, error) {
 	return c.issues, nil
 }
 
-func stringsContains(list []string, elem string) bool {
-	for _, e := range list {
-		if e == elem {
-			return true
-		}
-	}
-	return false
-}
-
 func (c *Checker) addImplementing(named *types.Named, iface *types.Interface) {
 	if named == nil || iface == nil {
 		return
 	}
 	list := c.typesImplementing[named]
-	for i := 0; i < iface.NumMethods(); i++ {
-		name := iface.Method(i).Name()
-		if !stringsContains(list, name) {
+	for method := range iface.Methods() {
+		name := method.Name()
+		if !slices.Contains(list, name) {
 			list = append(list, name)
 		}
 	}
@@ -412,11 +472,13 @@ func (c *Checker) addImplementing(named *types.Named, iface *types.Interface) {
 }
 
 func findNamed(typ types.Type) *types.Named {
-	switch typ := typ.(type) {
+	switch typ := types.Unalias(typ).(type) {
 	case *types.Pointer:
 		return findNamed(typ.Elem())
 	case *types.Named:
-		return typ
+		// Use the generic origin, so that an instantiation like G[int]
+		// and the receiver type of G's methods map to the same key.
+		return typ.Origin()
 	}
 	return nil
 }
@@ -457,7 +519,7 @@ func findFunction(freeVars map[*ssa.FreeVar]*ssa.Function, value ssa.Value) *ssa
 }
 
 // addIssue records a newly found unused parameter.
-func (c *Checker) addIssue(fn *ssa.Function, pos token.Pos, format string, args ...interface{}) {
+func (c *Checker) addIssue(fn *ssa.Function, pos token.Pos, format string, args ...any) {
 	c.issues = append(c.issues, Issue{
 		pos:   pos,
 		fname: fn.RelString(fn.Package().Pkg),
@@ -484,9 +546,13 @@ func (c *Checker) checkFunc(fn *ssa.Function, pkg *packages.Package) {
 		c.debug("  skip - func signature required by %s\n", by)
 		return
 	}
+	if c.linknamed[fn.Pos()] {
+		c.debug("  skip - go:linkname directive\n")
+		return
+	}
 	if recv := fn.Signature.Recv(); recv != nil {
 		named := findNamed(recv.Type())
-		if stringsContains(c.typesImplementing[named], fn.Name()) {
+		if slices.Contains(c.typesImplementing[named], fn.Name()) {
 			c.debug("  skip - method required to implement an interface\n")
 			return
 		}
@@ -512,6 +578,8 @@ func (c *Checker) checkFunc(fn *ssa.Function, pkg *packages.Package) {
 		if !ok {
 			continue
 		}
+		// Note that we don't use returnValues here, as resolving loads
+		// could add reports rather than suppress them; see its doc.
 		for i, val := range ret.Results {
 			if _, ok := val.(*ssa.Extract); !ok {
 				allRetsExtracting = false
@@ -549,7 +617,7 @@ resLoop:
 			continue
 		}
 		res := results.At(i)
-		if res.Type() == errorType {
+		if types.Unalias(res.Type()) == errorType {
 			// "error is never used" is less useful, and it's up to
 			// tools like errcheck anyway.
 			continue
@@ -590,12 +658,13 @@ resLoop:
 			continue
 		}
 		c.debug("%s\n", par.String())
-		switch par.Object().Name() {
-		case "", "_": // unnamed
-			c.debug("  skip - unnamed\n")
+		if name := par.Object().Name(); name == "" || name[0] == '_' {
+			c.debug("  skip - no name or underscore name\n")
 			continue
 		}
-		if stdSizes.Sizeof(par.Type()) == 0 {
+		t := par.Type()
+		// asking for the size of a type param would panic, as it is unknowable
+		if !containsTypeParam(t) && stdSizes.Sizeof(t) == 0 {
 			c.debug("  skip - zero size\n")
 			continue
 		}
@@ -609,6 +678,28 @@ resLoop:
 		}
 		c.addIssue(fn, par.Pos(), "%s %s", par.Name(), reason)
 	}
+}
+
+// containsTypeParam reports whether computing the size of t requires knowing
+// the size of a type parameter. It only follows the types that [types.Sizes]
+// descends into; the rest have a fixed size.
+func containsTypeParam(t types.Type) bool {
+	switch t := types.Unalias(t).(type) {
+	case *types.TypeParam, *types.Union:
+		return true
+	case *types.Struct:
+		nf := t.NumFields()
+		for i := range nf {
+			if containsTypeParam(t.Field(i).Type()) {
+				return true
+			}
+		}
+	case *types.Array:
+		return containsTypeParam(t.Elem())
+	case *types.Named:
+		return containsTypeParam(t.Underlying())
+	}
+	return false
 }
 
 // nodeStr stringifies a syntax tree node. It is only meant for simple nodes,
@@ -878,22 +969,22 @@ func recvPrefix(recv *ast.FieldList) string {
 		}
 		expr = star.X
 	}
+
+	return identName(expr)
+}
+
+func identName(expr ast.Expr) string {
 	switch expr := expr.(type) {
 	case *ast.Ident:
 		return expr.Name + "."
+	case *ast.IndexExpr:
+		return identName(expr.X)
+	case *ast.ParenExpr:
+		return identName(expr.X)
+	case *ast.IndexListExpr:
+		return identName(expr.X)
 	default:
-		x, _, _, _ := typeparams.UnpackIndexExpr(expr)
-		if x == nil {
-			panic(fmt.Sprintf("unexepected receiver AST node: %T", expr))
-		}
-		return x.(*ast.Ident).Name + "."
-		// TODO: remove the use of x/exp/typeparams once we drop Go 1.17
-		// case *ast.IndexExpr:
-		// 	return expr.X.(*ast.Ident).Name + "."
-		// case *ast.IndexListExpr:
-		// 	return expr.X.(*ast.Ident).Name + "."
-		// default:
-		// 	panic(fmt.Sprintf("unexepected receiver AST node: %T", expr))
+		panic(fmt.Sprintf("unexpected receiver AST node: %T", expr))
 	}
 }
 
@@ -938,6 +1029,49 @@ func receivesExtractedArgs(freeVars map[*ssa.FreeVar]*ssa.Function, call ssa.Cal
 		return callee
 	}
 	return nil
+}
+
+// returnValues returns the values of a return instruction. In a function with
+// deferred calls, go/ssa stores the results in local variables and loads them
+// again after the deferred calls run; see through those stores and loads so
+// that patterns like "return fn()" are still recognized.
+//
+// Note that a deferred call may modify the stored results, so the resolved
+// values are only good enough to suppress reports, never to add them.
+func returnValues(ret *ssa.Return) []ssa.Value {
+	var results []ssa.Value // lazily cloned from ret.Results
+	for i, val := range ret.Results {
+		if stored := storedValue(ret.Block(), val); stored != nil {
+			if results == nil {
+				results = slices.Clone(ret.Results)
+			}
+			results[i] = stored
+		}
+	}
+	if results == nil {
+		return ret.Results
+	}
+	return results
+}
+
+// storedValue returns the value most recently stored within a block into the
+// local variable that val loads, if any.
+func storedValue(block *ssa.BasicBlock, val ssa.Value) ssa.Value {
+	load, ok := val.(*ssa.UnOp)
+	if !ok || load.Op != token.MUL {
+		return nil
+	}
+	alloc, ok := load.X.(*ssa.Alloc)
+	if !ok {
+		return nil
+	}
+	var stored ssa.Value
+	for _, instr := range block.Instrs {
+		if store, ok := instr.(*ssa.Store); ok && store.Addr == alloc {
+			stored = store.Val
+		}
+	}
+	return stored
 }
 
 // callExtract returns the call instruction fn(...) if it is used directly as

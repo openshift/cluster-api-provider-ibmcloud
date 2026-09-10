@@ -124,3 +124,19 @@ func (s *IBMPISession) AuthInfo(cloudInstanceID string) runtime.ClientAuthInfoWr
 		return r.SetHeaderParam("CRN", fmt.Sprintf(s.CRNFormat, cloudInstanceID))
 	})
 }
+
+// AuthInfoV2 only set Authorization since some apis do not require CRN in the header
+func (s *IBMPISession) AuthInfoV2() runtime.ClientAuthInfoWriter {
+	return runtime.ClientAuthInfoWriterFunc(func(r runtime.ClientRequest, _ strfmt.Registry) error {
+		auth, err := fetchAuthorizationData(s.Options.Authenticator)
+		if err != nil {
+			return err
+		}
+		return r.SetHeaderParam("Authorization", auth)
+	})
+}
+
+// IsOnPrem returns true if the operation is being done on premise (at a satellite region)
+func (s *IBMPISession) IsOnPrem() bool {
+	return strings.Contains(s.Options.Zone, helpers.PIStratosRegionPrefix)
+}

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 
@@ -17,7 +16,7 @@ func runWatcher(opts *options) error {
 	defer cancel()
 
 	w := &watchRuns{opts: *opts}
-	return filewatcher.Watch(ctx, opts.packages, w.run)
+	return filewatcher.Watch(ctx, opts.packages, opts.watchClear, w.run)
 }
 
 type watchRuns struct {
@@ -43,13 +42,18 @@ func (w *watchRuns) run(event filewatcher.Event) error {
 		return nil
 	}
 
+	var dir string
+	if w.opts.watchChdir {
+		dir, event.PkgPath = event.PkgPath, "./"
+	}
+
 	opts := w.opts // shallow copy opts
 	opts.packages = append([]string{}, opts.packages...)
 	opts.packages = append(opts.packages, event.PkgPath)
 	opts.packages = append(opts.packages, event.Args...)
 
 	var err error
-	if w.prevExec, err = runSingle(&opts); !IsExitCoder(err) {
+	if w.prevExec, err = runSingle(&opts, dir); !IsExitCoder(err) {
 		return err
 	}
 	return nil
@@ -58,7 +62,7 @@ func (w *watchRuns) run(event filewatcher.Event) error {
 // runSingle is similar to run. It doesn't support rerun-fails. It may be
 // possible to share runSingle with run, but the defer close on the handler
 // would require at least 3 return values, so for now it is a copy.
-func runSingle(opts *options) (*testjson.Execution, error) {
+func runSingle(opts *options, dir string) (*testjson.Execution, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -66,7 +70,7 @@ func runSingle(opts *options) (*testjson.Execution, error) {
 		return nil, err
 	}
 
-	goTestProc, err := startGoTestFn(ctx, goTestCmdArgs(opts, rerunOpts{}))
+	goTestProc, err := startGoTestFn(ctx, dir, goTestCmdArgs(opts, rerunOpts{}))
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +79,7 @@ func runSingle(opts *options) (*testjson.Execution, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer handler.Close() // nolint: errcheck
+	defer handler.Close() //nolint:errcheck
 	cfg := testjson.ScanConfig{
 		Stdout:  goTestProc.stdout,
 		Stderr:  goTestProc.stderr,
@@ -83,6 +87,7 @@ func runSingle(opts *options) (*testjson.Execution, error) {
 		Stop:    cancel,
 	}
 	exec, err := testjson.ScanTestOutput(cfg)
+	handler.Flush()
 	if err != nil {
 		return exec, finishRun(opts, exec, err)
 	}
@@ -91,12 +96,12 @@ func runSingle(opts *options) (*testjson.Execution, error) {
 }
 
 func delveInitFile(exec *testjson.Execution) (string, func(), error) {
-	fh, err := ioutil.TempFile("", "gotestsum-delve-init")
+	fh, err := os.CreateTemp("", "gotestsum-delve-init")
 	if err != nil {
 		return "", nil, err
 	}
 	remove := func() {
-		os.Remove(fh.Name()) // nolint: errcheck
+		os.Remove(fh.Name()) //nolint:errcheck
 	}
 
 	buf := bufio.NewWriter(fh)

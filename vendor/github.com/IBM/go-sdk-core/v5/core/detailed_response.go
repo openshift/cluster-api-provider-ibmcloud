@@ -1,6 +1,6 @@
 package core
 
-// (C) Copyright IBM Corp. 2019.
+// (C) Copyright IBM Corp. 2019, 2024.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,10 +24,10 @@ import (
 type DetailedResponse struct {
 
 	// The HTTP status code associated with the response.
-	StatusCode int
+	StatusCode int `yaml:"status_code"`
 
 	// The HTTP headers contained in the response.
-	Headers http.Header
+	Headers http.Header `yaml:"headers"`
 
 	// Result - this field will contain the result of the operation (obtained from the response body).
 	//
@@ -50,13 +50,13 @@ type DetailedResponse struct {
 	// response body as a "generic" JSON object.
 	// If the JSON response for an unsuccessful operation could not be properly un-marshalled, then the
 	// RawResult field will contain the raw response body.
-	Result interface{}
+	Result any `yaml:"result,omitempty"`
 
 	// This field will contain the raw response body as a byte array under these conditions:
 	// 1) there was a problem un-marshalling a JSON response body -
 	// either for a successful or unsuccessful operation.
 	// 2) the operation was unsuccessful, and the response body contains a non-JSON response.
-	RawResult []byte
+	RawResult []byte `yaml:"raw_result,omitempty"`
 }
 
 // GetHeaders returns the headers
@@ -70,14 +70,14 @@ func (response *DetailedResponse) GetStatusCode() int {
 }
 
 // GetResult returns the result from the service
-func (response *DetailedResponse) GetResult() interface{} {
+func (response *DetailedResponse) GetResult() any {
 	return response.Result
 }
 
 // GetResultAsMap returns the result as a map (generic JSON object), if the
 // DetailedResponse.Result field contains an instance of a map.
-func (response *DetailedResponse) GetResultAsMap() (map[string]interface{}, bool) {
-	m, ok := response.Result.(map[string]interface{})
+func (response *DetailedResponse) GetResultAsMap() (map[string]any, bool) {
+	m, ok := response.Result.(map[string]any)
 	return m, ok
 }
 

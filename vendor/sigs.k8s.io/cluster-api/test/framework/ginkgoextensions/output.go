@@ -23,8 +23,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/onsi/ginkgo"
-	"github.com/pkg/errors"
+	"github.com/onsi/ginkgo/v2"
+	pkgerrors "github.com/pkg/errors"
 )
 
 // TestOutput can be used for writing testing output.
@@ -35,24 +35,15 @@ func Byf(format string, a ...interface{}) {
 	ginkgo.By(fmt.Sprintf(format, a...))
 }
 
-type writerRedirecter interface {
-	AndRedirectTo(writer io.Writer)
-}
-
 // EnableFileLogging enables additional file logging.
 // Logs are written to the given path with timestamps.
 func EnableFileLogging(path string) (io.WriteCloser, error) {
 	w, err := newFileWriter(path)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create fileWriter")
+		return nil, pkgerrors.Wrapf(err, "failed to create fileWriter")
 	}
 
-	ginkgoWriter, ok := ginkgo.GinkgoWriter.(writerRedirecter)
-	if !ok {
-		return nil, errors.Errorf("GinkgoWriter does not have an AndRedirectTo method")
-	}
-
-	ginkgoWriter.AndRedirectTo(w)
+	ginkgo.GinkgoWriter.TeeTo(w)
 
 	return w, nil
 }
@@ -60,7 +51,7 @@ func EnableFileLogging(path string) (io.WriteCloser, error) {
 func newFileWriter(path string) (io.WriteCloser, error) {
 	f, err := os.Create(path) //nolint:gosec // No security issue: path is safe.
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create file")
+		return nil, pkgerrors.Wrap(err, "failed to create file")
 	}
 	return &fileWriter{
 		file: f,

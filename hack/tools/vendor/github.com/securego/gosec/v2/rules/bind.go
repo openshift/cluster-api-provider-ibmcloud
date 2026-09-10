@@ -19,20 +19,16 @@ import (
 	"regexp"
 
 	"github.com/securego/gosec/v2"
+	"github.com/securego/gosec/v2/issue"
 )
 
 // Looks for net.Listen("0.0.0.0") or net.Listen(":8080")
 type bindsToAllNetworkInterfaces struct {
-	gosec.MetaData
-	calls   gosec.CallList
+	callListRule
 	pattern *regexp.Regexp
 }
 
-func (r *bindsToAllNetworkInterfaces) ID() string {
-	return r.MetaData.ID
-}
-
-func (r *bindsToAllNetworkInterfaces) Match(n ast.Node, c *gosec.Context) (*gosec.Issue, error) {
+func (r *bindsToAllNetworkInterfaces) Match(n ast.Node, c *gosec.Context) (*issue.Issue, error) {
 	callExpr := r.calls.ContainsPkgCallExpr(n, c, false)
 	if callExpr == nil {
 		return nil, nil
@@ -41,23 +37,23 @@ func (r *bindsToAllNetworkInterfaces) Match(n ast.Node, c *gosec.Context) (*gose
 		arg := callExpr.Args[1]
 		if bl, ok := arg.(*ast.BasicLit); ok {
 			if arg, err := gosec.GetString(bl); err == nil {
-				if r.pattern.MatchString(arg) {
-					return gosec.NewIssue(c, n, r.ID(), r.What, r.Severity, r.Confidence), nil
+				if gosec.RegexMatchWithCache(r.pattern, arg) {
+					return c.NewIssue(n, r.ID(), r.What, r.Severity, r.Confidence), nil
 				}
 			}
 		} else if ident, ok := arg.(*ast.Ident); ok {
 			values := gosec.GetIdentStringValues(ident)
 			for _, value := range values {
-				if r.pattern.MatchString(value) {
-					return gosec.NewIssue(c, n, r.ID(), r.What, r.Severity, r.Confidence), nil
+				if gosec.RegexMatchWithCache(r.pattern, value) {
+					return c.NewIssue(n, r.ID(), r.What, r.Severity, r.Confidence), nil
 				}
 			}
 		}
 	} else if len(callExpr.Args) > 0 {
 		values := gosec.GetCallStringArgsValues(callExpr.Args[0], c)
 		for _, value := range values {
-			if r.pattern.MatchString(value) {
-				return gosec.NewIssue(c, n, r.ID(), r.What, r.Severity, r.Confidence), nil
+			if gosec.RegexMatchWithCache(r.pattern, value) {
+				return c.NewIssue(n, r.ID(), r.What, r.Severity, r.Confidence), nil
 			}
 		}
 	}
@@ -66,18 +62,11 @@ func (r *bindsToAllNetworkInterfaces) Match(n ast.Node, c *gosec.Context) (*gose
 
 // NewBindsToAllNetworkInterfaces detects socket connections that are setup to
 // listen on all network interfaces.
-func NewBindsToAllNetworkInterfaces(id string, conf gosec.Config) (gosec.Rule, []ast.Node) {
-	calls := gosec.NewCallList()
-	calls.Add("net", "Listen")
-	calls.Add("crypto/tls", "Listen")
-	return &bindsToAllNetworkInterfaces{
-		calls:   calls,
-		pattern: regexp.MustCompile(`^(0.0.0.0|:).*$`),
-		MetaData: gosec.MetaData{
-			ID:         id,
-			Severity:   gosec.Medium,
-			Confidence: gosec.High,
-			What:       "Binds to all network interfaces",
-		},
-	}, []ast.Node{(*ast.CallExpr)(nil)}
+func NewBindsToAllNetworkInterfaces(id string, _ gosec.Config) (gosec.Rule, []ast.Node) {
+	rule := &bindsToAllNetworkInterfaces{
+		callListRule: newCallListRule(id, "Binds to all network interfaces", issue.Medium, issue.High),
+		pattern:      regexp.MustCompile(`^(0.0.0.0|:).*$`),
+	}
+	rule.Add("net", "Listen").Add("crypto/tls", "Listen")
+	return rule, []ast.Node{(*ast.CallExpr)(nil)}
 }

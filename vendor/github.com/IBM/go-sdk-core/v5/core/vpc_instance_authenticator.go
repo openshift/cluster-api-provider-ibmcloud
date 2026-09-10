@@ -1,6 +1,6 @@
 package core
 
-// (C) Copyright IBM Corp. 2021.
+// (C) Copyright IBM Corp. 2021, 2024.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,13 @@ package core
 // limitations under the License.
 
 import (
-	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,31 +35,52 @@ import (
 // automatically by the compute resource provider (VPC).
 // The resulting IAM access token is then added to outbound requests in an Authorization header
 // of the form:
-// 		Authorization: Bearer <access-token>
 //
+//	Authorization: Bearer <access-token>
 type VpcInstanceAuthenticator struct {
-
 	// [optional] The CRN of the linked trusted IAM profile to be used as the identity of the compute resource.
-	// At most one of IAMProfileCRN or IAMProfileID may be specified.  If neither one is specified, then
+	// At most one of IAMProfileCRN, IAMProfileID or IAMProfileName may be specified.  If neither one is specified, then
 	// the default IAM profile defined for the compute resource will be used.
 	// Default value: ""
 	IAMProfileCRN string
 
 	// [optional] The ID of the linked trusted IAM profile to be used when obtaining the IAM access token.
-	// At most one of IAMProfileCRN or IAMProfileID may be specified.  If neither one is specified, then
+	// At most one of IAMProfileCRN, IAMProfileID or IAMProfileName may be specified.  If neither one is specified, then
 	// the default IAM profile defined for the compute resource will be used.
 	// Default value: ""
 	IAMProfileID string
+
+	// [optional] The name of the linked trusted IAM profile to be used when obtaining the IAM access token.
+	// At most one of IAMProfileCRN, IAMProfileID or IAMProfileName may be specified.  If neither one is specified, then
+	// the default IAM profile defined for the compute resource will be used.
+	// Default value: ""
+	IAMProfileName string
 
 	// [optional] The VPC Instance Metadata Service's base endpoint URL.
 	// Default value: "http://169.254.169.254"
 	URL     string
 	urlInit sync.Once
 
+	// [optional] The VPC Instance Metadata Service version.
+	// Can be configured via code or environment variable.
+	// Default value: "2022-03-01"
+	ServiceVersion     string
+	serviceVersionInit sync.Once
+
+	// [optional] The lifetime (in seconds) of the instance identity token.
+	// Can only be configured via code (not from environment variables).
+	// Default value: 300
+	TokenLifetime     int
+	tokenLifetimeInit sync.Once
+
 	// [optional] The http.Client object used to interact with the VPC Instance Metadata Service API.
 	// If not specified by the user, a suitable default Client will be constructed.
 	Client     *http.Client
 	clientInit sync.Once
+
+	// The User-Agent header value to be included with each token request.
+	userAgent     string
+	userAgentInit sync.Once
 
 	// The cached IAM access token and its expiration time.
 	tokenData *iamTokenData
@@ -67,13 +90,16 @@ type VpcInstanceAuthenticator struct {
 }
 
 const (
-	vpcauthDefaultIMSEndpoint             = "http://169.254.169.254"
-	vpcauthOperationPathCreateAccessToken = "/instance_identity/v1/token"
-	vpcauthOperationPathCreateIamToken    = "/instance_identity/v1/iam_token"
-	vpcauthMetadataFlavor                 = "ibm"
-	vpcauthMetadataServiceVersion         = "2021-09-20"
-	vpcauthInstanceIdentityTokenLifetime  = 300
-	vpcauthDefaultTimeout                 = time.Second * 30
+	vpcauthDefaultIMSEndpoint               = "http://169.254.169.254"
+	vpcauthOperationPathCreateAccessToken   = "/instance_identity/v1/token"
+	vpcauthOperationPathCreateIamToken      = "/instance_identity/v1/iam_token"
+	vpcauthOperationPathCreateAccessTokenV2 = "/identity/v1/token"
+	vpcauthOperationPathCreateIamTokenV2    = "/identity/v1/iam_tokens"
+	vpcauthMetadataFlavor                   = "ibm"
+	vpcauthMetadataServiceVersion           = "2022-03-01"
+	vpcauthMetadataServiceVersionV2         = "2025-08-26"
+	vpcauthInstanceIdentityTokenLifetime    = 300
+	vpcauthDefaultTimeout                   = time.Second * 30
 )
 
 // VpcInstanceAuthenticatorBuilder is used to construct an instance of the VpcInstanceAuthenticator
@@ -89,35 +115,52 @@ func NewVpcInstanceAuthenticatorBuilder() *VpcInstanceAuthenticatorBuilder {
 
 // SetIAMProfileCRN sets the IAMProfileCRN field in the builder.
 func (builder *VpcInstanceAuthenticatorBuilder) SetIAMProfileCRN(s string) *VpcInstanceAuthenticatorBuilder {
-	builder.VpcInstanceAuthenticator.IAMProfileCRN = s
+	builder.IAMProfileCRN = s
 	return builder
 }
 
 // SetIAMProfileID sets the IAMProfileID field in the builder.
 func (builder *VpcInstanceAuthenticatorBuilder) SetIAMProfileID(s string) *VpcInstanceAuthenticatorBuilder {
-	builder.VpcInstanceAuthenticator.IAMProfileID = s
+	builder.IAMProfileID = s
+	return builder
+}
+
+// SetIAMProfileName sets the IAMProfileName field in the builder.
+func (builder *VpcInstanceAuthenticatorBuilder) SetIAMProfileName(s string) *VpcInstanceAuthenticatorBuilder {
+	builder.IAMProfileName = s
 	return builder
 }
 
 // SetURL sets the URL field in the builder.
 func (builder *VpcInstanceAuthenticatorBuilder) SetURL(s string) *VpcInstanceAuthenticatorBuilder {
-	builder.VpcInstanceAuthenticator.URL = s
+	builder.URL = s
 	return builder
 }
 
 // SetClient sets the Client field in the builder.
 func (builder *VpcInstanceAuthenticatorBuilder) SetClient(client *http.Client) *VpcInstanceAuthenticatorBuilder {
-	builder.VpcInstanceAuthenticator.Client = client
+	builder.Client = client
+	return builder
+}
+
+// SetServiceVersion sets the ServiceVersion field in the builder.
+func (builder *VpcInstanceAuthenticatorBuilder) SetServiceVersion(s string) *VpcInstanceAuthenticatorBuilder {
+	builder.ServiceVersion = s
+	return builder
+}
+
+// SetTokenLifetime sets the TokenLifetime field in the builder.
+func (builder *VpcInstanceAuthenticatorBuilder) SetTokenLifetime(lifetime int) *VpcInstanceAuthenticatorBuilder {
+	builder.TokenLifetime = lifetime
 	return builder
 }
 
 // Build() returns a validated instance of the VpcInstanceAuthenticator with the config that was set in the builder.
 func (builder *VpcInstanceAuthenticatorBuilder) Build() (*VpcInstanceAuthenticator, error) {
-
 	// Make sure the config is valid.
-	err := builder.VpcInstanceAuthenticator.Validate()
+	err := builder.Validate()
 	if err != nil {
-		return nil, err
+		return nil, RepurposeSDKProblem(err, "validation-failed")
 	}
 
 	return &builder.VpcInstanceAuthenticator, nil
@@ -134,6 +177,14 @@ func (authenticator *VpcInstanceAuthenticator) client() *http.Client {
 	return authenticator.Client
 }
 
+// getUserAgent returns the User-Agent header value to be included in each token request invoked by the authenticator.
+func (authenticator *VpcInstanceAuthenticator) getUserAgent() string {
+	authenticator.userAgentInit.Do(func() {
+		authenticator.userAgent = fmt.Sprintf("%s/%s-%s %s", sdkName, "vpc-instance-authenticator", __VERSION__, SystemInfo())
+	})
+	return authenticator.userAgent
+}
+
 // url returns the authenticator's URL property after potentially initializing it.
 func (authenticator *VpcInstanceAuthenticator) url() string {
 	authenticator.urlInit.Do(func() {
@@ -144,17 +195,56 @@ func (authenticator *VpcInstanceAuthenticator) url() string {
 	return authenticator.URL
 }
 
+// serviceVersion returns the authenticator's ServiceVersion property after potentially initializing it.
+func (authenticator *VpcInstanceAuthenticator) serviceVersion() string {
+	authenticator.serviceVersionInit.Do(func() {
+		if authenticator.ServiceVersion == "" {
+			authenticator.ServiceVersion = vpcauthMetadataServiceVersion
+		}
+	})
+	return authenticator.ServiceVersion
+}
+
+// tokenLifetime returns the authenticator's TokenLifetime property after potentially initializing it.
+func (authenticator *VpcInstanceAuthenticator) tokenLifetime() int {
+	authenticator.tokenLifetimeInit.Do(func() {
+		if authenticator.TokenLifetime == 0 {
+			authenticator.TokenLifetime = vpcauthInstanceIdentityTokenLifetime
+		}
+	})
+	return authenticator.TokenLifetime
+}
+
+// getCreateAccessTokenPath returns the operation path for creating an access token based on the service version.
+func (authenticator *VpcInstanceAuthenticator) getCreateAccessTokenPath() string {
+	if authenticator.serviceVersion() == vpcauthMetadataServiceVersionV2 {
+		return vpcauthOperationPathCreateAccessTokenV2
+	}
+	return vpcauthOperationPathCreateAccessToken
+}
+
+// getCreateIamTokenPath returns the operation path for creating an IAM token based on the service version.
+func (authenticator *VpcInstanceAuthenticator) getCreateIamTokenPath() string {
+	if authenticator.serviceVersion() == vpcauthMetadataServiceVersionV2 {
+		return vpcauthOperationPathCreateIamTokenV2
+	}
+	return vpcauthOperationPathCreateIamToken
+}
+
 // newVpcInstanceAuthenticatorFromMap constructs a new VpcInstanceAuthenticator instance from a map containing
 // configuration properties.
 func newVpcInstanceAuthenticatorFromMap(properties map[string]string) (authenticator *VpcInstanceAuthenticator, err error) {
 	if properties == nil {
-		return nil, fmt.Errorf(ERRORMSG_PROPS_MAP_NIL)
+		err = errors.New(ERRORMSG_PROPS_MAP_NIL)
+		return nil, SDKErrorf(err, "", "missing-props", getComponentInfo())
 	}
 
 	authenticator, err = NewVpcInstanceAuthenticatorBuilder().
 		SetIAMProfileCRN(properties[PROPNAME_IAM_PROFILE_CRN]).
 		SetIAMProfileID(properties[PROPNAME_IAM_PROFILE_ID]).
+		SetIAMProfileName(properties[PROPNAME_IAM_PROFILE_NAME]).
 		SetURL(properties[PROPNAME_AUTH_URL]).
+		SetServiceVersion(properties[PROPNAME_VPC_IMS_VERSION]).
 		Build()
 
 	return
@@ -169,15 +259,15 @@ func (*VpcInstanceAuthenticator) AuthenticationType() string {
 //
 // The IAM access token will be added to the request's headers in the form:
 //
-// 		Authorization: Bearer <access-token>
-//
+//	Authorization: Bearer <access-token>
 func (authenticator *VpcInstanceAuthenticator) Authenticate(request *http.Request) error {
 	token, err := authenticator.GetToken()
 	if err != nil {
-		return err
+		return RepurposeSDKProblem(err, "get-token-fail")
 	}
 
 	request.Header.Set("Authorization", "Bearer "+token)
+	GetLogger().Debug("Authenticated outbound request (type=%s)\n", authenticator.AuthenticationType())
 	return nil
 }
 
@@ -199,13 +289,30 @@ func (authenticator *VpcInstanceAuthenticator) setTokenData(tokenData *iamTokenD
 
 // Validate the authenticator's configuration.
 //
-// Ensures that one of IAMProfileName or IAMProfileID are specified, and the ClientId and ClientSecret pair are
-// mutually inclusive.
+// Ensures that at most one of IAMProfileCRN, IAMProfileID, or IAMProfileName is specified.
 func (authenticator *VpcInstanceAuthenticator) Validate() error {
+	// Check to make sure that at most one of IAMProfileCRN, IAMProfileID, or IAMProfileName are specified.
+	counter := 0
+	if authenticator.IAMProfileCRN != "" {
+		counter++
+	}
+	if authenticator.IAMProfileID != "" {
+		counter++
+	}
+	if authenticator.IAMProfileName != "" {
+		counter++
+	}
+	if counter > 1 {
+		err := fmt.Errorf(ERRORMSG_ATMOST_ONE_PROP_ERROR, "IAMProfileCRN", "IAMProfileID", "IAMProfileName")
+		return SDKErrorf(err, "", "both-props", getComponentInfo())
+	}
 
-	// Check to make sure that at most one of IAMProfileCRN or IAMProfileID are specified.
-	if authenticator.IAMProfileCRN != "" && authenticator.IAMProfileID != "" {
-		return fmt.Errorf(ERRORMSG_ATMOST_ONE_PROP_ERROR, "IAMProfileCRN", "IAMProfileID")
+	vpcauthMetadataServiceSupportedVersions := []string{vpcauthMetadataServiceVersion, vpcauthMetadataServiceVersionV2}
+	serviceVersion := authenticator.serviceVersion()
+
+	if !slices.Contains(vpcauthMetadataServiceSupportedVersions, serviceVersion) {
+		err := fmt.Errorf(ERRORMSG_INVALID_SERVICE_VERSION, strings.Join(vpcauthMetadataServiceSupportedVersions, ", "))
+		return SDKErrorf(err, "", "invalid-service-version", getComponentInfo())
 	}
 
 	return nil
@@ -220,7 +327,7 @@ func (authenticator *VpcInstanceAuthenticator) GetToken() (string, error) {
 		// synchronously request the token
 		err := authenticator.synchronizedRequestToken()
 		if err != nil {
-			return "", err
+			return "", RepurposeSDKProblem(err, "request-token-fail")
 		}
 	} else if authenticator.getTokenData().needsRefresh() {
 		GetLogger().Debug("Performing background asynchronous token fetch...")
@@ -233,7 +340,8 @@ func (authenticator *VpcInstanceAuthenticator) GetToken() (string, error) {
 
 	// return an error if the access token is not valid or was not fetched
 	if authenticator.getTokenData() == nil || authenticator.getTokenData().AccessToken == "" {
-		return "", fmt.Errorf("Error while trying to get access token")
+		err := errors.New("Error while trying to get access token")
+		return "", SDKErrorf(err, "", "no-token", getComponentInfo())
 	}
 
 	return authenticator.getTokenData().AccessToken, nil
@@ -278,16 +386,17 @@ func (authenticator *VpcInstanceAuthenticator) invokeRequestTokenData() error {
 // RequestToken will use the VPC Instance Metadata Service to (1) retrieve a fresh instance identity token
 // and then (2) exchange that for an IAM access token.
 func (authenticator *VpcInstanceAuthenticator) RequestToken() (iamTokenResponse *IamTokenServerResponse, err error) {
-
 	// Retrieve the instance identity token from the VPC Instance Metadata Service.
 	instanceIdentityToken, err := authenticator.retrieveInstanceIdentityToken()
 	if err != nil {
+		err = RepurposeSDKProblem(err, "get-ii-token-error")
 		return
 	}
 
 	// Next, exchange the instance identity token for an IAM access token.
 	iamTokenResponse, err = authenticator.retrieveIamAccessToken(instanceIdentityToken)
 	if err != nil {
+		err = RepurposeSDKProblem(err, "get-ia-token-error")
 		return
 	}
 
@@ -315,21 +424,23 @@ type vpcTokenResponse struct {
 // compute resource's instance identity token for an IAM access token that can be used
 // to authenticate outbound REST requests targeting IAM-secured services.
 func (authenticator *VpcInstanceAuthenticator) retrieveIamAccessToken(
-	instanceIdentityToken string) (iamTokenResponse *IamTokenServerResponse, err error) {
-
+	instanceIdentityToken string,
+) (iamTokenResponse *IamTokenServerResponse, err error) {
 	// Set up the request for the VPC "create_iam_token" operation.
 	builder := NewRequestBuilder(POST)
-	_, err = builder.ResolveRequestURL(authenticator.url(), vpcauthOperationPathCreateIamToken, nil)
+	_, err = builder.ResolveRequestURL(authenticator.url(), authenticator.getCreateIamTokenPath(), nil)
 	if err != nil {
-		err = NewAuthenticationError(&DetailedResponse{}, err)
+		err = authenticationErrorf(err, &DetailedResponse{}, "noop", getComponentInfo())
 		return
 	}
 
 	// Set the params and request body.
-	builder.AddQuery("version", vpcauthMetadataServiceVersion)
+	builder.AddQuery("version", authenticator.serviceVersion())
 	builder.AddHeader(CONTENT_TYPE, APPLICATION_JSON)
 	builder.AddHeader(Accept, APPLICATION_JSON)
+	builder.AddHeader(headerNameUserAgent, authenticator.getUserAgent())
 	builder.AddHeader("Authorization", "Bearer "+instanceIdentityToken)
+	builder.AddHeader("Metadata-Flavor", vpcauthMetadataFlavor)
 
 	// Next, construct the optional request body to specify the linked IAM profile.
 	// We previously verified that at most one of IBMProfileCRN or IAMProfileID was specified by the user,
@@ -342,6 +453,9 @@ func (authenticator *VpcInstanceAuthenticator) retrieveIamAccessToken(
 	if authenticator.IAMProfileID != "" {
 		requestBody = fmt.Sprintf(`{"trusted_profile": {"id": "%s"}}`, authenticator.IAMProfileID)
 	}
+	if authenticator.IAMProfileName != "" {
+		requestBody = fmt.Sprintf(`{"trusted_profile": {"name": "%s"}}`, authenticator.IAMProfileName)
+	}
 	if requestBody != "" {
 		_, _ = builder.SetBodyContentString(requestBody)
 	}
@@ -349,7 +463,7 @@ func (authenticator *VpcInstanceAuthenticator) retrieveIamAccessToken(
 	// Build the request.
 	req, err := builder.Build()
 	if err != nil {
-		return nil, NewAuthenticationError(&DetailedResponse{}, err)
+		return nil, authenticationErrorf(err, &DetailedResponse{}, "noop", getComponentInfo())
 	}
 
 	// If debug is enabled, then dump the request.
@@ -365,7 +479,7 @@ func (authenticator *VpcInstanceAuthenticator) retrieveIamAccessToken(
 	GetLogger().Debug("Invoking VPC 'create_iam_token' operation: %s", builder.URL)
 	resp, err := authenticator.client().Do(req)
 	if err != nil {
-		return nil, NewAuthenticationError(&DetailedResponse{}, err)
+		return nil, authenticationErrorf(err, &DetailedResponse{}, "noop", getComponentInfo())
 	}
 	GetLogger().Debug("Returned from VPC 'create_iam_token' operation, received status code %d", resp.StatusCode)
 
@@ -381,29 +495,29 @@ func (authenticator *VpcInstanceAuthenticator) retrieveIamAccessToken(
 
 	// Check for a bad status code and handle an operation error.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		buff := new(bytes.Buffer)
-		_, _ = buff.ReadFrom(resp.Body)
-		resp.Body.Close() // #nosec G104
+		detailedResponse, responseError := processErrorResponse(resp)
+		err = authenticationErrorf(responseError, detailedResponse, "create_iam_token", authenticator.getComponentInfo())
 
-		// Create a DetailedResponse to be included in the error below.
-		detailedResponse := &DetailedResponse{
-			StatusCode: resp.StatusCode,
-			Headers:    resp.Header,
-			RawResult:  buff.Bytes(),
+		// The err Summary is typically the message computed for the HTTPError instance in
+		// processErrorResponse(). If the response body is non-JSON, the message will be generic
+		// text based on the status code but authenticators have always used the stringified
+		// RawResult, so update that here for compatilibility.
+		vpcErrorMsg := responseError.Summary
+		if detailedResponse.RawResult != nil {
+			// RawResult is only populated if the response body is
+			// non-JSON and we couldn't extract a message.
+			vpcErrorMsg = string(detailedResponse.RawResult)
 		}
 
-		vpcErrorMsg := string(detailedResponse.RawResult)
-		if vpcErrorMsg == "" {
-			vpcErrorMsg = "Operation 'create_iam_token' error response not available"
-		}
-		err = fmt.Errorf(ERRORMSG_VPCMDS_OPERATION_ERROR, detailedResponse.StatusCode, builder.URL, vpcErrorMsg)
-		return nil, NewAuthenticationError(detailedResponse, err)
+		err.(*AuthenticationError).Summary = fmt.Sprintf(ERRORMSG_VPCMDS_OPERATION_ERROR, detailedResponse.StatusCode, builder.URL, vpcErrorMsg)
+
+		return
 	}
 
 	// Good response, so unmarshal the response body into a vpcTokenResponse instance.
 	tokenResponse := &vpcTokenResponse{}
 	_ = json.NewDecoder(resp.Body).Decode(tokenResponse)
-	defer resp.Body.Close()
+	defer resp.Body.Close() // #nosec G307
 
 	// Finally, convert the vpcTokenResponse instance into an IamTokenServerResponse to maintain
 	// consistency with other IAM-based authenticators.
@@ -419,28 +533,27 @@ func (authenticator *VpcInstanceAuthenticator) retrieveIamAccessToken(
 // retrieveInstanceIdentityToken retrieves the local compute resource's instance identity token using
 // the "create_access_token" operation of the local VPC Instance Metadata Service API.
 func (authenticator *VpcInstanceAuthenticator) retrieveInstanceIdentityToken() (instanceIdentityToken string, err error) {
-
 	// Set up the request to invoke the "create_access_token" operation.
 	builder := NewRequestBuilder(PUT)
-	_, err = builder.ResolveRequestURL(authenticator.url(), vpcauthOperationPathCreateAccessToken, nil)
+	_, err = builder.ResolveRequestURL(authenticator.url(), authenticator.getCreateAccessTokenPath(), nil)
 	if err != nil {
-		err = NewAuthenticationError(&DetailedResponse{}, err)
+		err = authenticationErrorf(err, &DetailedResponse{}, "noop", getComponentInfo())
 		return
 	}
 
 	// Set the params and request body.
-	builder.AddQuery("version", vpcauthMetadataServiceVersion)
+	builder.AddQuery("version", authenticator.serviceVersion())
 	builder.AddHeader(CONTENT_TYPE, APPLICATION_JSON)
 	builder.AddHeader(Accept, APPLICATION_JSON)
 	builder.AddHeader("Metadata-Flavor", vpcauthMetadataFlavor)
 
-	requestBody := fmt.Sprintf(`{"expires_in": %d}`, vpcauthInstanceIdentityTokenLifetime)
+	requestBody := fmt.Sprintf(`{"expires_in": %d}`, authenticator.tokenLifetime())
 	_, _ = builder.SetBodyContentString(requestBody)
 
 	// Build the request.
 	req, err := builder.Build()
 	if err != nil {
-		err = NewAuthenticationError(&DetailedResponse{}, err)
+		err = authenticationErrorf(err, &DetailedResponse{}, "noop", getComponentInfo())
 		return
 	}
 
@@ -458,7 +571,7 @@ func (authenticator *VpcInstanceAuthenticator) retrieveInstanceIdentityToken() (
 	GetLogger().Debug("Invoking VPC 'create_access_token' operation: %s", builder.URL)
 	resp, err := authenticator.client().Do(req)
 	if err != nil {
-		err = NewAuthenticationError(&DetailedResponse{}, err)
+		err = authenticationErrorf(err, &DetailedResponse{}, "noop", getComponentInfo())
 		return
 	}
 	GetLogger().Debug("Returned from VPC 'create_access_token' operation, received status code %d", resp.StatusCode)
@@ -475,24 +588,22 @@ func (authenticator *VpcInstanceAuthenticator) retrieveInstanceIdentityToken() (
 
 	// Check for a bad status code and handle the operation error.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		buff := new(bytes.Buffer)
-		_, _ = buff.ReadFrom(resp.Body)
-		resp.Body.Close() // #nosec G104
+		detailedResponse, responseError := processErrorResponse(resp)
+		err = authenticationErrorf(responseError, detailedResponse, "create_access_token", authenticator.getComponentInfo())
 
-		// Create a DetailedResponse to be included in the error below.
-		detailedResponse := &DetailedResponse{
-			StatusCode: resp.StatusCode,
-			Headers:    resp.Header,
-			RawResult:  buff.Bytes(),
+		// The err Summary is typically the message computed for the HTTPError instance in
+		// processErrorResponse(). If the response body is non-JSON, the message will be generic
+		// text based on the status code but authenticators have always used the stringified
+		// RawResult, so update that here for compatilibility.
+		vpcErrorMsg := responseError.Summary
+		if detailedResponse.RawResult != nil {
+			// RawResult is only populated if the response body is
+			// non-JSON and we couldn't extract a message.
+			vpcErrorMsg = string(detailedResponse.RawResult)
 		}
 
-		vpcErrorMsg := string(detailedResponse.RawResult)
-		if vpcErrorMsg == "" {
-			vpcErrorMsg = "Operation 'create_access_token' error response not available"
-		}
+		err.(*AuthenticationError).Summary = fmt.Sprintf(ERRORMSG_VPCMDS_OPERATION_ERROR, detailedResponse.StatusCode, builder.URL, vpcErrorMsg)
 
-		err = NewAuthenticationError(detailedResponse,
-			fmt.Errorf(ERRORMSG_VPCMDS_OPERATION_ERROR, detailedResponse.StatusCode, builder.URL, vpcErrorMsg))
 		return
 	}
 
@@ -500,10 +611,17 @@ func (authenticator *VpcInstanceAuthenticator) retrieveInstanceIdentityToken() (
 	// and retrieve the instance identity token value.
 	operationResponse := &vpcTokenResponse{}
 	_ = json.NewDecoder(resp.Body).Decode(operationResponse)
-	defer resp.Body.Close()
+	defer resp.Body.Close() // #nosec G307
 
 	// The instance identity token is returned in the "access_token" field of the response object.
 	instanceIdentityToken = *operationResponse.AccessToken
 
 	return
+}
+
+// This should only be used for AuthenticationError instances that actually deal with
+// an HTTP error (i.e. do not have a blank DetailedResponse object - they can be scoped
+// to the SDK core system).
+func (authenticator *VpcInstanceAuthenticator) getComponentInfo() *ProblemComponent {
+	return NewProblemComponent("vpc_instance_metadata", vpcauthMetadataServiceVersion)
 }

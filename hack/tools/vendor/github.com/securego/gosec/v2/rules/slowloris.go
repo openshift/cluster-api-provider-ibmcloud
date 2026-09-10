@@ -18,14 +18,11 @@ import (
 	"go/ast"
 
 	"github.com/securego/gosec/v2"
+	"github.com/securego/gosec/v2/issue"
 )
 
 type slowloris struct {
-	gosec.MetaData
-}
-
-func (r *slowloris) ID() string {
-	return r.MetaData.ID
+	issue.MetaData
 }
 
 func containsReadHeaderTimeout(node *ast.CompositeLit) bool {
@@ -44,27 +41,21 @@ func containsReadHeaderTimeout(node *ast.CompositeLit) bool {
 	return false
 }
 
-func (r *slowloris) Match(n ast.Node, ctx *gosec.Context) (*gosec.Issue, error) {
+func (r *slowloris) Match(n ast.Node, ctx *gosec.Context) (*issue.Issue, error) {
 	switch node := n.(type) {
 	case *ast.CompositeLit:
 		actualType := ctx.Info.TypeOf(node.Type)
 		if actualType != nil && actualType.String() == "net/http.Server" {
 			if !containsReadHeaderTimeout(node) {
-				return gosec.NewIssue(ctx, node, r.ID(), r.What, r.Severity, r.Confidence), nil
+				return ctx.NewIssue(node, r.ID(), r.What, r.Severity, r.Confidence), nil
 			}
 		}
 	}
 	return nil, nil
 }
 
-// NewSlowloris attempts to find the http.Server struct and check if the ReadHeaderTimeout is configured.
-func NewSlowloris(id string, conf gosec.Config) (gosec.Rule, []ast.Node) {
+func NewSlowloris(id string, _ gosec.Config) (gosec.Rule, []ast.Node) {
 	return &slowloris{
-		MetaData: gosec.MetaData{
-			ID:         id,
-			What:       "Potential Slowloris Attack because ReadHeaderTimeout is not configured in the http.Server",
-			Confidence: gosec.Low,
-			Severity:   gosec.Medium,
-		},
+		MetaData: issue.NewMetaData(id, "Potential Slowloris Attack because ReadHeaderTimeout is not configured in the http.Server", issue.Medium, issue.Low),
 	}, []ast.Node{(*ast.CompositeLit)(nil)}
 }

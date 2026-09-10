@@ -66,7 +66,7 @@ func resolveBinExpr(n *ast.BinaryExpr, c *Context) bool {
 	return (TryResolve(n.X, c) && TryResolve(n.Y, c))
 }
 
-func resolveCallExpr(n *ast.CallExpr, c *Context) bool {
+func resolveCallExpr(_ *ast.CallExpr, _ *Context) bool {
 	// TODO(tkelsey): next step, full function resolution
 	return false
 }
@@ -90,6 +90,12 @@ func TryResolve(n ast.Node, c *Context) bool {
 		return resolveCallExpr(node, c)
 	case *ast.BinaryExpr:
 		return resolveBinExpr(node, c)
+	case *ast.KeyValueExpr:
+		return TryResolve(node.Key, c) && TryResolve(node.Value, c)
+	case *ast.IndexExpr:
+		return TryResolve(node.X, c)
+	case *ast.SliceExpr:
+		return TryResolve(node.X, c)
 	}
 	return false
 }

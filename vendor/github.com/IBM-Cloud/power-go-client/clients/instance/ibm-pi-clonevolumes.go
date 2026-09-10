@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/IBM-Cloud/power-go-client/errors"
-
 	"github.com/IBM-Cloud/power-go-client/helpers"
 	"github.com/IBM-Cloud/power-go-client/ibmpisession"
 	"github.com/IBM-Cloud/power-go-client/power/client/p_cloud_volumes"
@@ -31,7 +30,7 @@ func (f *IBMPICloneVolumeClient) Create(body *models.VolumesCloneAsyncRequest) (
 		WithCloudInstanceID(f.cloudInstanceID).WithBody(body)
 	resp, err := f.session.Power.PCloudVolumes.PcloudV2VolumesClonePost(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.CreateCloneOperationFailed, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.CreateCloneOperationFailed, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to perform the create clone operation")
@@ -46,7 +45,7 @@ func (f *IBMPICloneVolumeClient) Get(cloneTaskID string) (*models.CloneTaskStatu
 		WithCloudInstanceID(f.cloudInstanceID).WithCloneTaskID(cloneTaskID)
 	resp, err := f.session.Power.PCloudVolumes.PcloudV2VolumesClonetasksGet(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get the clone task %s status for the cloud instance %s with error %w", cloneTaskID, f.cloudInstanceID, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf("failed to get the clone task %s status for the cloud instance %s with error %w", cloneTaskID, f.cloudInstanceID, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to get the clone task %s status for the cloud instance %s", cloneTaskID, f.cloudInstanceID)
@@ -61,7 +60,7 @@ func (f *IBMPICloneVolumeClient) CreateV2Clone(body *models.VolumesCloneCreate) 
 		WithCloudInstanceID(f.cloudInstanceID).WithBody(body)
 	resp, err := f.session.Power.PCloudVolumes.PcloudV2VolumesclonePost(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.PrepareCloneOperationFailed, *body.Name, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.PrepareCloneOperationFailed, *body.Name, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to prepare the clone operation")
@@ -76,7 +75,7 @@ func (f *IBMPICloneVolumeClient) GetV2Clones(queryFilter string) (*models.Volume
 		WithCloudInstanceID(f.cloudInstanceID).WithFilter(&queryFilter)
 	resp, err := f.session.Power.PCloudVolumes.PcloudV2VolumescloneGetall(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get the volumes-clones for the cloud instance %s with error %w", f.cloudInstanceID, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf("failed to get the volumes-clones for the cloud instance %s with error %w", f.cloudInstanceID, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to get the volumes-clones for the cloud instance %s", f.cloudInstanceID)
@@ -103,7 +102,7 @@ func (f *IBMPICloneVolumeClient) StartClone(volumesCloneID string) (*models.Volu
 		WithCloudInstanceID(f.cloudInstanceID).WithVolumesCloneID(volumesCloneID)
 	resp, err := f.session.Power.PCloudVolumes.PcloudV2VolumescloneStartPost(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.StartCloneOperationFailed, volumesCloneID, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.StartCloneOperationFailed, volumesCloneID, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to start the clone operation for volume-clone %s", volumesCloneID)
@@ -118,7 +117,7 @@ func (f *IBMPICloneVolumeClient) PrepareClone(volumesCloneID string) (*models.Vo
 		WithCloudInstanceID(f.cloudInstanceID).WithVolumesCloneID(volumesCloneID)
 	resp, err := f.session.Power.PCloudVolumes.PcloudV2VolumescloneExecutePost(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.PrepareCloneOperationFailed, volumesCloneID, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.PrepareCloneOperationFailed, volumesCloneID, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to prepare the clone operation for %s", volumesCloneID)
@@ -133,7 +132,7 @@ func (f *IBMPICloneVolumeClient) GetV2CloneStatus(cloneName string) (*models.Vol
 		WithCloudInstanceID(f.cloudInstanceID).WithVolumesCloneID(cloneName)
 	resp, err := f.session.Power.PCloudVolumes.PcloudV2VolumescloneGet(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.GetCloneOperationFailed, cloneName, f.cloudInstanceID, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.GetCloneOperationFailed, cloneName, f.cloudInstanceID, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to get the volumes-clone %s for the cloud instance %s", cloneName, f.cloudInstanceID)

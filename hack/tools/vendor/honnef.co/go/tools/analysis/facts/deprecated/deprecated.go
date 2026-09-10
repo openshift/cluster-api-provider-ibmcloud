@@ -25,10 +25,10 @@ var Analyzer = &analysis.Analyzer{
 	Doc:        "Mark deprecated objects",
 	Run:        deprecated,
 	FactTypes:  []analysis.Fact{(*IsDeprecated)(nil)},
-	ResultType: reflect.TypeOf(Result{}),
+	ResultType: reflect.TypeFor[Result](),
 }
 
-func deprecated(pass *analysis.Pass) (interface{}, error) {
+func deprecated(pass *analysis.Pass) (any, error) {
 	var names []*ast.Ident
 
 	extractDeprecatedMessage := func(docs []*ast.CommentGroup) string {
@@ -36,8 +36,8 @@ func deprecated(pass *analysis.Pass) (interface{}, error) {
 			if doc == nil {
 				continue
 			}
-			parts := strings.Split(doc.Text(), "\n\n")
-			for _, part := range parts {
+			parts := strings.SplitSeq(doc.Text(), "\n\n")
+			for part := range parts {
 				if !strings.HasPrefix(part, "Deprecated: ") {
 					continue
 				}
@@ -48,6 +48,7 @@ func deprecated(pass *analysis.Pass) (interface{}, error) {
 		}
 		return ""
 	}
+
 	doDocs := func(names []*ast.Ident, docs []*ast.CommentGroup) {
 		alt := extractDeprecatedMessage(docs)
 		if alt == "" {
@@ -86,7 +87,15 @@ func deprecated(pass *analysis.Pass) (interface{}, error) {
 				switch node.Tok {
 				case token.TYPE, token.CONST, token.VAR:
 					docs = append(docs, node.Doc)
-					return true
+					for i := range node.Specs {
+						switch n := node.Specs[i].(type) {
+						case *ast.ValueSpec:
+							names = append(names, n.Names...)
+						case *ast.TypeSpec:
+							names = append(names, n.Name)
+						}
+					}
+					ret = true
 				default:
 					return false
 				}

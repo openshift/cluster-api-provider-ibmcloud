@@ -31,7 +31,6 @@ func markReachable(b *BasicBlock) {
 
 // deleteUnreachableBlocks marks all reachable blocks of f and
 // eliminates (nils) all others, including possibly cyclic subgraphs.
-//
 func deleteUnreachableBlocks(f *Function) {
 	const white, black = 0, -1
 	// We borrow b.gaps temporarily as the mark bit.
@@ -39,12 +38,9 @@ func deleteUnreachableBlocks(f *Function) {
 		b.gaps = white
 	}
 	markReachable(f.Blocks[0])
-	// In SSI form, we need the exit to be reachable for correct
-	// post-dominance information. In original form, however, we
-	// cannot unconditionally mark it reachable because we won't
-	// be adding fake edges, and this breaks the calculation of
-	// dominance information.
-	markReachable(f.Exit)
+	if f.Recover != nil {
+		markReachable(f.Recover)
+	}
 	for i, b := range f.Blocks {
 		if b.gaps == white {
 			for _, c := range b.Succs {
@@ -64,12 +60,11 @@ func deleteUnreachableBlocks(f *Function) {
 // jumpThreading attempts to apply simple jump-threading to block b,
 // in which a->b->c become a->c if b is just a Jump.
 // The result is true if the optimization was applied.
-//
 func jumpThreading(f *Function, b *BasicBlock) bool {
 	if b.Index == 0 {
 		return false // don't apply to entry block
 	}
-	if b.Instrs == nil {
+	if len(b.Instrs) == 0 {
 		return false
 	}
 	for _, pred := range b.Preds {
@@ -118,12 +113,8 @@ func jumpThreading(f *Function, b *BasicBlock) bool {
 // fuseBlocks attempts to apply the block fusion optimization to block
 // a, in which a->b becomes ab if len(a.Succs)==len(b.Preds)==1.
 // The result is true if the optimization was applied.
-//
 func fuseBlocks(f *Function, a *BasicBlock) bool {
 	if len(a.Succs) != 1 {
-		return false
-	}
-	if a.Succs[0] == f.Exit {
 		return false
 	}
 	b := a.Succs[0]
@@ -167,13 +158,7 @@ func fuseBlocks(f *Function, a *BasicBlock) bool {
 // optimizeBlocks() performs some simple block optimizations on a
 // completed function: dead block elimination, block fusion, jump
 // threading.
-//
 func optimizeBlocks(f *Function) {
-	if debugBlockOpt {
-		f.WriteTo(os.Stderr)
-		mustSanityCheck(f, nil)
-	}
-
 	deleteUnreachableBlocks(f)
 
 	// Loop until no further progress.

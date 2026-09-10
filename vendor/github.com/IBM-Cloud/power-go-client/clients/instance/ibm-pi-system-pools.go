@@ -6,7 +6,6 @@ import (
 
 	"github.com/IBM-Cloud/power-go-client/errors"
 	"github.com/IBM-Cloud/power-go-client/helpers"
-
 	"github.com/IBM-Cloud/power-go-client/ibmpisession"
 	"github.com/IBM-Cloud/power-go-client/power/client/p_cloud_system_pools"
 	"github.com/IBM-Cloud/power-go-client/power/models"
@@ -24,7 +23,7 @@ func NewIBMPISystemPoolClient(ctx context.Context, sess *ibmpisession.IBMPISessi
 	}
 }
 
-//Get the System Pools
+// Get the System Pools
 // Deprecated: Use GetSystemPools()
 func (f *IBMPISystemPoolClient) Get(id string) (models.SystemPools, error) {
 	params := p_cloud_system_pools.NewPcloudSystempoolsGetParams().
@@ -32,7 +31,7 @@ func (f *IBMPISystemPoolClient) Get(id string) (models.SystemPools, error) {
 		WithCloudInstanceID(id)
 	resp, err := f.session.Power.PCloudSystemPools.PcloudSystempoolsGet(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.GetSystemPoolsOperationFailed, id, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.GetSystemPoolsOperationFailed, id, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to perform Get System Pools Operation for cloud instance id %s", id)
@@ -47,7 +46,7 @@ func (f *IBMPISystemPoolClient) GetSystemPools() (models.SystemPools, error) {
 		WithCloudInstanceID(f.cloudInstanceID)
 	resp, err := f.session.Power.PCloudSystemPools.PcloudSystempoolsGet(params, f.session.AuthInfo(f.cloudInstanceID))
 	if err != nil {
-		return nil, fmt.Errorf(errors.GetSystemPoolsOperationFailed, f.cloudInstanceID, err)
+		return nil, ibmpisession.SDKFailWithAPIError(err, fmt.Errorf(errors.GetSystemPoolsOperationFailed, f.cloudInstanceID, err))
 	}
 	if resp == nil || resp.Payload == nil {
 		return nil, fmt.Errorf("failed to perform Get System Pools Operation for cloud instance id %s", f.cloudInstanceID)

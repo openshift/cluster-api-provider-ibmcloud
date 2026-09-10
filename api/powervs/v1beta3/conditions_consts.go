@@ -43,7 +43,7 @@ const (
 	IBMPowerVSMachineReadyUnknownReason = clusterv1.ReadyUnknownReason
 )
 
-// Power VS instance related conditions and corresponding reasons (virtual machines).
+// PowerVS instance related conditions and corresponding reasons (virtual machines).
 const (
 	// InstanceReadyCondition documents the status of the instance that is controlled
 	// by the IBMPowerVSMachine.
@@ -94,6 +94,9 @@ const (
 	// InstanceWaitingForImageReason surfaces when the instance that is controlled
 	// by the IBMPowerVSMachine waiting for the Power VS image to be available in workspace.
 	InstanceWaitingForImageReason = "WaitingForIBMImage"
+
+	// InvalidMachineConfigurationReason used when the machine configuration is invalid.
+	InvalidMachineConfigurationReason = "InvalidMachineConfiguration"
 )
 
 // IBMPowerVSImage's Ready condition and corresponding reasons.

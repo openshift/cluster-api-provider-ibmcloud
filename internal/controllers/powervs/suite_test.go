@@ -17,21 +17,59 @@ limitations under the License.
 package powervs
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/internal/webhooks/powervs"
 	"testing"
 
+	"github.com/IBM/go-sdk-core/v5/core"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	// +kubebuilder:scaffold:imports
 	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/powervs/v1beta3"
+	powervsscope "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/scope/powervs"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/cos"
+	powervssvc "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcecontroller"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcemanager"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/transitgateway"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/test/helpers"
+	webhookspowervs "sigs.k8s.io/cluster-api-provider-ibmcloud/webhooks/powervs/admission"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
+
+// stubClientBuilder is a test-only ClientBuilder that returns nil clients for tests
+// that inject mocks directly into scope fields.
+type stubClientBuilder struct{}
+
+func (s stubClientBuilder) GetAuthenticator(_ context.Context) (core.Authenticator, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetPowerVSClient(_ context.Context, _ powervsscope.ClientOptions) (powervssvc.PowerVS, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetVPCClient(_ context.Context, _ powervsscope.ClientOptions) (vpc.Vpc, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetTransitGatewayClient(_ context.Context, _ powervsscope.ClientOptions) (transitgateway.TransitGateway, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetResourceControllerClient(_ context.Context, _ powervsscope.ClientOptions) (resourcecontroller.ResourceController, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetResourceManagerClient(_ context.Context, _ powervsscope.ClientOptions) (resourcemanager.ResourceManager, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetCOSClient(_ context.Context, _ powervsscope.COSClientOptions) (cos.Cos, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetHMACCOSClient(_ context.Context, _ powervsscope.HMACCOSClientOptions) (cos.Cos, error) {
+	return nil, nil
+}
 
 var (
 	testEnv *helpers.TestEnvironment
@@ -58,19 +96,19 @@ func setup() {
 	if err != nil {
 		panic(err)
 	}
-	if err := (&powervs.IBMPowerVSCluster{}).SetupWebhookWithManager(testEnv); err != nil {
+	if err := (&webhookspowervs.IBMPowerVSCluster{}).SetupWebhookWithManager(testEnv); err != nil {
 		panic(fmt.Sprintf("Unable to setup IBMPowerVSCluster webhook: %v", err))
 	}
-	if err := (&powervs.IBMPowerVSClusterTemplate{}).SetupWebhookWithManager(testEnv); err != nil {
+	if err := (&webhookspowervs.IBMPowerVSClusterTemplate{}).SetupWebhookWithManager(testEnv); err != nil {
 		panic(fmt.Sprintf("Unable to setup IBMPowerVSClusterTemplate webhook: %v", err))
 	}
-	if err := (&powervs.IBMPowerVSMachine{}).SetupWebhookWithManager(testEnv); err != nil {
+	if err := (&webhookspowervs.IBMPowerVSMachine{}).SetupWebhookWithManager(testEnv); err != nil {
 		panic(fmt.Sprintf("Unable to setup IBMPowerVSMachine webhook: %v", err))
 	}
-	if err := (&powervs.IBMPowerVSMachineTemplate{}).SetupWebhookWithManager(testEnv); err != nil {
+	if err := (&webhookspowervs.IBMPowerVSMachineTemplate{}).SetupWebhookWithManager(testEnv); err != nil {
 		panic(fmt.Sprintf("Unable to setup IBMPowerVSMachineTemplate webhook: %v", err))
 	}
-	if err := (&powervs.IBMPowerVSImage{}).SetupWebhookWithManager(testEnv); err != nil {
+	if err := (&webhookspowervs.IBMPowerVSImage{}).SetupWebhookWithManager(testEnv); err != nil {
 		panic(fmt.Sprintf("Unable to setup IBMPowerVSImage webhook: %v", err))
 	}
 	go func() {

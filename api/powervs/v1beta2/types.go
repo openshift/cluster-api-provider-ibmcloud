@@ -22,7 +22,7 @@ const (
 	// CIDRBlockAny is the CIDRBlock representing any allowable destination/source IP.
 	CIDRBlockAny string = "0.0.0.0/0"
 
-	// DefaultAPIServerPort is defuault API server port number.
+	// DefaultAPIServerPort is default API server port number.
 	DefaultAPIServerPort int32 = 6443
 
 	// UpdateMachineError indicates an error while trying to update a machine.
@@ -285,25 +285,20 @@ var (
 )
 
 const (
-	// VPCSecurityGroupRuleProtocolAllType is a string representation of the 'SecurityGroupRuleSecurityGroupRuleProtocolAll' type.
-	VPCSecurityGroupRuleProtocolAllType = "*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolAll"
+	// VPCSecurityGroupRuleProtocolAnyType is a string representation of the 'SecurityGroupRuleProtocolAny' type.
+	VPCSecurityGroupRuleProtocolAnyType = "*vpcv1.SecurityGroupRuleProtocolAny"
+
+	// VPCSecurityGroupRuleProtocolIcmptcpudpType is a string representation of the 'SecurityGroupRuleProtocolIcmptcpudp' type.
+	VPCSecurityGroupRuleProtocolIcmptcpudpType = "*vpcv1.SecurityGroupRuleProtocolIcmptcpudp"
 
 	// VPCSecurityGroupRuleProtocolIcmpType is a string representation of the 'SecurityGroupRuleSecurityGroupRuleProtocolIcmp' type.
 	VPCSecurityGroupRuleProtocolIcmpType = "*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolIcmp"
 
 	// VPCSecurityGroupRuleProtocolTcpudpType is a string representation of the 'SecurityGroupRuleSecurityGroupRuleProtocolTcpudp' type.
 	VPCSecurityGroupRuleProtocolTcpudpType = "*vpcv1.SecurityGroupRuleSecurityGroupRuleProtocolTcpudp"
-)
 
-// VPCSecurityGroupRuleAction represents the actions for a Security Group Rule.
-// +kubebuilder:validation:Enum=allow;deny
-type VPCSecurityGroupRuleAction string
-
-const (
-	// VPCSecurityGroupRuleActionAllow defines that the Rule should allow traffic.
-	VPCSecurityGroupRuleActionAllow VPCSecurityGroupRuleAction = vpcv1.NetworkACLRuleActionAllowConst
-	// VPCSecurityGroupRuleActionDeny defines that the Rule should deny traffic.
-	VPCSecurityGroupRuleActionDeny VPCSecurityGroupRuleAction = vpcv1.NetworkACLRuleActionDenyConst
+	// VPCSecurityGroupRuleProtocolIndividualType is a string representation of the 'SecurityGroupRuleProtocolIndividual' type.
+	VPCSecurityGroupRuleProtocolIndividualType = "*vpcv1.SecurityGroupRuleProtocolIndividual"
 )
 
 // VPCSecurityGroupRuleDirection represents the directions for a Security Group Rule.
@@ -318,12 +313,18 @@ const (
 )
 
 // VPCSecurityGroupRuleProtocol represents the protocols for a Security Group Rule.
-// +kubebuilder:validation:Enum=all;icmp;tcp;udp
+// +kubebuilder:validation:Pattern=`^(any|all|icmp_tcp_udp|icmp|tcp|udp|ah|esp|gre|ip_in_ip|l2tp|rsvp|sctp|vrrp|number_(?:0|2|3|5|[7-9]|1[0-6]|1[8-9]|[2-3][0-9]|4[0-5]|4[89]|5[2-9]|[6-9][0-9]|10[0-9]|11[0-1]|11[3-4]|11[6-9]|12[0-9]|13[0-1]|13[3-9]|1[4-9][0-9]|2[0-4][0-9]|25[0-5]))$`
 type VPCSecurityGroupRuleProtocol string
 
 const (
-	// VPCSecurityGroupRuleProtocolAll defines the Rule is for all network protocols.
-	VPCSecurityGroupRuleProtocolAll VPCSecurityGroupRuleProtocol = vpcv1.NetworkACLRuleProtocolAllConst
+	// VPCSecurityGroupRuleProtocolAll is DEPRECATED: Use VPCSecurityGroupRuleProtocolIcmpTCPUDP instead.
+	// This constant is maintained for backward compatibility.
+	// It will be removed in a future version.
+	VPCSecurityGroupRuleProtocolAll VPCSecurityGroupRuleProtocol = "all"
+	// VPCSecurityGroupRuleProtocolAny defines the Rule is for any network protocols.
+	VPCSecurityGroupRuleProtocolAny VPCSecurityGroupRuleProtocol = vpcv1.NetworkACLRuleProtocolAnyConst
+	// VPCSecurityGroupRuleProtocolIcmpTCPUDP defines the Rule is for ICMP, TCP and UDP protocols.
+	VPCSecurityGroupRuleProtocolIcmpTCPUDP VPCSecurityGroupRuleProtocol = vpcv1.NetworkACLRuleProtocolIcmpTCPUDPConst
 	// VPCSecurityGroupRuleProtocolIcmp defiens the Rule is for ICMP network protocol.
 	VPCSecurityGroupRuleProtocolIcmp VPCSecurityGroupRuleProtocol = vpcv1.NetworkACLRuleProtocolIcmpConst
 	// VPCSecurityGroupRuleProtocolTCP defines the Rule is for TCP network protocol.
@@ -394,10 +395,6 @@ type VPCSecurityGroup struct {
 // +kubebuilder:validation:XValidation:rule="self.direction == 'outbound' ? has(self.destination) : true",message="destination must be set for VPCSecurityGroupRuleDirectionOutbound direction"
 // +kubebuilder:validation:XValidation:rule="self.direction == 'outbound' ? !has(self.source) : true",message="source is not valid for VPCSecurityGroupRuleDirectionOutbound direction"
 type VPCSecurityGroupRule struct {
-	// action defines whether to allow or deny traffic defined by the Security Group Rule.
-	// +required
-	Action VPCSecurityGroupRuleAction `json:"action"`
-
 	// destination is a VPCSecurityGroupRulePrototype which defines the destination of outbound traffic for the Security Group Rule.
 	// Only used when direction is VPCSecurityGroupRuleDirectionOutbound.
 	// +optional
@@ -446,8 +443,9 @@ type VPCSecurityGroupRuleRemote struct {
 
 // VPCSecurityGroupRulePrototype defines a VPC Security Group Rule's traffic specifics for a series of remotes (destinations or sources).
 // +kubebuilder:validation:XValidation:rule="self.protocol != 'icmp' ? (!has(self.icmpCode) && !has(self.icmpType)) : true",message="icmpCode and icmpType are only supported for VPCSecurityGroupRuleProtocolIcmp protocol"
-// +kubebuilder:validation:XValidation:rule="self.protocol == 'all' ? !has(self.portRange) : true",message="portRange is not valid for VPCSecurityGroupRuleProtocolAll protocol"
 // +kubebuilder:validation:XValidation:rule="self.protocol == 'icmp' ? !has(self.portRange) : true",message="portRange is not valid for VPCSecurityGroupRuleProtocolIcmp protocol"
+// +kubebuilder:validation:XValidation:rule="(self.protocol != 'tcp' && self.protocol != 'udp') ? !has(self.portRange) : true",message="portRange is not valid for protocol"
+// +kubebuilder:validation:XValidation:rule="self.protocol == 'icmp_tcp_udp' ? !has(self.portRange) : true",message="portRange is not valid for VPCSecurityGroupRuleProtocolIcmpTCPUDP protocol"
 type VPCSecurityGroupRulePrototype struct {
 	// icmpCode is the ICMP code for the Rule.
 	// Only used when Protocol is VPCSecurityGroupRuleProtocolIcmp.

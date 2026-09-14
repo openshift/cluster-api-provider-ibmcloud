@@ -3,6 +3,7 @@
 
 # binaries
 bin/
+*.test
 cmd/clusterctl/clusterctl
 cmd/manager/manager
 IBM_Cloud_CLI*
@@ -45,6 +46,5 @@ out/
 #ide settings
 .vscode/
 
-
-# Do not ignore files in vendor directory
-!vendor/**
+#claude settings
+.claude/

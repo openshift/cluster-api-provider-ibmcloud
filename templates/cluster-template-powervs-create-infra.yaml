@@ -27,27 +27,47 @@ spec:
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta3
 kind: IBMPowerVSCluster
 metadata:
-  annotations:
-    powervs.cluster.x-k8s.io/create-infra: "true"
   labels:
     cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
   name: ${CLUSTER_NAME}
   namespace: default
 spec:
+  topology: LoadBalancer
   resourceGroup:
-    name: ${IBM_RESOURCE_GROUP}
+    type: Reference
+    reference:
+      name: ${IBM_RESOURCE_GROUP}
   zone: ${IBMPOWERVS_ZONE}
-  serviceInstance:
-    name: ${CLUSTER_NAME}-serviceInstance
+  workspace:
+    type: Provision
+    provision:
+      name: ${CLUSTER_NAME}-workspace
+  network:
+    type: Provision
+    provision:
+      dhcpServer:
+        name: ${CLUSTER_NAME}
   vpc:
-    name: ${CLUSTER_NAME}-vpc
+    type: Provision
     region: ${IBMVPC_REGION}
-  vpcSubnets:
-  - name: ${CLUSTER_NAME}-vpcsubnet
+    provision:
+      name: ${CLUSTER_NAME}-vpc
+  subnets:
+  - type: Provision
+    provision:
+      name: ${CLUSTER_NAME}-vpcsubnet
   transitGateway:
-    name: ${CLUSTER_NAME}-transitgateway
+    type: Provision
+    provision:
+      name: ${CLUSTER_NAME}-transitgateway
+    vpcConnection:
+      type: Provision
+    powerVSConnection:
+      type: Provision
   loadBalancers:
-  - name: ${CLUSTER_NAME}-loadbalancer
+  - type: Provision
+    provision:
+      name: ${CLUSTER_NAME}-loadbalancer
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlane
@@ -104,15 +124,17 @@ metadata:
 spec:
   template:
     spec:
-      imageRef:
-        name: ${CLUSTER_NAME}-image
+      image:
+        type: Import
+        import:
+          name: ${CLUSTER_NAME}-image
       memoryGiB: ${IBMPOWERVS_CONTROL_PLANE_MEMORY:=4}
       processorType: ${IBMPOWERVS_CONTROL_PLANE_PROCTYPE:="Shared"}
       processors: ${IBMPOWERVS_CONTROL_PLANE_PROCESSORS:="0.25"}
       sshKey: ${IBMPOWERVS_SSHKEY_NAME}
-      systemType: ${IBMPOWERVS_CONTROL_PLANE_SYSTYPE:="s922"}
-      serviceInstance:
-        name: ${CLUSTER_NAME}-serviceInstance
+      systemType: ${IBMPOWERVS_CONTROL_PLANE_SYSTYPE:="s1022"}
+      workspace:
+        name: ${CLUSTER_NAME}-workspace
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
@@ -144,15 +166,17 @@ metadata:
 spec:
   template:
     spec:
-      imageRef:
-        name: ${CLUSTER_NAME}-image
+      image:
+        type: Import
+        import:
+          name: ${CLUSTER_NAME}-image
       memoryGiB: ${IBMPOWERVS_COMPUTE_MEMORY:=4}
       processorType: ${IBMPOWERVS_COMPUTE_PROCTYPE:="Shared"}
       processors: ${IBMPOWERVS_COMPUTE_PROCESSORS:="0.25"}
       sshKey: ${IBMPOWERVS_SSHKEY_NAME}
-      systemType: ${IBMPOWERVS_COMPUTE_SYSTYPE:="s922"}
-      serviceInstance:
-        name: ${CLUSTER_NAME}-serviceInstance
+      systemType: ${IBMPOWERVS_COMPUTE_SYSTYPE:="s1022"}
+      workspace:
+        name: ${CLUSTER_NAME}-workspace
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
@@ -184,7 +208,6 @@ spec:
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta3
 kind: IBMPowerVSImage
 metadata:
-  creationTimestamp: null
   name: ${CLUSTER_NAME}-image
 spec:
   bucket: ${COS_BUCKET_NAME}
@@ -192,10 +215,8 @@ spec:
   deletePolicy: delete
   object: ${COS_OBJECT_NAME}
   region: ${COS_BUCKET_REGION}
-  serviceInstance:
-    name: ${CLUSTER_NAME}-serviceInstance
-status:
-  ready: false
+  workspace:
+    name: ${CLUSTER_NAME}-workspace
 ---
 apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
@@ -241,7 +262,7 @@ data:
         region =  ${IBMVPC_REGION:=""}
         powerVSRegion = ${IBMPOWERVS_REGION}
         powerVSZone = ${IBMPOWERVS_ZONE}
-        powerVSCloudInstanceName = ${CLUSTER_NAME}-serviceInstance
+        powerVSCloudInstanceName = ${CLUSTER_NAME}-workspace
 kind: ConfigMap
 metadata:
   name: ibmpowervs-cfg

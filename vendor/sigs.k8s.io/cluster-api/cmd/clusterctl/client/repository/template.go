@@ -17,9 +17,7 @@ limitations under the License.
 package repository
 
 import (
-	"fmt"
-
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -121,7 +119,7 @@ func NewTemplate(input TemplateInput) (Template, error) {
 	// Transform the yaml in a list of objects, so following transformation can work on typed objects (instead of working on a string/slice of bytes).
 	objs, err := utilyaml.ToUnstructured(processedYaml)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to parse yaml")
+		return nil, pkgerrors.Wrap(err, "failed to parse yaml")
 	}
 
 	if input.TargetNamespace != "" {
@@ -130,7 +128,7 @@ func NewTemplate(input TemplateInput) (Template, error) {
 		// the clusterctl move operation (and also for many controller reconciliation loops).
 		objs, err = fixTargetNamespace(objs, input.TargetNamespace)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to set the TargetNamespace in the template")
+			return nil, pkgerrors.Wrap(err, "failed to set the TargetNamespace in the template")
 		}
 	}
 
@@ -144,12 +142,12 @@ func NewTemplate(input TemplateInput) (Template, error) {
 
 // MergeTemplates merges the provided Templates into one Template.
 // Notes on the merge operation:
-// - The merge operation returns an error if all the templates do not have the same TargetNamespace.
-// - The Variables of the resulting template is a union of all Variables in the templates.
-// - The default value is picked from the first template that defines it.
-//    The defaults of the same variable in the subsequent templates will be ignored.
-//    (e.g when merging a cluster template and its ClusterClass, the default value from the template takes precedence)
-// - The Objs of the final template will be a union of all the Objs in the templates.
+//   - The merge operation sets targetNamespace empty if all the templates do not share the same TargetNamespace.
+//   - The Variables of the resulting template is a union of all Variables in the templates.
+//   - The default value is picked from the first template that defines it.
+//     The defaults of the same variable in the subsequent templates will be ignored.
+//     (e.g when merging a cluster template and its ClusterClass, the default value from the template takes precedence)
+//   - The Objs of the final template will be a union of all the Objs in the templates.
 func MergeTemplates(templates ...Template) (Template, error) {
 	templates = filterNilTemplates(templates...)
 	if len(templates) == 0 {
@@ -164,7 +162,7 @@ func MergeTemplates(templates ...Template) (Template, error) {
 	}
 
 	for _, tmpl := range templates {
-		merged.variables = sets.NewString(merged.variables...).Union(sets.NewString(tmpl.Variables()...)).List()
+		merged.variables = sets.List(sets.Set[string]{}.Insert(merged.variables...).Union(sets.Set[string]{}.Insert(tmpl.Variables()...)))
 
 		for key, val := range tmpl.VariableMap() {
 			if v, ok := merged.variableMap[key]; !ok || v == nil {
@@ -173,7 +171,7 @@ func MergeTemplates(templates ...Template) (Template, error) {
 		}
 
 		if merged.targetNamespace != tmpl.TargetNamespace() {
-			return nil, fmt.Errorf("cannot merge templates with different targetNamespaces")
+			merged.targetNamespace = ""
 		}
 
 		merged.objs = append(merged.objs, tmpl.Objs()...)

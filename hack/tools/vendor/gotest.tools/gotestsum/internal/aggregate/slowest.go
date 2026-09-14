@@ -13,8 +13,8 @@ import (
 //
 // If there are multiple runs of a TestCase, all of them will be represented
 // by a single TestCase with the median elapsed time in the returned slice.
-func Slowest(exec *testjson.Execution, threshold time.Duration) []testjson.TestCase {
-	if threshold == 0 {
+func Slowest(exec *testjson.Execution, threshold time.Duration, num int) []testjson.TestCase {
+	if threshold == 0 && num == 0 {
 		return nil
 	}
 	pkgs := exec.Packages()
@@ -26,6 +26,13 @@ func Slowest(exec *testjson.Execution, threshold time.Duration) []testjson.TestC
 	sort.Slice(tests, func(i, j int) bool {
 		return tests[i].Elapsed > tests[j].Elapsed
 	})
+	if num >= len(tests) {
+		return tests
+	}
+	if num > 0 {
+		return tests[:num]
+	}
+
 	end := sort.Search(len(tests), func(i int) bool {
 		return tests[i].Elapsed < threshold
 	})
@@ -41,7 +48,6 @@ func ByElapsed(cases []testjson.TestCase, fn func(times []time.Duration) time.Du
 		return cases
 	}
 	pkg := cases[0].Package
-	// nolint: prealloc // size is not predictable
 	m := make(map[testjson.TestName][]time.Duration)
 	for _, tc := range cases {
 		m[tc.Test] = append(m[tc.Test], tc.Elapsed)

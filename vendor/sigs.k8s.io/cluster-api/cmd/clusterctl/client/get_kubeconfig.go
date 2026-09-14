@@ -17,7 +17,9 @@ limitations under the License.
 package client
 
 import (
-	"github.com/pkg/errors"
+	"context"
+
+	pkgerrors "github.com/pkg/errors"
 )
 
 // GetKubeconfigOptions carries all the options supported by GetKubeconfig.
@@ -33,7 +35,7 @@ type GetKubeconfigOptions struct {
 	WorkloadClusterName string
 }
 
-func (c *clusterctlClient) GetKubeconfig(options GetKubeconfigOptions) (string, error) {
+func (c *clusterctlClient) GetKubeconfig(ctx context.Context, options GetKubeconfigOptions) (string, error) {
 	// gets access to the management cluster
 	clusterClient, err := c.clusterClientFactory(ClusterClientFactoryInput{Kubeconfig: options.Kubeconfig})
 	if err != nil {
@@ -41,7 +43,7 @@ func (c *clusterctlClient) GetKubeconfig(options GetKubeconfigOptions) (string, 
 	}
 
 	// Ensure this command only runs against management clusters with the current Cluster API contract.
-	if err := clusterClient.ProviderInventory().CheckCAPIContract(); err != nil {
+	if err := clusterClient.ProviderInventory().CheckCAPIContract(ctx); err != nil {
 		return "", err
 	}
 
@@ -51,10 +53,10 @@ func (c *clusterctlClient) GetKubeconfig(options GetKubeconfigOptions) (string, 
 			return "", err
 		}
 		if currentNamespace == "" {
-			return "", errors.New("failed to identify the current namespace. Please specify the namespace where the workload cluster exists")
+			return "", pkgerrors.New("failed to identify the current namespace. Please specify the namespace where the workload cluster exists")
 		}
 		options.Namespace = currentNamespace
 	}
 
-	return clusterClient.WorkloadCluster().GetKubeconfig(options.WorkloadClusterName, options.Namespace)
+	return clusterClient.WorkloadCluster().GetKubeconfig(ctx, options.WorkloadClusterName, options.Namespace)
 }

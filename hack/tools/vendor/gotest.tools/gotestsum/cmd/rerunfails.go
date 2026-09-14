@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
+	"strings"
 
 	"gotest.tools/gotestsum/testjson"
 )
@@ -35,9 +37,15 @@ func newRerunOptsFromTestCase(tc testjson.TestCase) rerunOpts {
 type testCaseFilter func([]testjson.TestCase) []testjson.TestCase
 
 func rerunFailsFilter(o *options) testCaseFilter {
-	if o.rerunFailsOnlyRootCases {
+	if o.rerunFailsRunRootCases {
 		return func(tcs []testjson.TestCase) []testjson.TestCase {
-			return tcs
+			var result []testjson.TestCase
+			for _, tc := range tcs {
+				if !tc.Test.IsSubTest() {
+					result = append(result, tc)
+				}
+			}
+			return result
 		}
 	}
 	return testjson.FilterFailedUnique
@@ -51,11 +59,11 @@ func rerunFailed(ctx context.Context, opts *options, scanConfig testjson.ScanCon
 	rec := newFailureRecorderFromExecution(scanConfig.Execution)
 	for attempts := 0; rec.count() > 0 && attempts < opts.rerunFailsMaxAttempts; attempts++ {
 		testjson.PrintSummary(opts.stdout, scanConfig.Execution, testjson.SummarizeNone)
-		opts.stdout.Write([]byte("\n")) // nolint: errcheck
+		opts.stdout.Write([]byte("\n")) //nolint:errcheck
 
 		nextRec := newFailureRecorder(scanConfig.Handler)
 		for _, tc := range tcFilter(rec.failures) {
-			goTestProc, err := startGoTestFn(ctx, goTestCmdArgs(opts, newRerunOptsFromTestCase(tc)))
+			goTestProc, err := startGoTestFn(ctx, "", goTestCmdArgs(opts, newRerunOptsFromTestCase(tc)))
 			if err != nil {
 				return err
 			}
@@ -75,7 +83,7 @@ func rerunFailed(ctx context.Context, opts *options, scanConfig testjson.ScanCon
 			if exitErr != nil {
 				nextRec.lastErr = exitErr
 			}
-			if err := hasErrors(exitErr, scanConfig.Execution); err != nil {
+			if err := hasErrors(exitErr, scanConfig.Execution, opts); err != nil {
 				return err
 			}
 		}
@@ -87,7 +95,7 @@ func rerunFailed(ctx context.Context, opts *options, scanConfig testjson.ScanCon
 // startGoTestFn is a shim for testing
 var startGoTestFn = startGoTest
 
-func hasErrors(err error, exec *testjson.Execution) error {
+func hasErrors(err error, exec *testjson.Execution, opts *options) error {
 	switch {
 	case len(exec.Errors()) > 0:
 		return fmt.Errorf("rerun aborted because previous run had errors")
@@ -96,6 +104,8 @@ func hasErrors(err error, exec *testjson.Execution) error {
 		return fmt.Errorf("unexpected go test exit code: %v", err)
 	case exec.HasPanic():
 		return fmt.Errorf("rerun aborted because previous run had a suspected panic and some test may not have run")
+	case exec.HasDataRace() && opts.rerunFailsMaxAttempts > 0 && opts.rerunFailsAbortOnDataRace:
+		return fmt.Errorf("rerun aborted because previous run had a data race")
 	default:
 		return nil
 	}
@@ -130,10 +140,20 @@ func (r *failureRecorder) count() int {
 
 func goTestRunFlagForTestCase(test testjson.TestName) string {
 	if test.IsSubTest() {
-		root, sub := test.Split()
-		return "-test.run=^" + root + "$/^" + sub + "$"
+		parts := strings.Split(string(test), "/")
+		var sb strings.Builder
+		sb.WriteString("-test.run=")
+		for i, p := range parts {
+			if i > 0 {
+				sb.WriteByte('/')
+			}
+			sb.WriteByte('^')
+			sb.WriteString(regexp.QuoteMeta(p))
+			sb.WriteByte('$')
+		}
+		return sb.String()
 	}
-	return "-test.run=^" + test.Name() + "$"
+	return "-test.run=^" + regexp.QuoteMeta(test.Name()) + "$"
 }
 
 func writeRerunFailsReport(opts *options, exec *testjson.Execution) error {
@@ -177,6 +197,10 @@ func writeRerunFailsReport(opts *options, exec *testjson.Execution) error {
 	if err != nil {
 		return err
 	}
+
+	defer func() {
+		_ = fh.Close()
+	}()
 
 	sort.Strings(names)
 	for _, name := range names {

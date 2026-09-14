@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	certmangerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	"github.com/google/go-containerregistry/pkg/name"
 	admissionregistration "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -12,35 +13,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/kustomize/api/krusty"
-	"sigs.k8s.io/kustomize/kyaml/filesys"
-)
-
-type resourceKey string
-
-const (
-	crdKey                                                            resourceKey = "crds"
-	otherKey                                                          resourceKey = "other"
-	managedByAnnotationValueClusterCAPIOperatorInfraClusterController             = "cluster-capi-operator-infracluster-controller"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
-	// Workload annotations are used by the workload admission webhook to modify pod
-	// resources and correctly schedule them while also pinning them to specific CPUSets.
-	// See for more info:
-	// https://github.com/openshift/enhancements/blob/master/enhancements/workload-partitioning/wide-availability-workload-partitioning.md
-	openshiftWorkloadAnnotation = map[string]string{
-		"target.workload.openshift.io/management": `{"effect": "PreferredDuringScheduling"}`,
-	}
-
 	// The expected registry for images used by the cluster-capi-operator.
 	expectedRegistry = "registry.ci.openshift.org"
 )
 
 func processObjects(objs []client.Object, opts cmdlineOptions) ([]client.Object, error) {
 	providerConfigMapObjs := make([]client.Object, 0, len(objs))
-
-	objs = addInfraClusterProtectionPolicy(objs, providerName)
 
 	serviceSecretNames := findWebhookServiceSecretName(objs)
 
@@ -80,14 +64,22 @@ func processObjects(objs []client.Object, opts cmdlineOptions) ([]client.Object,
 				// Don't emit these resources
 				continue
 			}
-			providerConfigMapObjs = append(providerConfigMapObjs, obj)
-		case "ValidatingAdmissionPolicy":
-			providerConfigMapObjs = append(providerConfigMapObjs, obj)
-		case "ValidatingAdmissionPolicyBinding":
-			providerConfigMapObjs = append(providerConfigMapObjs, obj)
-		case "ConfigMap":
-			providerConfigMapObjs = append(providerConfigMapObjs, obj)
-		case "Certificate", "Issuer", "Namespace", "Secret": // skip
+
+		case "apps":
+			switch getKind(obj) {
+			case "Deployment":
+				deploy, err := customizeDeployment(obj)
+				if err != nil {
+					return nil, fmt.Errorf("failed to customize deployment %q: %w", obj.GetName(), err)
+				}
+				obj = deploy
+			}
+
+		case "cert-manager.io":
+			// Upstream CAPI uses cert-manager.io for cert management by
+			// default, and most providers will use it too. Don't emit anything
+			// related to cert-manager.
+			continue
 		}
 
 		providerConfigMapObjs = append(providerConfigMapObjs, obj)
@@ -137,7 +129,7 @@ func findWebhookServiceSecretName(objs []client.Object) map[string]string {
 				if !ok {
 					panic("can't find secret from cert: " + certNN)
 				}
-				if crd.Spec.Conversion != nil {
+				if crd.Spec.Conversion != nil && crd.Spec.Conversion.Webhook != nil && crd.Spec.Conversion.Webhook.ClientConfig != nil && crd.Spec.Conversion.Webhook.ClientConfig.Service != nil {
 					serviceSecretNames[crd.Spec.Conversion.Webhook.ClientConfig.Service.Name] = secretName
 				}
 			}
@@ -175,8 +167,6 @@ func customizeDeployment(obj client.Object) (client.Object, error) {
 	mustConvert(obj, deployment)
 
 	deployment.Spec.Template.Spec.PriorityClassName = "system-cluster-critical"
-
-	deployment.Spec.Template.Annotations = mergeMaps(deployment.Spec.Template.Annotations, openshiftWorkloadAnnotation)
 
 	for i := range deployment.Spec.Template.Spec.Containers {
 		container := &deployment.Spec.Template.Spec.Containers[i]
@@ -227,78 +217,96 @@ func replaceCertMangerServiceSecret(obj client.Object, serviceSecretNames map[st
 	}
 }
 
-// Variadic function to merge maps of like kind.
-// Note: keys of next map will override keys in previous map if previous map contains same key.
-func mergeMaps[K comparable, V any](maps ...map[K]V) map[K]V {
-	result := map[K]V{}
-	for _, m := range maps {
-		for k, v := range m {
-			result[k] = v
-		}
+// generateInfraClusterProtectionPolicy generates a Validating Admission Policy and Binding for protecting
+// InfraClusters created by the cluster-capi-operator from deletion and editing.
+func generateInfraClusterProtectionPolicy(crd *apiextensionsv1.CustomResourceDefinition) []client.Object {
+	var policy client.Object = &admissionregistration.ValidatingAdmissionPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "openshift-cluster-api-protect-" + crd.Spec.Names.Singular,
+		},
+		Spec: admissionregistration.ValidatingAdmissionPolicySpec{
+			FailurePolicy: ptr.To(admissionregistration.Fail),
+			ParamKind: &admissionregistration.ParamKind{
+				APIVersion: "config.openshift.io/v1",
+				Kind:       "Infrastructure",
+			},
+			MatchConstraints: &admissionregistration.MatchResources{
+				ResourceRules: []admissionregistration.NamedRuleWithOperations{
+					{
+						RuleWithOperations: admissionregistration.RuleWithOperations{
+							Operations: []admissionregistration.OperationType{admissionregistration.Delete},
+							Rule: admissionregistration.Rule{
+								APIGroups:   []string{crd.Spec.Group},
+								APIVersions: []string{"*"},
+								Resources:   []string{crd.Spec.Names.Plural},
+							},
+						},
+					},
+				},
+			},
+			Validations: []admissionregistration.Validation{
+				{
+					Expression: "!(oldObject.metadata.name == params.status.infrastructureName)",
+					Message:    "InfraCluster resources with metadata.name corresponding to the cluster infrastructureName cannot be deleted.",
+				},
+			},
+		},
 	}
-	return result
+
+	binding := &admissionregistration.ValidatingAdmissionPolicyBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: policy.GetName(),
+		},
+		Spec: admissionregistration.ValidatingAdmissionPolicyBindingSpec{
+			ParamRef: &admissionregistration.ParamRef{
+				Name:                    "cluster",
+				ParameterNotFoundAction: ptr.To(admissionregistration.DenyAction),
+			},
+			PolicyName:        policy.GetName(),
+			ValidationActions: []admissionregistration.ValidationAction{admissionregistration.Deny},
+			MatchResources: &admissionregistration.MatchResources{
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"kubernetes.io/metadata.name": capiNamespace,
+					},
+				},
+			},
+		},
+	}
+
+	// Set type metadata explicitly so it is present in the serialisation
+	for _, obj := range []client.Object{policy, binding} {
+		setTypeMetadataFromScheme(obj, "v1")
+	}
+
+	// ValidatingAdmissionPolicy serialises with a redundant `status` field
+	policy = stripStatus(policy)
+
+	return []client.Object{policy, binding}
 }
 
-// addInfraClusterProtectionPolicy adds a Validating Admission Policy and Binding for protecting
-// InfraClusters created by the cluster-capi-operator from deletion and editing.
-func addInfraClusterProtectionPolicy(objs []unstructured.Unstructured, providerName string) []unstructured.Unstructured {
-	policy := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "admissionregistration.k8s.io/v1beta1",
-			"kind":       "ValidatingAdmissionPolicy",
-			"metadata": map[string]interface{}{
-				"name": "openshift-cluster-api-protect-" + providerName + "cluster",
-			},
-			"spec": map[string]interface{}{
-				"failurePolicy": "Fail",
-				"paramKind": map[string]interface{}{
-					"apiVersion": "config.openshift.io/v1",
-					"kind":       "Infrastructure",
-				},
-				"matchConstraints": map[string]interface{}{
-					"resourceRules": []interface{}{
-						map[string]interface{}{
-							"apiGroups":   []interface{}{"infrastructure.cluster.x-k8s.io"},
-							"apiVersions": []interface{}{"*"},
-							"operations":  []interface{}{"DELETE"},
-							"resources":   []interface{}{providerName + "clusters"},
-						},
-					},
-				},
-				"validations": []interface{}{
-					map[string]interface{}{
-						"expression": "!(oldObject.metadata.name == params.status.infrastructureName)",
-						"message":    "InfraCluster resources with metadata.name corresponding to the cluster infrastructureName cannot be deleted.",
-					},
-				},
-			},
-		},
+// stripStatus removes the status field from the serialisation of an object.
+func stripStatus(obj client.Object) client.Object {
+	unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		panic(err)
+	}
+	delete(unstructuredObj, "status")
+	return &unstructured.Unstructured{Object: unstructuredObj}
+}
+
+func setTypeMetadataFromScheme(obj client.Object, version string) {
+	gvks, _, err := scheme.ObjectKinds(obj)
+	if err != nil {
+		panic(err)
 	}
 
-	binding := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "admissionregistration.k8s.io/v1beta1",
-			"kind":       "ValidatingAdmissionPolicyBinding",
-			"metadata": map[string]interface{}{
-				"name": "openshift-cluster-api-protect-" + providerName + "cluster",
-			},
-			"spec": map[string]interface{}{
-				"paramRef": map[string]interface{}{
-					"name":                    "cluster",
-					"parameterNotFoundAction": "Deny",
-				},
-				"policyName":        "openshift-cluster-api-protect-" + providerName + "cluster",
-				"validationActions": []interface{}{"Deny"},
-				"matchResources": map[string]interface{}{
-					"namespaceSelector": map[string]interface{}{
-						"matchLabels": map[string]interface{}{
-							"kubernetes.io/metadata.name": "openshift-cluster-api",
-						},
-					},
-				},
-			},
-		},
+	// Get the GVK for the given version
+	for _, gvk := range gvks {
+		if gvk.Version == version {
+			obj.GetObjectKind().SetGroupVersionKind(gvk)
+			return
+		}
 	}
-
-	return append(objs, *policy, *binding)
+	panic("no " + version + " GVK found")
 }

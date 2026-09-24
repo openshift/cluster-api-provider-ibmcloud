@@ -7,6 +7,7 @@
     - [Support and guarantees](#support-and-guarantees)
   - [Sign the CLA](#sign-the-cla)
   - [Contributing A Patch](#contributing-a-patch)
+    - [AI Guidance](#ai-guidance)
   - [Issue and Pull Request Management](#issue-and-pull-request-management)
   - [Pre-check before submitting a PR](#pre-check-before-submitting-a-pr)
   - [Build and push images](#build-and-push-images)
@@ -31,32 +32,18 @@ this should generally not be the case.
 
 ### Support and guarantees
 
-Cluster API Provider IBM Cloud maintains the most recent release/releases for all supported API and contract versions. Support for this section refers to the ability to backport and release patch versions;
-standard [backport policy](https://github.com/kubernetes-sigs/cluster-api/blob/main/CONTRIBUTING.md#backporting-a-patch) is defined here.
+Cluster API Provider IBM Cloud maintains releases for all supported API and contract versions.
+Support here refers to the ability to backport and release patch versions; the standard
+[backport policy](https://github.com/kubernetes-sigs/cluster-api/blob/main/CONTRIBUTING.md#backporting-a-patch)
+is defined upstream.
 
-- The API version is determined from the GroupVersion defined in the top-level `api/` package.
-- The EOL date of each API Version is determined from the last release available once a new API version is published.
+For the full version support matrix, see the **[Version Support Policy](https://cluster-api-ibmcloud.sigs.k8s.io/reference/versions.html)** page.
 
-| API Version  | Supported Until      |
-|--------------|----------------------|
-| **v1beta2**  | TBD (current stable) |
-| **v1beta1**  | EOL since 2023-02-09 |
+CAPIBM follows the N / N-1 / N-2 support model (matching upstream CAPI):
 
-- For the current stable API version (v1beta2) we support the two most recent minor releases; older minor releases are immediately unsupported when a new major/minor release is available.
-- For older API versions we only support the most recent minor release until the API version reaches EOL.
-- We will maintain test coverage for all supported minor releases for the current stable API version in case we have to do an emergency patch release.
-  For example, if v0.5 and v0.6 are currently supported. When v0.7 is released, tests for v0.5 will be removed.
-
-| Minor Release | API Version | Supported Until                                    |
-|---------------|-------------|----------------------------------------------------|
-| v0.6.x        | **v1beta2** | when v0.8.0 will be released                       |
-| v0.5.x        | **v1beta2** | when v0.7.0 will be released, tentatively Nov 2023 |
-| v0.4.x        | **v1beta2** | EOL since 2023-09-07 - v0.6.0 release date         |
-| v0.3.x        | **v1beta1** | EOL since 2023-02-09 - API version EOL             |
-
-- The CAPI, k8s and test packages will receive regular updates for supported releases to ensure they remain synchronized with the CAPI release being utilized as an integral component of the provider release. This activity is ideally scheduled to occur with every new n-1 and n-2 CAPI minor releases.
-- The IBM packages will be monitored for latest updates in conjunction with CAPI minor release update activity, as long as there are no disruptive changes that impact the project stability.
-- Exceptions can be filed with maintainers and taken into consideration on a case-by-case basis.
+- **N and N-1** receive standard support: bug fixes, backports, patch releases, full CI signal.
+- **N-2** is in maintenance mode: partial CI, no proactive backports, emergency patches case-by-case.
+- **N-3 and older** are EOL.
 
 ## Sign the CLA
 
@@ -69,6 +56,39 @@ Kubernetes projects require that you sign a Contributor License Agreement (CLA) 
 1. If your proposed change is accepted, and you haven't already done so, sign a Contributor License Agreement (see details above).
 1. Fork the desired repo, develop and test your code changes.
 1. Submit a pull request.
+    1. All code PRs must be labeled with one of:
+        - ⚠️ (`:warning:`, major or breaking changes)
+        - ✨ (`:sparkles:`, feature additions)
+        - 🐛 (`:bug:`, patch and bugfixes)
+        - 📖 (`:book:`, documentation or proposals)
+        - 🌱 (`:seedling:`, minor or other)
+1. If your PR has multiple commits, you must [squash them into a single commit](https://kubernetes.io/docs/contribute/new-content/open-a-pr/#squashing-commits) before merging your PR.
+
+All changes must be code reviewed. Coding conventions and standards are explained in the official [developer
+docs](https://git.k8s.io/community/contributors/devel). Expect reviewers to request that you
+avoid common [go style mistakes](https://github.com/golang/go/wiki/CodeReviewComments) in your PRs.
+
+### AI Guidance
+
+This project aligns to the [Kubernetes AI guidance](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance) and the [Cluster API AI guidance](https://github.com/kubernetes-sigs/cluster-api/blob/main/CONTRIBUTING.md#ai-guidance).
+
+Above all, as Cluster API Provider IBM Cloud maintainers and reviewers, we want to engage directly with you, not with a bot.
+
+Accordingly, when you engage with maintainers and reviewers in this project:
+
+- When writing a comment, please keep in mind that your opinion and your concrete use cases are unique, important, and valuable, while a comment generated by a bot is not.
+- When you open a PR, be aware that concise PR descriptions are usually more helpful (and welcome) than lengthy AI-generated ones.
+- When responding to review comments, you must do so without relying on AI tools.
+- As a rule of thumb, assume that AI-generated comments are going to be ignored.
+- If a user repeatedly disrupts discussion threads with AI-generated comments, we will report it.
+
+If you used AI tools in preparing your PR, you must disclose this in the PR description. For example, including *"This PR was written in part with the assistance of generative AI"* in the PR description is sufficient.
+
+Listing AI tooling as a co-author, co-signing commits using an AI tool, or using the `assisted-by`, `co-developed`, or similar commit trailers is not allowed.
+
+Do not leave the first review of AI-generated changes to the reviewers. Verify the changes (code review, testing, etc.) before submitting your PR. Reviewers may ask questions about your AI-assisted code, and if you cannot explain why a change was made, the PR will be closed.
+
+**TL;DR:** Great contributors use AI wisely to amplify their impact and reputation, but if your plan is to rely on AI only, Cluster API Provider IBM Cloud maintainers and reviewers will not invest time in your work.
 
 ## Issue and Pull Request Management
 

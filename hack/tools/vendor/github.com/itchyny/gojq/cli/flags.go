@@ -7,14 +7,14 @@ import (
 	"strings"
 )
 
-func parseFlags(args []string, opts interface{}) ([]string, error) {
+func parseFlags(args []string, opts any) ([]string, error) {
 	rest := make([]string, 0, len(args))
 	val := reflect.ValueOf(opts).Elem()
 	typ := val.Type()
 	longToValue := map[string]reflect.Value{}
 	longToPositional := map[string]struct{}{}
 	shortToValue := map[string]reflect.Value{}
-	for i, l := 0, val.NumField(); i < l; i++ {
+	for i := range val.NumField() {
 		if flag, ok := typ.Field(i).Tag.Lookup("long"); ok {
 			longToValue[flag] = val.Field(i)
 			if _, ok := typ.Field(i).Tag.Lookup("positional"); ok {
@@ -27,6 +27,7 @@ func parseFlags(args []string, opts interface{}) ([]string, error) {
 	}
 	mapKeys := map[string]struct{}{}
 	var positionalVal reflect.Value
+	var optsDone bool
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		var (
@@ -34,17 +35,13 @@ func parseFlags(args []string, opts interface{}) ([]string, error) {
 			ok        bool
 			shortopts string
 		)
-		if arg == "--" {
-			if positionalVal.IsValid() {
-				for _, arg := range args[i+1:] {
-					positionalVal.Set(reflect.Append(positionalVal, reflect.ValueOf(arg)))
-				}
-			} else {
-				rest = append(rest, args[i+1:]...)
-			}
-			break
-		}
-		if strings.HasPrefix(arg, "--") {
+		switch {
+		case optsDone:
+			// Skip option parsing after `--`.
+		case arg == "--":
+			optsDone = true
+			continue
+		case strings.HasPrefix(arg, "--"):
 			if val, ok = longToValue[arg[2:]]; !ok {
 				if j := strings.IndexByte(arg, '='); j >= 0 {
 					if val, ok = longToValue[arg[2:j]]; ok {
@@ -60,7 +57,7 @@ func parseFlags(args []string, opts interface{}) ([]string, error) {
 					return nil, fmt.Errorf("unknown flag `%s'", arg)
 				}
 			}
-		} else if len(arg) > 1 && arg[0] == '-' {
+		case len(arg) > 1 && arg[0] == '-':
 			var skip bool
 			for i := 1; i < len(arg); i++ {
 				opt := arg[i : i+1]
@@ -95,7 +92,7 @@ func parseFlags(args []string, opts interface{}) ([]string, error) {
 				return nil, fmt.Errorf("expected argument for flag `%s'", arg)
 			}
 			val.SetString(args[i])
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if val.Type().Elem().Kind() == reflect.Int {
 				if i++; i >= len(args) {
 					return nil, fmt.Errorf("expected argument for flag `%s'", arg)
@@ -158,14 +155,14 @@ func parseFlags(args []string, opts interface{}) ([]string, error) {
 	return rest, nil
 }
 
-func formatFlags(opts interface{}) string {
+func formatFlags(opts any) string {
 	val := reflect.ValueOf(opts).Elem()
 	typ := val.Type()
 	var sb strings.Builder
 	sb.WriteString("Command Options:\n")
-	for i, l := 0, typ.NumField(); i < l; i++ {
+	for i := range typ.NumField() {
 		tag := typ.Field(i).Tag
-		if i == l-1 {
+		if i == typ.NumField()-1 {
 			sb.WriteString("\nHelp Option:\n")
 		}
 		sb.WriteString("  ")
@@ -186,24 +183,12 @@ func formatFlags(opts interface{}) string {
 			}
 			sb.WriteString("--")
 			sb.WriteString(flag)
-			switch val.Field(i).Kind() {
-			case reflect.Bool:
-				sb.WriteString(" ")
-			case reflect.Map:
-				if strings.HasSuffix(flag, "file") {
-					sb.WriteString(" name file")
-				} else {
-					sb.WriteString(" name value")
-				}
-			default:
-				if _, ok = tag.Lookup("positional"); !ok {
-					sb.WriteString("=")
-				}
-			}
-		} else {
-			sb.WriteString("=")
 		}
-		sb.WriteString("                       "[:24-sb.Len()+m])
+		if args, ok := tag.Lookup("args"); ok {
+			sb.WriteString(" ")
+			sb.WriteString(args)
+		}
+		sb.WriteString(strings.Repeat(" ", 24-(sb.Len()-m)))
 		sb.WriteString(tag.Get("description"))
 		sb.WriteString("\n")
 	}

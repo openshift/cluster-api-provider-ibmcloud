@@ -35,7 +35,7 @@ type DescribeClusterOptions struct {
 	ClusterName string
 
 	// ShowOtherConditions is a list of comma separated kind or kind/name for which we should add the ShowObjectConditionsAnnotation
-	// to signal to the presentation layer to show all the conditions for the objects.
+	// to signal to the presentation layer to show conditions for the objects.
 	ShowOtherConditions string
 
 	// ShowMachineSets instructs the discovery process to include machine sets in the ObjectTree.
@@ -57,10 +57,15 @@ type DescribeClusterOptions struct {
 	// Grouping groups machines objects in case the ready conditions
 	// have the same Status, Severity and Reason.
 	Grouping bool
+
+	// V1Beta1 instructs tree to use V1Beta1 conditions.
+	//
+	// Deprecated: This field will be removed when v1beta1 will be dropped.
+	V1Beta1 bool
 }
 
 // DescribeCluster returns the object tree representing the status of a Cluster API cluster.
-func (c *clusterctlClient) DescribeCluster(options DescribeClusterOptions) (*tree.ObjectTree, error) {
+func (c *clusterctlClient) DescribeCluster(ctx context.Context, options DescribeClusterOptions) (*tree.ObjectTree, error) {
 	// gets access to the management cluster
 	cluster, err := c.clusterClientFactory(ClusterClientFactoryInput{Kubeconfig: options.Kubeconfig})
 	if err != nil {
@@ -68,7 +73,7 @@ func (c *clusterctlClient) DescribeCluster(options DescribeClusterOptions) (*tre
 	}
 
 	// Ensure this command only runs against management clusters with the current Cluster API contract.
-	if err := cluster.ProviderInventory().CheckCAPIContract(); err != nil {
+	if err := cluster.ProviderInventory().CheckCAPIContract(ctx); err != nil {
 		return nil, err
 	}
 
@@ -82,13 +87,13 @@ func (c *clusterctlClient) DescribeCluster(options DescribeClusterOptions) (*tre
 	}
 
 	// Fetch the Cluster client.
-	client, err := cluster.Proxy().NewClient()
+	client, err := cluster.Proxy().NewClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Gets the object tree representing the status of a Cluster API cluster.
-	return tree.Discovery(context.TODO(), client, options.Namespace, options.ClusterName, tree.DiscoverOptions{
+	return tree.Discovery(ctx, client, options.Namespace, options.ClusterName, tree.DiscoverOptions{
 		ShowOtherConditions:     options.ShowOtherConditions,
 		ShowMachineSets:         options.ShowMachineSets,
 		ShowClusterResourceSets: options.ShowClusterResourceSets,
@@ -96,5 +101,6 @@ func (c *clusterctlClient) DescribeCluster(options DescribeClusterOptions) (*tre
 		AddTemplateVirtualNode:  options.AddTemplateVirtualNode,
 		Echo:                    options.Echo,
 		Grouping:                options.Grouping,
+		V1Beta1:                 options.V1Beta1,
 	})
 }

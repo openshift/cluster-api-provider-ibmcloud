@@ -21,9 +21,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 )
 
 // Provides a logr.Logger to use during e2e tests.
@@ -35,14 +36,14 @@ type logger struct {
 
 var _ logr.LogSink = &logger{}
 
-func (l *logger) Init(info logr.RuntimeInfo) {
+func (l *logger) Init(_ logr.RuntimeInfo) {
 }
 
-func (l *logger) Enabled(level int) bool {
+func (l *logger) Enabled(_ int) bool {
 	return true
 }
 
-func (l *logger) Info(level int, msg string, kvs ...interface{}) {
+func (l *logger) Info(_ int, msg string, kvs ...interface{}) {
 	values := copySlice(l.values)
 	values = append(values, kvs...)
 	values = append(values, "msg", msg)
@@ -53,16 +54,16 @@ func (l *logger) Info(level int, msg string, kvs ...interface{}) {
 	fmt.Fprintln(l.writer, f)
 }
 
-func (l *logger) Error(err error, msg string, kvs ...interface{}) {
+func (l *logger) Error(_ error, _ string, _ ...interface{}) {
 	panic("using log.Error is deprecated in clusterctl")
 }
 
-func (l *logger) V(level int) logr.LogSink {
+func (l *logger) V(_ int) logr.LogSink {
 	nl := l.clone()
 	return nl
 }
 
-func (l *logger) WithName(name string) logr.LogSink {
+func (l *logger) WithName(_ string) logr.LogSink {
 	panic("using log.WithName is deprecated in clusterctl")
 }
 
@@ -89,7 +90,7 @@ func flatten(values []interface{}) (string, error) {
 	var msgValue string
 	var errorValue error
 	if len(values)%2 == 1 {
-		return "", errors.New("log entry cannot have odd number off keyAndValues")
+		return "", pkgerrors.New("log entry cannot have odd number off keyAndValues")
 	}
 
 	keys := make([]string, 0, len(values)/2)
@@ -121,7 +122,7 @@ func flatten(values []interface{}) (string, error) {
 			val[k] = v
 		}
 	}
-	str := ""
+	str := time.Now().Format("15:04:05.000000") + " "
 	str += msgValue
 	if errorValue != nil {
 		if msgValue != "" {
@@ -142,7 +143,7 @@ func flatten(values []interface{}) (string, error) {
 func pretty(value interface{}) (string, error) {
 	jb, err := json.Marshal(value)
 	if err != nil {
-		return "", errors.Wrapf(err, "Failed to marshal %s", value)
+		return "", pkgerrors.Wrapf(err, "Failed to marshal %s", value)
 	}
 	return string(jb), nil
 }

@@ -18,62 +18,25 @@ limitations under the License.
 package version
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/blang/semver"
-	"github.com/pkg/errors"
+	"github.com/blang/semver/v4"
 )
 
-var (
-	// KubeSemver is the regex for Kubernetes versions. It requires the "v" prefix.
-	KubeSemver = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-0-9a-zA-Z_\.+]*)?$`)
-	// KubeSemverTolerant is the regex for Kubernetes versions with an optional "v" prefix.
-	KubeSemverTolerant = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-0-9a-zA-Z_\.+]*)?$`)
-)
-
-// ParseMajorMinorPatch returns a semver.Version from the string provided
-// by looking only at major.minor.patch and stripping everything else out.
-// It requires the version to have a "v" prefix.
-func ParseMajorMinorPatch(version string) (semver.Version, error) {
-	return parseMajorMinorPatch(version, false)
-}
-
-// ParseMajorMinorPatchTolerant returns a semver.Version from the string provided
-// by looking only at major.minor.patch and stripping everything else out.
-// It does not require the version to have a "v" prefix.
-func ParseMajorMinorPatchTolerant(version string) (semver.Version, error) {
-	return parseMajorMinorPatch(version, true)
-}
-
-// parseMajorMinorPatch returns a semver.Version from the string provided
-// by looking only at major.minor.patch and stripping everything else out.
-func parseMajorMinorPatch(version string, tolerant bool) (semver.Version, error) {
-	groups := KubeSemver.FindStringSubmatch(version)
-	if tolerant {
-		groups = KubeSemverTolerant.FindStringSubmatch(version)
-	}
-	if len(groups) < 4 {
-		return semver.Version{}, errors.Errorf("failed to parse major.minor.patch from %q", version)
-	}
-	major, err := strconv.ParseUint(groups[1], 10, 64)
-	if err != nil {
-		return semver.Version{}, errors.Wrapf(err, "failed to parse major version from %q", version)
-	}
-	minor, err := strconv.ParseUint(groups[2], 10, 64)
-	if err != nil {
-		return semver.Version{}, errors.Wrapf(err, "failed to parse minor version from %q", version)
-	}
-	patch, err := strconv.ParseUint(groups[3], 10, 64)
-	if err != nil {
-		return semver.Version{}, errors.Wrapf(err, "failed to parse patch version from %q", version)
-	}
+// MajorMinorPatch returns a version that only has Major / Minor / Patch fields set.
+func MajorMinorPatch(version semver.Version) semver.Version {
 	return semver.Version{
-		Major: major,
-		Minor: minor,
-		Patch: patch,
-	}, nil
+		Major: version.Major,
+		Minor: version.Minor,
+		Patch: version.Patch,
+	}
+}
+
+// ParseTolerantImageTag replaces all _ with + in version and then parses the version with semver.ParseTolerant.
+// This allows to parse image tags which cannot contain +, so they use _ instead of +.
+func ParseTolerantImageTag(version string) (semver.Version, error) {
+	return semver.ParseTolerant(strings.ReplaceAll(version, "_", "+"))
 }
 
 const (
@@ -104,21 +67,20 @@ func newBuildIdentifiers(ids []string) buildIdentifiers {
 func (v buildIdentifiers) compare(o buildIdentifiers) int {
 	i := 0
 	for ; i < len(v) && i < len(o); i++ {
-		if comp := v[i].compare(o[i]); comp == 0 {
-			continue
-		} else {
+		comp := v[i].compare(o[i])
+		if comp != 0 {
 			return comp
 		}
 	}
 
 	// if everything is equal till now the longer is greater
-	if i == len(v) && i == len(o) { //nolint: gocritic
+	if i == len(v) && i == len(o) {
 		return 0
 	} else if i == len(v) && i < len(o) {
 		return -1
-	} else {
-		return 1
 	}
+
+	return 1
 }
 
 type buildIdentifier struct {
@@ -192,10 +154,11 @@ type CompareOption func(*comparer)
 // - Identifiers with letters or hyphens are compared only for equality, otherwise, 2 is returned given
 // that it is not possible to identify if lower or greater (non-numeric identifiers could be random build
 // identifiers).
-//   -1 == a is less than b.
-//   0 == a is equal to b.
-//   1 == a is greater than b.
-//   2 == v is different than o (it is not possible to identify if lower or greater).
+//
+//	-1 == a is less than b.
+//	0 == a is equal to b.
+//	1 == a is greater than b.
+//	2 == v is different than o (it is not possible to identify if lower or greater).
 func WithBuildTags() CompareOption {
 	return func(c *comparer) {
 		c.buildTags = true

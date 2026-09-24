@@ -17,9 +17,10 @@ limitations under the License.
 package client
 
 import (
+	"context"
 	"strings"
 
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
@@ -28,7 +29,7 @@ import (
 
 // getComponentsByName is a utility method that returns components
 // for a given provider with options including targetNamespace.
-func (c *clusterctlClient) getComponentsByName(provider string, providerType clusterctlv1.ProviderType, options repository.ComponentsOptions) (repository.Components, error) {
+func (c *clusterctlClient) getComponentsByName(ctx context.Context, provider string, providerType clusterctlv1.ProviderType, options repository.ComponentsOptions) (repository.Components, error) {
 	// Parse the abbreviated syntax for name[:version]
 	name, version, err := parseProviderName(provider)
 	if err != nil {
@@ -47,12 +48,12 @@ func (c *clusterctlClient) getComponentsByName(provider string, providerType clu
 	// namespace etc.
 	// Currently we are not supporting custom yaml processors for the provider
 	// components. So we revert to using the default SimpleYamlProcessor.
-	repositoryClientFactory, err := c.repositoryClientFactory(RepositoryClientFactoryInput{Provider: providerConfig})
+	repositoryClientFactory, err := c.repositoryClientFactory(ctx, RepositoryClientFactoryInput{Provider: providerConfig})
 	if err != nil {
 		return nil, err
 	}
 
-	components, err := repositoryClientFactory.Components().Get(options)
+	components, err := repositoryClientFactory.Components().Get(ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -61,24 +62,24 @@ func (c *clusterctlClient) getComponentsByName(provider string, providerType clu
 
 // parseProviderName defines a utility function that parses the abbreviated syntax for name[:version].
 func parseProviderName(provider string) (name string, version string, err error) {
-	t := strings.Split(strings.ToLower(provider), ":")
+	t := strings.Split(provider, ":")
 	if len(t) > 2 {
-		return "", "", errors.Errorf("invalid provider name %q. Provider name should be in the form name[:version]", provider)
+		return "", "", pkgerrors.Errorf("invalid provider name %q. Provider name should be in the form name[:version]", provider)
 	}
 
 	if t[0] == "" {
-		return "", "", errors.Errorf("invalid provider name %q. Provider name should be in the form name[:version] and name cannot be empty", provider)
+		return "", "", pkgerrors.Errorf("invalid provider name %q. Provider name should be in the form name[:version] and name cannot be empty", provider)
 	}
 
-	name = t[0]
+	name = strings.ToLower(t[0])
 	if err := validateDNS1123Label(name); err != nil {
-		return "", "", errors.Wrapf(err, "invalid provider name %q. Provider name should be in the form name[:version] and the name should be valid", provider)
+		return "", "", pkgerrors.Wrapf(err, "invalid provider name %q. Provider name should be in the form name[:version] and the name should be valid", provider)
 	}
 
 	version = ""
 	if len(t) > 1 {
 		if t[1] == "" {
-			return "", "", errors.Errorf("invalid provider name %q. Provider name should be in the form name[:version] and version cannot be empty", provider)
+			return "", "", pkgerrors.Errorf("invalid provider name %q. Provider name should be in the form name[:version] and version cannot be empty", provider)
 		}
 		version = t[1]
 	}
@@ -88,14 +89,14 @@ func parseProviderName(provider string) (name string, version string, err error)
 
 func validateDNS1123Label(label string) error {
 	if errs := validation.IsDNS1123Label(label); len(errs) != 0 {
-		return errors.New(strings.Join(errs, "; "))
+		return pkgerrors.New(strings.Join(errs, "; "))
 	}
 	return nil
 }
 
 func validateDNS1123Domanin(subdomain string) error {
 	if errs := validation.IsDNS1123Subdomain(subdomain); len(errs) != 0 {
-		return errors.New(strings.Join(errs, "; "))
+		return pkgerrors.New(strings.Join(errs, "; "))
 	}
 	return nil
 }

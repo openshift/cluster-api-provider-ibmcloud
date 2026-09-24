@@ -22,13 +22,12 @@ import (
 	"os"
 
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	kindv1 "sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
 	kind "sigs.k8s.io/kind/pkg/cluster"
 	"sigs.k8s.io/kind/pkg/cmd"
 	"sigs.k8s.io/kind/pkg/exec"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/test/framework/internal/log"
 )
 
@@ -37,7 +36,7 @@ const (
 	DefaultNodeImageRepository = "kindest/node"
 
 	// DefaultNodeImageVersion is the default Kubernetes version to be used for creating a kind cluster.
-	DefaultNodeImageVersion = "v1.25.0"
+	DefaultNodeImageVersion = "v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
 )
 
 // KindClusterOption is a NewKindClusterProvider option.
@@ -70,7 +69,29 @@ func WithDockerSockMount() KindClusterOption {
 // the new kind cluster.
 func WithIPv6Family() KindClusterOption {
 	return kindClusterOptionAdapter(func(k *KindClusterProvider) {
-		k.ipFamily = clusterv1.IPv6IPFamily
+		k.ipFamily = kindv1.IPv6Family
+	})
+}
+
+// WithDualStackFamily implements a New Option that instruct the kindClusterProvider to set the IPFamily to dual in
+// the new kind cluster.
+func WithDualStackFamily() KindClusterOption {
+	return kindClusterOptionAdapter(func(k *KindClusterProvider) {
+		k.ipFamily = kindv1.DualStackFamily
+	})
+}
+
+// WithExtraPortMappings implements a New Option that instruct the kindClusterProvider to set extra port forward mappings.
+func WithExtraPortMappings(mappings []kindv1.PortMapping) KindClusterOption {
+	return kindClusterOptionAdapter(func(k *KindClusterProvider) {
+		k.extraPortMappings = mappings
+	})
+}
+
+// WithOwnerReferencesPermissionEnforcementDisabled implements a New Option that disables the OwnerReferencesPermissionEnforcement admission controller.
+func WithOwnerReferencesPermissionEnforcementDisabled() KindClusterOption {
+	return kindClusterOptionAdapter(func(k *KindClusterProvider) {
+		k.disableOwnerReferencesPermissionEnforcement = true
 	})
 }
 
@@ -96,12 +117,15 @@ func NewKindClusterProvider(name string, options ...KindClusterOption) *KindClus
 
 // KindClusterProvider implements a ClusterProvider that can create a kind cluster.
 type KindClusterProvider struct {
-	name           string
-	withDockerSock bool
-	kubeconfigPath string
-	nodeImage      string
-	ipFamily       clusterv1.ClusterIPFamily
-	logFolder      string
+	name              string
+	withDockerSock    bool
+	kubeconfigPath    string
+	nodeImage         string
+	ipFamily          kindv1.ClusterIPFamily
+	logFolder         string
+	extraPortMappings []kindv1.PortMapping
+
+	disableOwnerReferencesPermissionEnforcement bool
 }
 
 // Create a Kubernetes cluster using kind.
@@ -122,24 +146,45 @@ func (k *KindClusterProvider) Create(ctx context.Context) {
 // - use a dedicated kubeconfig file (test should not alter the user environment)
 // - if required, mount /var/run/docker.sock.
 func (k *KindClusterProvider) createKindCluster() {
-	kindCreateOptions := []kind.CreateOption{
+	kindCreateOptions := []kind.CreateOption{ //nolint:prealloc // Not all paths append
 		kind.CreateWithKubeconfigPath(k.kubeconfigPath),
 	}
 
-	cfg := &kindv1.Cluster{
-		TypeMeta: kindv1.TypeMeta{
-			APIVersion: "kind.x-k8s.io/v1alpha4",
-			Kind:       "Cluster",
-		},
+	var kubeadmConfigPatches []string
+	if !k.disableOwnerReferencesPermissionEnforcement {
+		// We enable the OwnerReferencesPermissionEnforcement admission plugin to detect potential
+		// RBAC issues when applying owner references with blockOwnerDeletion.
+		const ownerReferencesPermissionEnforcementPatch = `kind: ClusterConfiguration
+apiServer:
+  extraArgs:
+    enable-admission-plugins: OwnerReferencesPermissionEnforcement
+`
+		kubeadmConfigPatches = append(kubeadmConfigPatches, ownerReferencesPermissionEnforcementPatch)
 	}
 
-	if k.ipFamily == clusterv1.IPv6IPFamily {
+	cfg := &kindv1.Cluster{
+		Nodes: []kindv1.Node{
+			{
+				Role:              kindv1.ControlPlaneRole,
+				ExtraPortMappings: k.extraPortMappings,
+			},
+		},
+		KubeadmConfigPatches: kubeadmConfigPatches,
+	}
+
+	if k.ipFamily == kindv1.IPv6Family {
 		cfg.Networking.IPFamily = kindv1.IPv6Family
+	}
+	if k.ipFamily == kindv1.DualStackFamily {
+		cfg.Networking.IPFamily = kindv1.DualStackFamily
 	}
 	kindv1.SetDefaultsCluster(cfg)
 
 	if k.withDockerSock {
-		setDockerSockConfig(cfg)
+		cfg.Nodes[0].ExtraMounts = append(cfg.Nodes[0].ExtraMounts, kindv1.Mount{
+			HostPath:      "/var/run/docker.sock",
+			ContainerPath: "/var/run/docker.sock",
+		})
 	}
 
 	kindCreateOptions = append(kindCreateOptions, kind.CreateWithV1Alpha4Config(cfg))
@@ -148,8 +193,10 @@ func (k *KindClusterProvider) createKindCluster() {
 	if k.nodeImage != "" {
 		nodeImage = k.nodeImage
 	}
-	kindCreateOptions = append(kindCreateOptions, kind.CreateWithNodeImage(nodeImage))
-	kindCreateOptions = append(kindCreateOptions, kind.CreateWithRetain(true))
+	kindCreateOptions = append(
+		kindCreateOptions,
+		kind.CreateWithNodeImage(nodeImage),
+		kind.CreateWithRetain(true))
 
 	provider := kind.NewProvider(kind.ProviderWithLogger(cmd.NewLogger()))
 	err := provider.Create(k.name, kindCreateOptions...)
@@ -164,25 +211,10 @@ func (k *KindClusterProvider) createKindCluster() {
 		errStr := fmt.Sprintf("Failed to create kind cluster %q: %v", k.name, err)
 		// Extract the details of the RunError, if the cluster creation was triggered by a RunError.
 		var runErr *exec.RunError
-		if errors.As(err, &runErr) {
+		if pkgerrors.As(err, &runErr) {
 			errStr += "\n" + string(runErr.Output)
 		}
 		Expect(err).ToNot(HaveOccurred(), errStr)
-	}
-}
-
-// setDockerSockConfig returns a kind config for mounting /var/run/docker.sock into the kind node.
-func setDockerSockConfig(cfg *kindv1.Cluster) {
-	cfg.Nodes = []kindv1.Node{
-		{
-			Role: kindv1.ControlPlaneRole,
-			ExtraMounts: []kindv1.Mount{
-				{
-					HostPath:      "/var/run/docker.sock",
-					ContainerPath: "/var/run/docker.sock",
-				},
-			},
-		},
 	}
 }
 

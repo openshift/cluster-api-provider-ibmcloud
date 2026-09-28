@@ -47,8 +47,8 @@ import (
 	"sigs.k8s.io/cluster-api/util/predicates"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/vpc/v1beta2"
-	vpcscope "sigs.k8s.io/cluster-api-provider-ibmcloud/cloud/scope/vpc"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/endpoints"
+	vpcscope "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/scope/vpc"
 )
 
 // IBMVPCClusterReconciler reconciles a IBMVPCCluster object.
@@ -114,6 +114,7 @@ func (r *IBMVPCClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Cluster:         cluster,
 		IBMVPCCluster:   ibmVPCCluster,
 		ServiceEndpoint: r.ServiceEndpoint,
+		Recorder:        r.Recorder,
 	})
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create scope: %w", err)
@@ -178,6 +179,7 @@ func (r *IBMVPCClusterReconciler) reconcileV2(ctx context.Context, req ctrl.Requ
 		Cluster:         cluster,
 		IBMVPCCluster:   ibmVPCCluster,
 		ServiceEndpoint: r.ServiceEndpoint,
+		Recorder:        r.Recorder,
 	})
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create scope: %w", err)
@@ -521,7 +523,7 @@ func (r *IBMVPCClusterReconciler) reconcileDelete(ctx context.Context, clusterSc
 	return handleFinalizerRemoval(clusterScope)
 }
 
-func (r *IBMVPCClusterReconciler) reconcileDeleteV2(clusterScope *vpcscope.ClusterScopeV2) (ctrl.Result, error) { //nolint:unparam
+func (r *IBMVPCClusterReconciler) reconcileDeleteV2(clusterScope *vpcscope.ClusterScopeV2) (ctrl.Result, error) {
 	clusterScope.Info("Delete cluster is not implemented for reconcile v2")
 	controllerutil.RemoveFinalizer(clusterScope.IBMVPCCluster, infrav1.ClusterFinalizer)
 	return ctrl.Result{}, nil

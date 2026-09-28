@@ -28,49 +28,80 @@ const (
 	IBMPowerVSImageFinalizer = "ibmpowervsimage.infrastructure.cluster.x-k8s.io"
 )
 
+// PowerVSStorageType defines the storage tier for the IBM PowerVS instance.
+// +kubebuilder:validation:Enum=tier0;tier1;tier3
+type PowerVSStorageType string
+
+const (
+	// PowerVSStorageTypeTier0 represents tier 0 storage.
+	PowerVSStorageTypeTier0 PowerVSStorageType = "tier0"
+
+	// PowerVSStorageTypeTier1 represents tier 1 storage.
+	PowerVSStorageTypeTier1 PowerVSStorageType = "tier1"
+
+	// PowerVSStorageTypeTier3 represents tier 3 storage.
+	PowerVSStorageTypeTier3 PowerVSStorageType = "tier3"
+)
+
+// PowerVSImageDeletePolicy defines the policy for image retention.
+// +kubebuilder:validation:Enum=delete;retain
+type PowerVSImageDeletePolicy string
+
+const (
+	// PowerVSImageDeletePolicyDelete indicates the image will be deleted when the resource is deleted.
+	PowerVSImageDeletePolicyDelete PowerVSImageDeletePolicy = "delete"
+
+	// PowerVSImageDeletePolicyRetain indicates the image will be preserved when the resource is deleted.
+	PowerVSImageDeletePolicyRetain PowerVSImageDeletePolicy = "retain"
+)
+
 func init() {
 	objectTypes = append(objectTypes, &IBMPowerVSImage{}, &IBMPowerVSImageList{})
 }
 
 // IBMPowerVSImageSpec defines the desired state of IBMPowerVSImage.
+// +kubebuilder:validation:MinProperties=1
 type IBMPowerVSImageSpec struct {
 	// clusterName is the name of the Cluster this object belongs to.
+	// +required
 	// +kubebuilder:validation:MinLength=1
-	ClusterName string `json:"clusterName"`
+	// +kubebuilder:validation:MaxLength=63
+	ClusterName string `json:"clusterName,omitempty"`
 
-	// serviceInstance is the reference to the Power VS workspace on which the server instance(VM) will be created.
-	// Power VS workspace is a container for all Power VS instances at a specific geographic region.
-	// serviceInstance can be created via IBM Cloud catalog or CLI.
-	// supported serviceInstance identifier in PowerVSResource are Name and ID and that can be obtained from IBM Cloud UI or IBM Cloud cli.
-	// More detail about Power VS service instance.
-	// https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-power-virtual-server
-	// when omitted system will dynamically create the service instance
+	// workspace identifies the PowerVS workspace into which the image will be imported.
+	// If omitted, the workspace is inherited from the associated IBMPowerVSCluster.
 	// +optional
-	ServiceInstance *IBMPowerVSResourceReference `json:"serviceInstance,omitempty"`
+	Workspace ResourceIdentifier `json:"workspace,omitempty,omitzero"`
 
 	// bucket is the Cloud Object Storage bucket name; bucket-name[/optional/folder]
-	Bucket *string `json:"bucket"`
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Bucket string `json:"bucket,omitempty"`
 
 	// object is the Cloud Object Storage image filename.
-	Object *string `json:"object"`
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=1024
+	Object string `json:"object,omitempty"`
 
 	// region is the Cloud Object Storage region.
-	Region *string `json:"region"`
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32
+	Region string `json:"region,omitempty"`
 
 	// storageType is the type of storage, storage pool with the most available space will be selected.
-	// +kubebuilder:default=tier1
-	// +kubebuilder:validation:Enum=tier0;tier1;tier3
 	// +optional
-	StorageType string `json:"storageType,omitempty"`
+	StorageType PowerVSStorageType `json:"storageType,omitempty"`
 
 	// deletePolicy defines the policy used to identify images to be preserved beyond the lifecycle of associated cluster.
-	// +kubebuilder:default=delete
-	// +kubebuilder:validation:Enum=delete;retain
 	// +optional
-	DeletePolicy string `json:"deletePolicy,omitempty"`
+	DeletePolicy PowerVSImageDeletePolicy `json:"deletePolicy,omitempty"`
 }
 
 // IBMPowerVSImageStatus defines the observed state of IBMPowerVSImage.
+// +kubebuilder:validation:MinProperties=1
 type IBMPowerVSImageStatus struct {
 	// conditions represents the observations of a IBMPowerVSImage's current state.
 	// +optional
@@ -79,19 +110,22 @@ type IBMPowerVSImageStatus struct {
 	// +kubebuilder:validation:MaxItems=32
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ready is true when the provider resource is ready.
-	// +optional
-	Ready bool `json:"ready"`
-
 	// imageID is the id of the imported image.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
 	ImageID string `json:"imageID,omitempty"`
 
 	// imageState is the status of the imported image.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
 	ImageState PowerVSImageState `json:"imageState,omitempty"`
 
 	// jobID is the job ID of an import operation.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
 	JobID string `json:"jobID,omitempty"`
 
 	// deprecated groups all the status fields that are deprecated and will be removed when all the nested field are removed.
@@ -104,7 +138,6 @@ type IBMPowerVSImageStatus struct {
 // +kubebuilder:storageversion
 // +kubebuilder:resource:path=ibmpowervsimages,scope=Namespaced,categories=cluster-api
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.imageState",description="PowerVS image state"
-// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.ready",description="Image is ready for IBM PowerVS instances"
 
 // IBMPowerVSImage is the Schema for the ibmpowervsimages API.
 type IBMPowerVSImage struct {
@@ -116,11 +149,11 @@ type IBMPowerVSImage struct {
 
 	// spec defines the desired state of IBMPowerVSImage
 	// +required
-	Spec IBMPowerVSImageSpec `json:"spec"`
+	Spec IBMPowerVSImageSpec `json:"spec,omitempty,omitzero"`
 
 	// status defines the observed state of IBMPowerVSImage
 	// +optional
-	Status IBMPowerVSImageStatus `json:"status,omitzero"`
+	Status IBMPowerVSImageStatus `json:"status,omitempty,omitzero"`
 }
 
 // +kubebuilder:object:root=true

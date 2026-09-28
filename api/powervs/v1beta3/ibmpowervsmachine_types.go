@@ -23,6 +23,10 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
+func init() {
+	objectTypes = append(objectTypes, &IBMPowerVSMachine{}, &IBMPowerVSMachineList{})
+}
+
 // PowerVSProcessorType enum attribute to identify the PowerVS instance processor type.
 type PowerVSProcessorType string
 
@@ -40,43 +44,57 @@ const (
 	DefaultIgnitionVersion = "2.3"
 )
 
-func init() {
-	objectTypes = append(objectTypes, &IBMPowerVSMachine{}, &IBMPowerVSMachineList{})
-}
+// ImageSourceType defines the method used to resolve the machine image.
+// +kubebuilder:validation:Enum=Reference;Import
+type ImageSourceType string
+
+const (
+	// ImageSourceTypeReference specifies that the machine should use an existing image already available in PowerVS.
+	ImageSourceTypeReference ImageSourceType = "Reference"
+
+	// ImageSourceTypeImport specifies that the machine should use an IBMPowerVSImage CRD to import an image from COS.
+	ImageSourceTypeImport ImageSourceType = "Import"
+)
 
 // IBMPowerVSMachineSpec defines the desired state of IBMPowerVSMachine.
+// +kubebuilder:validation:MinProperties=1
 type IBMPowerVSMachineSpec struct {
-	// serviceInstance is the reference to the Power VS workspace on which the server instance(VM) will be created.
-	// Power VS workspace is a container for all Power VS instances at a specific geographic region.
-	// serviceInstance can be created via IBM Cloud catalog or CLI.
-	// supported serviceInstance identifier in PowerVSResource are Name and ID and that can be obtained from IBM Cloud UI or IBM Cloud cli.
-	// More detail about Power VS service instance.
-	// https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-power-virtual-server
-	// when omitted system will dynamically create the service instance
+	// workspace identifies the PowerVS workspace where the instance will be created.
+	// If omitted, the workspace is inherited from the associated IBMPowerVSCluster.
+	// Supported identifiers are name and id.
+	// More details: https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-power-virtual-server
 	// +optional
-	ServiceInstance *IBMPowerVSResourceReference `json:"serviceInstance,omitempty"`
+	Workspace ResourceIdentifier `json:"workspace,omitempty,omitzero"`
 
-	// sshKey is the name of the SSH key pair provided to the vsi for authenticating users.
+	// network is the reference to the Network to use for this instance.
+	// Supported identifiers in ResourceIdentifier are Name, ID, and RegEx and can be obtained from IBM Cloud UI or IBM Cloud CLI.
+	// +optional
+	Network ResourceIdentifier `json:"network,omitempty,omitzero"`
+
+	// image specifies how to resolve the OS image used to create the instance.
+	// +required
+	Image IBMPowerVSMachineImage `json:"image,omitempty,omitzero"`
+
+	// sshKey is the name of the SSH key pair provided to the VM for authenticating users.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
 	SSHKey string `json:"sshKey,omitempty"`
-
-	// image the reference to the image which is used to create the instance.
-	// supported image identifier in IBMPowerVSResourceReference are Name and ID and that can be obtained from IBM Cloud UI or IBM Cloud cli.
-	// +optional
-	Image *IBMPowerVSResourceReference `json:"image,omitempty"`
-
-	// imageRef is a reference to a IBMPowerVSImage resource, which will be imported from IBM COS Bucket to PowerVS workspace.
-	// This is an alternative to the image field.
-	// +optional
-	ImageRef ImageReference `json:"imageRef,omitempty,omitzero"`
 
 	// systemType is the System type used to host the instance.
 	// systemType determines the number of cores and memory that is available.
-	// Few of the supported SystemTypes are s922,e980,s1022,e1050,e1080.
+	// Few of the supported SystemTypes are e980,s1022,s1122,e1050,e1080.
 	// When omitted, this means that the user has no opinion and the platform is left to choose a
-	// reasonable default, which is subject to change over time. The current default is s922 which is generally available.
+	// reasonable default, which is subject to change over time. The current default is s1022 which is generally available.
 	// + This is not an enum because we expect other values to be added later which should be supported implicitly.
-	// +kubebuilder:validation:Enum:="s922";"e980";"s1022";"e1050";"e1080";""
+	// + The pattern validation allows any systemType matching PowerVS naming convention (lowercase letter + numbers).
+	// + Dynamic validation against PowerVS API is performed by the controller during reconciliation.
+	// + The controller validates the systemType against current PowerVS datacenter capabilities.
+	// + If the systemType is not supported, the machine will be marked with InvalidMachineConfiguration condition.
+	// +kubebuilder:validation:Pattern=`^[a-z][0-9]+$`
 	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=16
 	SystemType string `json:"systemType,omitempty"`
 
 	// processorType is the VM instance processor type.
@@ -110,11 +128,8 @@ type IBMPowerVSMachineSpec struct {
 	// When omitted, this means the user has no opinion and the platform is left to choose a reasonable
 	// default, which is subject to change over time. The current default is 2.
 	// +optional
+	// +kubebuilder:validation:Minimum=2
 	MemoryGiB int32 `json:"memoryGiB,omitempty"`
-
-	// network is the reference to the Network to use for this instance.
-	// supported network identifier in IBMPowerVSResourceReference are Name, ID and RegEx and that can be obtained from IBM Cloud UI or IBM Cloud cli.
-	Network IBMPowerVSResourceReference `json:"network"`
 
 	// providerID is the unique identifier as specified by the cloud provider.
 	// +optional
@@ -124,6 +139,7 @@ type IBMPowerVSMachineSpec struct {
 }
 
 // IBMPowerVSMachineStatus defines the observed state of IBMPowerVSMachine.
+// +kubebuilder:validation:MinProperties=1
 type IBMPowerVSMachineStatus struct {
 	// conditions represents the observations of a IBMPowerVSMachine's current state.
 	// +optional
@@ -138,6 +154,9 @@ type IBMPowerVSMachineStatus struct {
 	Initialization IBMPowerVSMachineInitializationStatus `json:"initialization,omitempty,omitzero"`
 
 	// instanceID is the instance ID.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
 	InstanceID string `json:"instanceID,omitempty"`
 
 	// addresses contains the instance associated addresses.
@@ -147,67 +166,31 @@ type IBMPowerVSMachineStatus struct {
 	// +optional
 	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
 
-	// health is the health of the vsi.
+	// health is the health of the VM.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32
 	Health string `json:"health,omitempty"`
 
-	// instanceState is the status of the vsi.
+	// instanceState is the status of the VM.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32
 	InstanceState PowerVSInstanceState `json:"instanceState,omitempty"`
 
-	// fault will report if any fault messages for the vsi.
-	// +optional
-	Fault string `json:"fault,omitempty"`
-
-	// failureReason will be set in the event that there is a terminal problem
-	// reconciling the Machine and will contain a succinct value suitable
-	// for machine interpretation.
-	//
-	// This field should not be set for transitive errors that a controller
-	// faces that are expected to be fixed automatically over
-	// time (like service outages), but instead indicate that something is
-	// fundamentally wrong with the Machine's spec or the configuration of
-	// the controller, and that manual intervention is required. Examples
-	// of terminal errors would be invalid combinations of settings in the
-	// spec, values that are unsupported by the controller, or the
-	// responsible controller itself being critically misconfigured.
-	//
-	// Any transient errors that occur during the reconciliation of Machines
-	// can be added as events to the Machine object and/or logged in the
-	// controller's output.
-	//
-	// Deprecated: This field is deprecated and is going to be removed in the next apiVersion. Please see https://github.com/kubernetes-sigs/cluster-api/blob/main/docs/proposals/20240916-improve-status-in-CAPI-resources.md for more details.
-	//
-	// +optional
-	FailureReason *string `json:"failureReason,omitempty"`
-
-	// failureMessage will be set in the event that there is a terminal problem
-	// reconciling the Machine and will contain a more verbose string suitable
-	// for logging and human consumption.
-	//
-	// This field should not be set for transitive errors that a controller
-	// faces that are expected to be fixed automatically over
-	// time (like service outages), but instead indicate that something is
-	// fundamentally wrong with the Machine's spec or the configuration of
-	// the controller, and that manual intervention is required. Examples
-	// of terminal errors would be invalid combinations of settings in the
-	// spec, values that are unsupported by the controller, or the
-	// responsible controller itself being critically misconfigured.
-	//
-	// Any transient errors that occur during the reconciliation of Machines
-	// can be added as events to the Machine object and/or logged in the
-	// controller's output.
-	//
-	// Deprecated: This field is deprecated and is going to be removed in the next apiVersion. Please see https://github.com/kubernetes-sigs/cluster-api/blob/main/docs/proposals/20240916-improve-status-in-CAPI-resources.md for more details.
-	//
-	// +optional
-	FailureMessage *string `json:"failureMessage,omitempty"`
-
 	// region specifies the Power VS Service instance region.
-	Region *string `json:"region,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:Pattern=^[a-zA-Z0-9\-_]+$
+	Region string `json:"region,omitempty"`
 
 	// zone specifies the Power VS Service instance zone.
-	Zone *string `json:"zone,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:Pattern=^[a-zA-Z0-9\-_]+$
+	Zone string `json:"zone,omitempty"`
 
 	// deprecated groups all the status fields that are deprecated and will be removed when all the nested field are removed.
 	// +optional
@@ -237,11 +220,11 @@ type IBMPowerVSMachine struct {
 
 	// spec defines the desired state of IBMPowerVSMachine
 	// +required
-	Spec IBMPowerVSMachineSpec `json:"spec"`
+	Spec IBMPowerVSMachineSpec `json:"spec,omitempty,omitzero"`
 
 	// status defines the observed state of IBMPowerVSMachine
 	// +optional
-	Status IBMPowerVSMachineStatus `json:"status,omitzero"`
+	Status IBMPowerVSMachineStatus `json:"status,omitempty,omitzero"`
 }
 
 // +kubebuilder:object:root=true
@@ -282,6 +265,24 @@ type IBMPowerVSMachineV1Beta2DeprecatedStatus struct {
 	//
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+}
+
+// IBMPowerVSMachineImage defines how to resolve the image for the machine.
+// +kubebuilder:validation:XValidation:rule="self.type == 'Reference' ? has(self.reference) : !has(self.reference)",message="reference configuration is required when type is Reference, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'Import' ? has(self.import) : !has(self.import)",message="import configuration is required when type is Import, and forbidden otherwise"
+type IBMPowerVSMachineImage struct {
+	// type defines whether to use an existing image in IBM Cloud or import a new one via the IBMPowerVSImage CRD.
+	// +required
+	Type ImageSourceType `json:"type,omitempty"`
+
+	// reference contains the information to identify an existing image in the PowerVS workspace.
+	// Supported identifiers are Name, ID, and RegEx.
+	// +optional
+	Reference ResourceIdentifier `json:"reference,omitempty,omitzero"`
+
+	// import is a reference to an IBMPowerVSImage CRD, which manages importing an image from an IBM COS Bucket.
+	// +optional
+	Import ImageReference `json:"import,omitempty,omitzero"`
 }
 
 // ImageReference is a reference to an IBMPowerVSImage resource.

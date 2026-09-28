@@ -15,18 +15,12 @@ previous cluster managers such as [kops](https://github.com/kubernetes/kops) and
 
 <h1>Cluster API Provider IBM Cloud documentation versions</h1>
 
-This book documents Cluster API Provider IBM Cloud v0.13. For other versions please see the corresponding documentation:
+This book documents Cluster API Provider IBM Cloud v0.14. For other versions please see the corresponding documentation:
 * [main.cluster-api-ibmcloud.sigs.k8s.io](https://main.cluster-api-ibmcloud.sigs.k8s.io)
+* [release-0-14.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-14.cluster-api-ibmcloud.sigs.k8s.io/)
 * [release-0-13.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-13.cluster-api-ibmcloud.sigs.k8s.io/)
 * [release-0-12.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-12.cluster-api-ibmcloud.sigs.k8s.io/)
-* [release-0-11.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-11.cluster-api-ibmcloud.sigs.k8s.io/)
-* [release-0-10.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-10.cluster-api-ibmcloud.sigs.k8s.io/)
-* [release-0-9.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-9.cluster-api-ibmcloud.sigs.k8s.io/)
-* [release-0-8.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-8.cluster-api-ibmcloud.sigs.k8s.io/)
-* [release-0-7.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-7.cluster-api-ibmcloud.sigs.k8s.io/)
-* [release-0-6.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-6.cluster-api-ibmcloud.sigs.k8s.io/)
-* [release-0-5.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-5.cluster-api-ibmcloud.sigs.k8s.io/)
-* [release-0-4.cluster-api-ibmcloud.sigs.k8s.io](https://release-0-4.cluster-api-ibmcloud.sigs.k8s.io/)
+* older version are available at similar urls by replacing minor-version numbers
 
 </aside>
 
@@ -36,7 +30,7 @@ This book documents Cluster API Provider IBM Cloud v0.13. For other versions ple
 <img src="../../images/ibm-cloud.svg" alt="Supported IBM Cloud IaaS">
 </p>
 
-Currently, the CAPIBM project exclusively facilitates the deployment of Kubernetes (K8s) clusters solely on two IBM infrastructure offerings, namely [IBM VPC (Virtual Server Instances)](https://cloud.ibm.com/docs/vpc?topic=vpc-about-advanced-virtual-servers) and [IBM PowerVS](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-about-virtual-server).
+Currently, the CAPIBM project exclusively facilitates the deployment of Kubernetes (K8s) clusters solely on two IBM infrastructure offerings, namely [IBM VPC (Virtual Server Instances)](https://cloud.ibm.com/docs/vpc?topic=vpc-about-advanced-virtual-servers) and [IBM PowerVS](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-about-power-iaas).
 
 ## Quick Start
 
@@ -78,7 +72,7 @@ This repository uses the Kubernetes bots.  See a full list of the commands [here
 
 ### Join us
 
-The community holds bi-weekly meetings on Tuesday at 10:00 IST ([Convert to your timezone](http://www.thetimezoneconverter.com/?t=10%3A00&tz=IST)) on [Zoom](https://zoom.us/j/508079177).
+The community holds bi-weekly meetings on Thursday at 14:00 IST ([Convert to your timezone](http://www.thetimezoneconverter.com/?t=14%3A00&tz=IST)) on [Zoom](https://zoom.us/j/508079177).
 
 Previous meeting [notes](https://cluster-api-ibmcloud.sigs.k8s.io/agenda), Subscribe to the [SIG Cluster Lifecycle](https://groups.google.com/g/kubernetes-sig-cluster-lifecycle) Google Group for access to documents and calendars.
 

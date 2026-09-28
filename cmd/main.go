@@ -51,12 +51,11 @@ import (
 	powervsinfrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/powervs/v1beta3"
 	vpcinfrav1beta1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/vpc/v1beta1"
 	vpcinfrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/vpc/v1beta2"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/controllers"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/internal/webhooks/powervs"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/internal/webhooks/vpc"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/options"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/record"
+	powervscontroller "sigs.k8s.io/cluster-api-provider-ibmcloud/internal/controllers/powervs"
+	vpccontroller "sigs.k8s.io/cluster-api-provider-ibmcloud/internal/controllers/vpc"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/endpoints"
+	powervs "sigs.k8s.io/cluster-api-provider-ibmcloud/webhooks/powervs/admission"
+	vpc "sigs.k8s.io/cluster-api-provider-ibmcloud/webhooks/vpc/admission"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	_ "k8s.io/component-base/logs/json/register"
@@ -124,12 +123,6 @@ func initFlags(fs *pflag.FlagSet) {
 		10*time.Minute,
 		"The minimum interval at which watched resources are reconciled.",
 	)
-	fs.StringVar(
-		&options.ProviderIDFormat,
-		"provider-id-fmt",
-		string(options.ProviderIDFormatV2),
-		"ProviderID format is used set the Provider ID format for Machine",
-	)
 
 	fs.StringVar(
 		&endpoints.ServiceEndpointFormat,
@@ -168,12 +161,6 @@ func initFlags(fs *pflag.FlagSet) {
 }
 
 func validateFlags() error {
-	if options.ProviderIDFormatType(options.ProviderIDFormat) == options.ProviderIDFormatV2 {
-		setupLog.Info("Using v2 version of ProviderID format")
-	} else {
-		return fmt.Errorf("invalid value for flag provider-id-fmt: %s, Only supported value is %s", options.ProviderIDFormat, options.ProviderIDFormatV2)
-	}
-
 	if err := logsv1.ValidateAndApply(logOptions, nil); err != nil {
 		setupLog.Error(err, "unable to validate and apply log options")
 		return err
@@ -273,15 +260,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize event recorder.
-	record.InitFromRecorder(mgr.GetEventRecorderFor("ibmcloud-controller"))
-
 	// Setup the context that's going to be used in controllers and for the manager.
 	ctx := ctrl.SetupSignalHandler()
 
-	setupReconcilers(ctx, mgr, serviceEndpoint)
 	setupWebhooks(mgr)
 	setupChecks(mgr)
+	setupReconcilers(ctx, mgr, serviceEndpoint, watchFilterValue, skipCRDMigrationPhases)
 
 	// +kubebuilder:scaffold:builder
 	setupLog.Info("starting manager")
@@ -291,8 +275,19 @@ func main() {
 	}
 }
 
-func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []endpoints.ServiceEndpoint) {
-	// Note: The kubebuilder RBAC markers above has to be kept in sync
+func setupChecks(mgr ctrl.Manager) {
+	if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
+		setupLog.Error(err, "unable to create ready check")
+		os.Exit(1)
+	}
+	if err := mgr.AddHealthzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
+		setupLog.Error(err, "unable to create health check")
+		os.Exit(1)
+	}
+}
+
+func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []endpoints.ServiceEndpoint, watchFilterValue string, skipCRDMigrationPhases []string) {
+	// Note: The kubebuilder RBAC markers above have to be kept in sync
 	// with the CRDs that should be migrated by this provider.
 	crdMigratorConfig := map[client.Object]crdmigrator.ByObjectConfig{
 		&powervsinfrav1.IBMPowerVSCluster{}:         {UseCache: true, UseStatusForStorageVersionMigration: true},
@@ -302,7 +297,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []e
 		&powervsinfrav1.IBMPowerVSImage{}:           {UseCache: true, UseStatusForStorageVersionMigration: true},
 	}
 
-	crdMigratorSkipPhases := make([]crdmigrator.Phase, 0, 1)
+	crdMigratorSkipPhases := make([]crdmigrator.Phase, 0, len(skipCRDMigrationPhases))
 	for _, p := range skipCRDMigrationPhases {
 		crdMigratorSkipPhases = append(crdMigratorSkipPhases, crdmigrator.Phase(p))
 	}
@@ -318,7 +313,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []e
 		os.Exit(1)
 	}
 
-	if err := (&controllers.IBMVPCClusterReconciler{
+	if err := (&vpccontroller.IBMVPCClusterReconciler{
 		Client:          mgr.GetClient(),
 		Log:             ctrl.Log.WithName("controllers").WithName("IBMVPCCluster"),
 		Recorder:        mgr.GetEventRecorderFor("ibmvpccluster-controller"),
@@ -329,7 +324,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []e
 		os.Exit(1)
 	}
 
-	if err := (&controllers.IBMVPCMachineReconciler{
+	if err := (&vpccontroller.IBMVPCMachineReconciler{
 		Client:          mgr.GetClient(),
 		Log:             ctrl.Log.WithName("controllers").WithName("IBMVPCMachine"),
 		Recorder:        mgr.GetEventRecorderFor("ibmvpcmachine-controller"),
@@ -340,7 +335,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []e
 		os.Exit(1)
 	}
 
-	if err := (&controllers.IBMVPCMachineTemplateReconciler{
+	if err := (&vpccontroller.IBMVPCMachineTemplateReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
 		ServiceEndpoint: serviceEndpoint,
@@ -349,7 +344,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []e
 		os.Exit(1)
 	}
 
-	if err := (&controllers.IBMPowerVSClusterReconciler{
+	if err := (&powervscontroller.IBMPowerVSClusterReconciler{
 		Client:           mgr.GetClient(),
 		Recorder:         mgr.GetEventRecorderFor("ibmpowervscluster-controller"),
 		ServiceEndpoint:  serviceEndpoint,
@@ -360,7 +355,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []e
 		os.Exit(1)
 	}
 
-	if err := (&controllers.IBMPowerVSMachineReconciler{
+	if err := (&powervscontroller.IBMPowerVSMachineReconciler{
 		Client:           mgr.GetClient(),
 		Recorder:         mgr.GetEventRecorderFor("ibmpowervsmachine-controller"),
 		ServiceEndpoint:  serviceEndpoint,
@@ -371,7 +366,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []e
 		os.Exit(1)
 	}
 
-	if err := (&controllers.IBMPowerVSMachineTemplateReconciler{
+	if err := (&powervscontroller.IBMPowerVSMachineTemplateReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(ctx, mgr); err != nil {
@@ -379,7 +374,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, serviceEndpoint []e
 		os.Exit(1)
 	}
 
-	if err := (&controllers.IBMPowerVSImageReconciler{
+	if err := (&powervscontroller.IBMPowerVSImageReconciler{
 		Client:          mgr.GetClient(),
 		Recorder:        mgr.GetEventRecorderFor("ibmpowervsimage-controller"),
 		ServiceEndpoint: serviceEndpoint,
@@ -421,17 +416,6 @@ func setupWebhooks(mgr ctrl.Manager) {
 	}
 	if err := (&powervs.IBMPowerVSClusterTemplate{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "IBMPowerVSClusterTemplate")
-		os.Exit(1)
-	}
-}
-
-func setupChecks(mgr ctrl.Manager) {
-	if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
-		setupLog.Error(err, "unable to create ready check")
-		os.Exit(1)
-	}
-	if err := mgr.AddHealthzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
-		setupLog.Error(err, "unable to create health check")
 		os.Exit(1)
 	}
 }

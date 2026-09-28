@@ -12,7 +12,7 @@ commit, but not the old commit, you may not get accurate results.
 
 #### `base-ref`
 
-Base reference for API compatibility comparison (default: `origin/${GITHUB_BASE_REF}`)
+Base reference for API compatibility comparison (default: `github.event.pull_request.base.sha` for PR  and `github.event.merge_group.base_sha` for merge queue)
 
 #### `version`
 
@@ -30,13 +30,16 @@ Print compatible API changes (default: `true`)
 
 Path to root of git repository to compare (default: current working directory)
 
-#### `skip-cache`
-
-Skip automatic caching of go module directories (default: `false`)
-
 ### Outputs
 
-_(none)_
+#### `semver-type`
+
+Returns the type (patch, minor, major) of the semantic version that would be required if producing a release.
+
+#### `output`
+
+Returns the string containing text explaining API changes. The string can be empty if no changes are present. 
+
 
 ### Example usage
 
@@ -48,12 +51,12 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 0
-    - uses: actions/setup-go@v2
+    - uses: actions/setup-go@v4
       with:
-        go-version: 1.18
+        go-version-file: go.mod
     - uses: joelanford/go-apidiff@main
 ```
 

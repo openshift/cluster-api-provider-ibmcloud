@@ -8,19 +8,19 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/itchyny/go-yaml"
 
 	"github.com/itchyny/gojq"
 )
 
 type inputReader struct {
 	io.Reader
-	file *os.File
-	buf  *bytes.Buffer
+	rs  io.ReadSeeker
+	buf *bytes.Buffer
 }
 
 func newInputReader(r io.Reader) *inputReader {
-	if r, ok := r.(*os.File); ok {
+	if r, ok := r.(io.ReadSeeker); ok {
 		if _, err := r.Seek(0, io.SeekCurrent); err == nil {
 			return &inputReader{r, r, nil}
 		}
@@ -33,31 +33,29 @@ func (ir *inputReader) getContents(offset *int64, line *int) string {
 	if buf := ir.buf; buf != nil {
 		return buf.String()
 	}
-	if current, err := ir.file.Seek(0, io.SeekCurrent); err == nil {
-		defer func() { ir.file.Seek(current, io.SeekStart) }()
+	if current, err := ir.rs.Seek(0, io.SeekCurrent); err == nil {
+		defer ir.rs.Seek(current, io.SeekStart)
 	}
-	ir.file.Seek(0, io.SeekStart)
+	_, _ = ir.rs.Seek(0, io.SeekStart)
 	const bufSize = 16 * 1024
 	var buf bytes.Buffer // do not use strings.Builder because we need to Reset
-	if offset != nil && *offset > bufSize {
-		buf.Grow(bufSize)
-		for *offset > bufSize {
-			n, err := io.Copy(&buf, io.LimitReader(ir.file, bufSize))
-			*offset -= int64(n)
-			*line += bytes.Count(buf.Bytes(), []byte{'\n'})
-			buf.Reset()
-			if err != nil || n == 0 {
-				break
-			}
+	for offset != nil && *offset > bufSize*3/4 {
+		n, err := io.Copy(&buf,
+			io.LimitReader(ir.rs, min(bufSize, *offset-bufSize/4)))
+		*offset -= n
+		*line += bytes.Count(buf.Bytes(), []byte{'\n'})
+		buf.Reset()
+		if err != nil || n == 0 {
+			break
 		}
 	}
 	var r io.Reader
 	if offset == nil {
-		r = ir.file
+		r = ir.rs
 	} else {
-		r = io.LimitReader(ir.file, bufSize*2)
+		r = io.LimitReader(ir.rs, bufSize)
 	}
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	return buf.String()
 }
 
@@ -68,7 +66,7 @@ type inputIter interface {
 }
 
 type jsonInputIter struct {
-	dec    *json.Decoder
+	next   func() (any, error)
 	ir     *inputReader
 	fname  string
 	offset int64
@@ -80,24 +78,29 @@ func newJSONInputIter(r io.Reader, fname string) inputIter {
 	ir := newInputReader(r)
 	dec := json.NewDecoder(ir)
 	dec.UseNumber()
-	return &jsonInputIter{dec: dec, ir: ir, fname: fname}
+	next := func() (v any, err error) { err = dec.Decode(&v); return }
+	return &jsonInputIter{next: next, ir: ir, fname: fname}
 }
 
-func (i *jsonInputIter) Next() (interface{}, bool) {
+func (i *jsonInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
-	var v interface{}
-	if err := i.dec.Decode(&v); err != nil {
+	v, err := i.next()
+	if err != nil {
 		if err == io.EOF {
 			i.err = err
 			return nil, false
 		}
 		var offset *int64
 		var line *int
-		if err, ok := err.(*json.SyntaxError); ok {
-			err.Offset -= i.offset
-			offset, line = &err.Offset, &i.line
+		if e, ok := err.(*json.SyntaxError); ok {
+			e.Offset -= i.offset
+			offset, line = &e.Offset, &i.line
+		} else if err == io.ErrUnexpectedEOF && i.ir.rs != nil {
+			if pos, err := i.ir.rs.Seek(0, io.SeekEnd); err == nil {
+				offset, line = &pos, &i.line
+			}
 		}
 		i.err = &jsonParseError{i.fname, i.ir.getContents(offset, line), i.line, err}
 		return i.err, true
@@ -119,6 +122,13 @@ func (i *jsonInputIter) Name() string {
 	return i.fname
 }
 
+func newStreamInputIter(r io.Reader, fname string) inputIter {
+	ir := newInputReader(r)
+	dec := json.NewDecoder(ir)
+	dec.UseNumber()
+	return &jsonInputIter{next: newJSONStream(dec).next, ir: ir, fname: fname}
+}
+
 type nullInputIter struct {
 	err error
 }
@@ -127,7 +137,7 @@ func newNullInputIter() inputIter {
 	return &nullInputIter{}
 }
 
-func (i *nullInputIter) Next() (interface{}, bool) {
+func (i *nullInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
@@ -140,7 +150,7 @@ func (i *nullInputIter) Close() error {
 	return nil
 }
 
-func (i *nullInputIter) Name() string {
+func (*nullInputIter) Name() string {
 	return ""
 }
 
@@ -159,7 +169,7 @@ func newFilesInputIter(
 	return &filesInputIter{newIter: newIter, fnames: fnames, stdin: stdin}
 }
 
-func (i *filesInputIter) Next() (interface{}, bool) {
+func (i *filesInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
@@ -227,7 +237,7 @@ func newRawInputIter(r io.Reader, fname string) inputIter {
 	return &rawInputIter{r: bufio.NewReader(r), fname: fname}
 }
 
-func (i *rawInputIter) Next() (interface{}, bool) {
+func (i *rawInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
@@ -253,58 +263,6 @@ func (i *rawInputIter) Name() string {
 	return i.fname
 }
 
-type streamInputIter struct {
-	stream *jsonStream
-	ir     *inputReader
-	fname  string
-	offset int64
-	line   int
-	err    error
-}
-
-func newStreamInputIter(r io.Reader, fname string) inputIter {
-	ir := newInputReader(r)
-	dec := json.NewDecoder(ir)
-	dec.UseNumber()
-	return &streamInputIter{stream: newJSONStream(dec), ir: ir, fname: fname}
-}
-
-func (i *streamInputIter) Next() (interface{}, bool) {
-	if i.err != nil {
-		return nil, false
-	}
-	v, err := i.stream.next()
-	if err != nil {
-		if err == io.EOF {
-			i.err = err
-			return nil, false
-		}
-		var offset *int64
-		var line *int
-		if err, ok := err.(*json.SyntaxError); ok {
-			err.Offset -= i.offset
-			offset, line = &err.Offset, &i.line
-		}
-		i.err = &jsonParseError{i.fname, i.ir.getContents(offset, line), i.line, err}
-		return i.err, true
-	}
-	if buf := i.ir.buf; buf != nil && buf.Len() >= 16*1024 {
-		i.offset += int64(buf.Len())
-		i.line += bytes.Count(buf.Bytes(), []byte{'\n'})
-		buf.Reset()
-	}
-	return v, true
-}
-
-func (i *streamInputIter) Close() error {
-	i.err = io.EOF
-	return nil
-}
-
-func (i *streamInputIter) Name() string {
-	return i.fname
-}
-
 type yamlInputIter struct {
 	dec   *yaml.Decoder
 	ir    *inputReader
@@ -318,11 +276,11 @@ func newYAMLInputIter(r io.Reader, fname string) inputIter {
 	return &yamlInputIter{dec: dec, ir: ir, fname: fname}
 }
 
-func (i *yamlInputIter) Next() (interface{}, bool) {
+func (i *yamlInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
-	var v interface{}
+	var v any
 	if err := i.dec.Decode(&v); err != nil {
 		if err == io.EOF {
 			i.err = err
@@ -331,7 +289,7 @@ func (i *yamlInputIter) Next() (interface{}, bool) {
 		i.err = &yamlParseError{i.fname, i.ir.getContents(nil, nil), err}
 		return i.err, true
 	}
-	return normalizeYAML(v), true
+	return v, true
 }
 
 func (i *yamlInputIter) Close() error {
@@ -352,12 +310,12 @@ func newSlurpInputIter(iter inputIter) inputIter {
 	return &slurpInputIter{iter: iter}
 }
 
-func (i *slurpInputIter) Next() (interface{}, bool) {
+func (i *slurpInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
-	var vs []interface{}
-	var v interface{}
+	var vs []any
+	var v any
 	var ok bool
 	for {
 		v, ok = i.iter.Next()
@@ -395,7 +353,7 @@ func newReadAllIter(r io.Reader, fname string) inputIter {
 	return &readAllIter{r: r, fname: fname}
 }
 
-func (i *readAllIter) Next() (interface{}, bool) {
+func (i *readAllIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
@@ -425,12 +383,12 @@ func newSlurpRawInputIter(iter inputIter) inputIter {
 	return &slurpRawInputIter{iter: iter}
 }
 
-func (i *slurpRawInputIter) Next() (interface{}, bool) {
+func (i *slurpRawInputIter) Next() (any, bool) {
 	if i.err != nil {
 		return nil, false
 	}
 	var vs []string
-	var v interface{}
+	var v any
 	var ok bool
 	for {
 		v, ok = i.iter.Next()

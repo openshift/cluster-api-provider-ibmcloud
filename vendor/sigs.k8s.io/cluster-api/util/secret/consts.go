@@ -16,8 +16,7 @@ limitations under the License.
 
 package secret
 
-// Purpose is the name to append to the secret generated for a cluster.
-type Purpose string
+import "strings"
 
 const (
 	// KubeconfigDataName is the key used to store a Kubeconfig in the secret's data field.
@@ -28,7 +27,12 @@ const (
 
 	// TLSCrtDataName is the key used to store a TLS certificate in the secret's data field.
 	TLSCrtDataName = "tls.crt"
+)
 
+// Purpose is the name to append to the secret generated for a cluster.
+type Purpose string
+
+const (
 	// Kubeconfig is the secret name suffix storing the Cluster Kubeconfig.
 	Kubeconfig = Purpose("kubeconfig")
 
@@ -36,19 +40,29 @@ const (
 	ClusterCA = Purpose("ca")
 
 	// EtcdCA is the secret name suffix for the Etcd CA.
-	EtcdCA Purpose = "etcd"
+	EtcdCA = Purpose("etcd")
 
 	// ServiceAccount is the secret name suffix for the Service Account keys.
-	ServiceAccount Purpose = "sa"
+	ServiceAccount = Purpose("sa")
 
 	// FrontProxyCA is the secret name suffix for Front Proxy CA.
-	FrontProxyCA Purpose = "proxy"
+	FrontProxyCA = Purpose("proxy")
 
 	// APIServerEtcdClient is the secret name of user-supplied secret containing the apiserver-etcd-client key/cert.
-	APIServerEtcdClient Purpose = "apiserver-etcd-client"
+	APIServerEtcdClient = Purpose("apiserver-etcd-client")
 )
 
 var (
 	// allSecretPurposes defines a lists with all the secret suffix used by Cluster API.
 	allSecretPurposes = []Purpose{Kubeconfig, ClusterCA, EtcdCA, ServiceAccount, FrontProxyCA, APIServerEtcdClient}
 )
+
+// HasPurposeSuffix checks if the secretName has one of the purposes as suffix.
+func HasPurposeSuffix(secretName string) bool {
+	for _, p := range allSecretPurposes {
+		if strings.HasSuffix(secretName, "-"+string(p)) {
+			return true
+		}
+	}
+	return false
+}

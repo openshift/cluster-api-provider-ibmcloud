@@ -4,38 +4,29 @@ import (
 	"go/ast"
 
 	"github.com/securego/gosec/v2"
+	"github.com/securego/gosec/v2/issue"
 )
 
 type pprofCheck struct {
-	gosec.MetaData
+	issue.MetaData
 	importPath string
 	importName string
 }
 
-// ID returns the ID of the check
-func (p *pprofCheck) ID() string {
-	return p.MetaData.ID
-}
-
 // Match checks for pprof imports
-func (p *pprofCheck) Match(n ast.Node, c *gosec.Context) (*gosec.Issue, error) {
+func (p *pprofCheck) Match(n ast.Node, c *gosec.Context) (*issue.Issue, error) {
 	if node, ok := n.(*ast.ImportSpec); ok {
 		if p.importPath == unquote(node.Path.Value) && node.Name != nil && p.importName == node.Name.Name {
-			return gosec.NewIssue(c, node, p.ID(), p.What, p.Severity, p.Confidence), nil
+			return c.NewIssue(node, p.ID(), p.What, p.Severity, p.Confidence), nil
 		}
 	}
 	return nil, nil
 }
 
 // NewPprofCheck detects when the profiling endpoint is automatically exposed
-func NewPprofCheck(id string, conf gosec.Config) (gosec.Rule, []ast.Node) {
+func NewPprofCheck(id string, _ gosec.Config) (gosec.Rule, []ast.Node) {
 	return &pprofCheck{
-		MetaData: gosec.MetaData{
-			ID:         id,
-			Severity:   gosec.High,
-			Confidence: gosec.High,
-			What:       "Profiling endpoint is automatically exposed on /debug/pprof",
-		},
+		MetaData:   issue.NewMetaData(id, "Profiling endpoint is automatically exposed on /debug/pprof", issue.High, issue.High),
 		importPath: "net/http/pprof",
 		importName: "_",
 	}, []ast.Node{(*ast.ImportSpec)(nil)}

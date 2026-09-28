@@ -18,12 +18,14 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/blang/semver/v4"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
+	kindv1 "sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
 	kind "sigs.k8s.io/kind/pkg/cluster"
 	kindnodes "sigs.k8s.io/kind/pkg/cluster/nodes"
 	kindnodesutils "sigs.k8s.io/kind/pkg/cluster/nodeutils"
@@ -31,6 +33,7 @@ import (
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/cluster-api/test/framework/internal/log"
 	"sigs.k8s.io/cluster-api/test/infrastructure/container"
+	kindmapper "sigs.k8s.io/cluster-api/test/infrastructure/kind"
 )
 
 // CreateKindBootstrapClusterAndLoadImagesInput is the input for CreateKindBootstrapClusterAndLoadImages.
@@ -52,28 +55,60 @@ type CreateKindBootstrapClusterAndLoadImagesInput struct {
 
 	// LogFolder where to dump logs in case of errors
 	LogFolder string
+
+	// ExtraPortMappings specifies the port forward configuration of the kind node.
+	ExtraPortMappings []kindv1.PortMapping
+
+	// CustomNodeImage is the custom node image used for creating the kind node
+	CustomNodeImage string
+
+	// DisableOwnerReferencesPermissionEnforcement can be set to true to disable
+	// the OwnerReferencesPermissionEnforcement admission controller in the cluster.
+	// Some Kubernetes clusters enable this admission plugin by default (e.g. OpenShift),
+	// and even if this plugin isn't enabled by default in Kubernetes/kind, we would
+	// like to support clusters where its enabled.
+	// See https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#ownerreferencespermissionenforcement
+	DisableOwnerReferencesPermissionEnforcement bool
 }
 
 // CreateKindBootstrapClusterAndLoadImages returns a new Kubernetes cluster with pre-loaded images.
 func CreateKindBootstrapClusterAndLoadImages(ctx context.Context, input CreateKindBootstrapClusterAndLoadImagesInput) ClusterProvider {
 	Expect(ctx).NotTo(BeNil(), "ctx is required for CreateKindBootstrapClusterAndLoadImages")
 	Expect(input.Name).ToNot(BeEmpty(), "Invalid argument. Name can't be empty when calling CreateKindBootstrapClusterAndLoadImages")
+	Expect(input.KubernetesVersion != "" && input.CustomNodeImage != "").To(BeFalse(), "Invalid input. Either KubernetesVersion or CustomNodeImage should be passed")
 
 	log.Logf("Creating a kind cluster with name %q", input.Name)
 
 	options := []KindClusterOption{}
 	if input.KubernetesVersion != "" {
-		options = append(options, WithNodeImage(fmt.Sprintf("%s:%s", DefaultNodeImageRepository, input.KubernetesVersion)))
+		semVer, err := semver.ParseTolerant(input.KubernetesVersion)
+		if err != nil {
+			Expect(err).ToNot(HaveOccurred(), "could not parse KubernetesVersion version")
+		}
+
+		kindMapping := kindmapper.GetMapping(semVer, "")
+
+		options = append(options, WithNodeImage(kindMapping.Image))
 	}
 	if input.RequiresDockerSock {
 		options = append(options, WithDockerSockMount())
 	}
-	if input.IPFamily == "IPv6" {
+	if strings.EqualFold(input.IPFamily, string(kindv1.IPv6Family)) {
 		options = append(options, WithIPv6Family())
+	}
+	if strings.EqualFold(input.IPFamily, string(kindv1.DualStackFamily)) {
+		options = append(options, WithDualStackFamily())
 	}
 	if input.LogFolder != "" {
 		options = append(options, LogFolder(input.LogFolder))
 	}
+	if input.CustomNodeImage != "" {
+		options = append(options, WithNodeImage(input.CustomNodeImage))
+	}
+	if input.DisableOwnerReferencesPermissionEnforcement {
+		options = append(options, WithOwnerReferencesPermissionEnforcementDisabled())
+	}
+	options = append(options, WithExtraPortMappings(input.ExtraPortMappings))
 
 	clusterProvider := NewKindClusterProvider(input.Name, options...)
 	Expect(clusterProvider).ToNot(BeNil(), "Failed to create a kind cluster")
@@ -89,7 +124,7 @@ func CreateKindBootstrapClusterAndLoadImages(ctx context.Context, input CreateKi
 	})
 	if err != nil {
 		clusterProvider.Dispose(ctx)
-		Expect(err).NotTo(HaveOccurred()) // re-surface the error to fail the test
+		Expect(err).ToNot(HaveOccurred()) // re-surface the error to fail the test
 	}
 
 	return clusterProvider
@@ -107,15 +142,15 @@ type LoadImagesToKindClusterInput struct {
 // LoadImagesToKindCluster provides a utility for loading images into a kind cluster.
 func LoadImagesToKindCluster(ctx context.Context, input LoadImagesToKindClusterInput) error {
 	if ctx == nil {
-		return errors.New("ctx is required for LoadImagesToKindCluster")
+		return pkgerrors.New("ctx is required for LoadImagesToKindCluster")
 	}
 	if input.Name == "" {
-		return errors.New("Invalid argument. Name can't be empty when calling LoadImagesToKindCluster")
+		return pkgerrors.New("Invalid argument. Name can't be empty when calling LoadImagesToKindCluster")
 	}
 
 	containerRuntime, err := container.NewDockerClient()
 	if err != nil {
-		return errors.Wrap(err, "failed to get Docker runtime client")
+		return pkgerrors.Wrap(err, "failed to get Docker runtime client")
 	}
 	ctx = container.RuntimeInto(ctx, containerRuntime)
 
@@ -124,7 +159,7 @@ func LoadImagesToKindCluster(ctx context.Context, input LoadImagesToKindClusterI
 		if err := loadImage(ctx, input.Name, image.Name); err != nil {
 			switch image.LoadBehavior {
 			case clusterctl.MustLoadImage:
-				return errors.Wrapf(err, "Failed to load image %q into the kind cluster %q", image.Name, input.Name)
+				return pkgerrors.Wrapf(err, "Failed to load image %q into the kind cluster %q", image.Name, input.Name)
 			case clusterctl.TryLoadImage:
 				log.Logf("[WARNING] Unable to load image %q into the kind cluster %q: %v", image.Name, input.Name, err)
 			}
@@ -139,33 +174,33 @@ func loadImage(ctx context.Context, cluster, image string) error {
 	// Save the image into a tar
 	dir, err := os.MkdirTemp("", "image-tar")
 	if err != nil {
-		return errors.Wrap(err, "failed to create tempdir")
+		return pkgerrors.Wrap(err, "failed to create tempdir")
 	}
 	defer os.RemoveAll(dir)
 	imageTarPath := filepath.Join(dir, "image.tar")
 
 	containerRuntime, err := container.RuntimeFrom(ctx)
 	if err != nil {
-		return errors.Wrap(err, "failed to access container runtime")
+		return pkgerrors.Wrap(err, "failed to access container runtime")
 	}
 	// in the nominal E2E scenario images have been locally built and added to cache
 	exists, err := containerRuntime.ImageExistsLocally(ctx, image)
 	if err != nil {
-		return errors.Wrapf(err, "error listing local image %s", image)
+		return pkgerrors.Wrapf(err, "error listing local image %s", image)
 	}
 	// in some scenarios we refer to a real reference image which may not have been pre-downloaded
 	if !exists {
 		log.Logf("Image %s not present in local container image cache, will pull", image)
 		err := containerRuntime.PullContainerImage(ctx, image)
 		if err != nil {
-			return errors.Wrapf(err, "error pulling image %q", image)
+			return pkgerrors.Wrapf(err, "error pulling image %q", image)
 		}
 	} else {
 		log.Logf("Image %s is present in local container image cache", image)
 	}
 	err = containerRuntime.SaveContainerImage(ctx, image, imageTarPath)
 	if err != nil {
-		return errors.Wrapf(err, "error saving image %q to %q", image, imageTarPath)
+		return pkgerrors.Wrapf(err, "error saving image %q to %q", image, imageTarPath)
 	}
 
 	// Gets the nodes in the cluster
@@ -190,7 +225,7 @@ func loadImage(ctx context.Context, cluster, image string) error {
 func load(imageTarName string, node kindnodes.Node) error {
 	f, err := os.Open(filepath.Clean(imageTarName))
 	if err != nil {
-		return errors.Wrap(err, "failed to open image")
+		return pkgerrors.Wrap(err, "failed to open image")
 	}
 	defer f.Close()
 	return kindnodesutils.LoadImageArchive(node, f)

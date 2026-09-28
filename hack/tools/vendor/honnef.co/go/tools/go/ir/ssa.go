@@ -5,7 +5,7 @@
 package ir
 
 // This package defines a high-level intermediate representation for
-// Go programs using static single-information (SSI) form.
+// Go programs using static single-assignment (SSA) form.
 
 import (
 	"fmt"
@@ -13,10 +13,22 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"iter"
+	"math/big"
+	"reflect"
+	"slices"
+	"strings"
 	"sync"
+	"unsafe"
 
-	"golang.org/x/exp/typeparams"
 	"honnef.co/go/tools/go/types/typeutil"
+	"honnef.co/go/tools/internal/xtools-internal/typeparams"
+)
+
+const (
+	// Replace CompositeValue with only constant values with AggregateConst. Currently disabled because it breaks field
+	// tracking in U1000.
+	doSimplifyConstantCompositeValues = false
 )
 
 type ID int
@@ -24,18 +36,31 @@ type ID int
 // A Program is a partial or complete Go program converted to IR form.
 type Program struct {
 	Fset       *token.FileSet              // position information for the files of this Program
-	PrintFunc  string                      // create ir.html for function specified in PrintFunc
 	imported   map[string]*Package         // all importable Packages, keyed by import path
-	packages   map[*types.Package]*Package // all loaded Packages, keyed by object
+	packages   map[*types.Package]*Package // all created Packages
 	mode       BuilderMode                 // set of mode bits for IR construction
 	MethodSets typeutil.MethodSetCache     // cache of type-checker's method-sets
 
-	methodsMu    sync.Mutex                 // guards the following maps:
-	methodSets   typeutil.Map               // maps type to its concrete methodSet
-	runtimeTypes typeutil.Map               // types for which rtypes are needed
-	canon        typeutil.Map               // type canonicalization map
-	bounds       map[*types.Func]*Function  // bounds for curried x.Method closures
-	thunks       map[selectionKey]*Function // thunks for T.Method expressions
+	canon *canonizer     // type canonicalization map
+	ctxt  *types.Context // cache for type checking instantiations
+
+	methodsMu  sync.Mutex
+	methodSets typeutil.Map[*methodSet] // maps type to its concrete *methodSet
+
+	// memoization of whether a type refers to type parameters
+	hasParamsMu sync.Mutex
+	hasParams   typeparams.Free
+
+	// set of concrete types used as MakeInterface operands
+	makeInterfaceTypesMu sync.Mutex
+	makeInterfaceTypes   map[types.Type]unit // (may contain redundant identical types)
+
+	// objectMethods is a memoization of objectMethod
+	// to avoid creation of duplicate methods from type information.
+	objectMethodsMu sync.Mutex
+	objectMethods   map[*types.Func]*Function
+
+	noReturn func(*types.Func) bool // (optional) predicate that decides whether a given call cannot return
 }
 
 // A Package is a single analyzed Go package containing Members for
@@ -46,29 +71,29 @@ type Program struct {
 // Members also contains entries for "init" (the synthetic package
 // initializer) and "init#%d", the nth declared init function,
 // and unspecified other things too.
-//
 type Package struct {
-	Prog      *Program               // the owning program
-	Pkg       *types.Package         // the corresponding go/types.Package
-	Members   map[string]Member      // all package members keyed by name (incl. init and init#%d)
-	Functions []*Function            // all functions, excluding anonymous ones
-	values    map[types.Object]Value // package members (incl. types and methods), keyed by object
-	init      *Function              // Func("init"); the package's init function
-	debug     bool                   // include full debug info in this package
-	printFunc string                 // which function to print in HTML form
+	Prog      *Program                // the owning program
+	Pkg       *types.Package          // the corresponding go/types.Package
+	Members   map[string]Member       // all package members keyed by name (incl. init and init#%d)
+	Functions []*Function             // all functions, excluding anonymous ones
+	values    map[types.Object]Member // mapping of package objects to members (incl. methods). Contains *NamedConst, *Global, *Function (values but not types)
+	init      *Function               // Func("init"); the package's init function
+	debug     bool                    // include full debug info in this package
+	syntax    bool                    // package was loaded from syntax
 
 	// The following fields are set transiently, then cleared
 	// after building.
-	buildOnce sync.Once   // ensures package building occurs once
-	ninit     int32       // number of init functions
-	info      *types.Info // package type information
-	files     []*ast.File // package ASTs
+	buildOnce   sync.Once           // ensures package building occurs once
+	ninit       int32               // number of init functions
+	info        *types.Info         // package type information
+	files       []*ast.File         // package ASTs
+	created     []*Function         // members created as a result of building this package (includes declared functions, wrappers)
+	initVersion map[ast.Expr]string // goversion to use for each global var init expr
 }
 
 // A Member is a member of a Go package, implemented by *NamedConst,
 // *Global, *Function, or *Type; they are created by package-level
 // const, var, func and type declarations respectively.
-//
 type Member interface {
 	Name() string                    // declared name of the package member
 	String() string                  // package-qualified name of the package member
@@ -93,7 +118,6 @@ type Type struct {
 //
 // NB: a NamedConst is not a Value; it contains a constant Value, which
 // it augments with the name and position of its 'const' declaration.
-//
 type NamedConst struct {
 	object *types.Const
 	Value  *Const
@@ -102,8 +126,6 @@ type NamedConst struct {
 
 // A Value is an IR value that can be referenced by an instruction.
 type Value interface {
-	setID(ID)
-
 	// Name returns the name of this value, and determines how
 	// this Value appears when used as an operand of an
 	// Instruction.
@@ -117,17 +139,6 @@ type Value interface {
 	// The name of an IR Value is not semantically significant,
 	// and may not even be unique within a function.
 	Name() string
-
-	// ID returns the ID of this value. IDs are unique within a single
-	// function and are densely numbered, but may contain gaps.
-	// Values and other Instructions share the same ID space.
-	// Globally, values are identified by their addresses. However,
-	// IDs exist to facilitate efficient storage of mappings between
-	// values and data when analysing functions.
-	//
-	// NB: IDs are allocated late in the IR construction process and
-	// are not available to early stages of said process.
-	ID() ID
 
 	// If this value is an Instruction, String returns its
 	// disassembled form; otherwise it returns unspecified
@@ -180,23 +191,24 @@ type Value interface {
 // An Instruction that defines a value (e.g. BinOp) also implements
 // the Value interface; an Instruction that only has an effect (e.g. Store)
 // does not.
-//
 type Instruction interface {
 	setSource(ast.Node)
 	setID(ID)
 
+	Comment() string
+
 	// String returns the disassembled form of this value.
 	//
 	// Examples of Instructions that are Values:
-	//       "BinOp <int> {+} t1 t2"  (BinOp)
-	//       "Call <int> len t1"      (Call)
+	//       "x + y"     (BinOp)
+	//       "len([])"   (Call)
 	// Note that the name of the Value is not printed.
 	//
 	// Examples of Instructions that are not Values:
-	//       "Return t1"              (Return)
-	//       "Store {int} t2 t1"      (Store)
+	//       "return x"  (Return)
+	//       "*y = x"    (Store)
 	//
-	// (The separation of Value.Name() from Value.String() is useful
+	// (The separation Value.Name() from Value.String() is useful
 	// for some analyses which distinguish the operation from the
 	// value it defines, e.g., 'y = local int' is both an allocation
 	// of memory 'local int' and a definition of a pointer y.)
@@ -264,12 +276,8 @@ type Instruction interface {
 // Node is provided to simplify IR graph algorithms.  Clients should
 // use the more specific and informative Value or Instruction
 // interfaces where appropriate.
-//
 type Node interface {
-	setID(ID)
-
 	// Common methods:
-	ID() ID
 	String() string
 	Source() ast.Node
 	Pos() token.Pos
@@ -280,42 +288,12 @@ type Node interface {
 	Referrers() *[]Instruction        // nil for non-Values
 }
 
-type Synthetic int
-
-const (
-	SyntheticLoadedFromExportData Synthetic = iota + 1
-	SyntheticPackageInitializer
-	SyntheticThunk
-	SyntheticWrapper
-	SyntheticBound
-	SyntheticGeneric
-)
-
-func (syn Synthetic) String() string {
-	switch syn {
-	case SyntheticLoadedFromExportData:
-		return "loaded from export data"
-	case SyntheticPackageInitializer:
-		return "package initializer"
-	case SyntheticThunk:
-		return "thunk"
-	case SyntheticWrapper:
-		return "wrapper"
-	case SyntheticBound:
-		return "bound"
-	case SyntheticGeneric:
-		return "generic"
-	default:
-		return fmt.Sprintf("Synthetic(%d)", syn)
-	}
-}
-
 // Function represents the parameters, results, and code of a function
 // or method.
 //
 // If Blocks is nil, this indicates an external function for which no
-// Go source code is available.  In this case, FreeVars and Locals
-// are nil too.  Clients performing whole-program analysis must
+// Go source code is available.  In this case, FreeVars, Locals, and
+// Params are nil too.  Clients performing whole-program analysis must
 // handle external functions specially.
 //
 // Blocks contains the function's control-flow graph (CFG).
@@ -323,6 +301,11 @@ func (syn Synthetic) String() string {
 // semantically significant, though it may affect the readability of
 // the disassembly.
 // To iterate over the blocks in dominance order, use DomPreorder().
+//
+// Recover is an optional second entry point to which control resumes
+// after a recovered panic.  The Recover block may contain only a return
+// statement, preceded by a load of the function's named return
+// parameters, if any.
 //
 // A nested function (Parent()!=nil) that refers to one or more
 // lexically enclosing local variables ("free variables") has FreeVars.
@@ -339,148 +322,101 @@ func (syn Synthetic) String() string {
 //
 // Pos() returns the declaring ast.FuncLit.Type.Func or the position
 // of the ast.FuncDecl.Name, if the function was explicit in the
-// source.  Synthetic wrappers, for which Synthetic != "", may share
+// source. Synthetic wrappers, for which Synthetic != "", may share
 // the same position as the function they wrap.
 // Syntax.Pos() always returns the position of the declaring "func" token.
 //
+// When the operand of a range statement is an iterator function,
+// the loop body is transformed into a synthetic anonymous function
+// that is passed as the yield argument in a call to the iterator.
+// In that case, Function.Source() is the ast.RangeStmt.
+// and Function.Syntax is the ast.RangeStmt.
+//
+// Synthetic functions, for which Synthetic != "", are functions
+// that do not appear in the source AST. These include:
+//   - method wrappers,
+//   - thunks,
+//   - bound functions,
+//   - empty functions built from loaded type information,
+//   - yield functions created from range-over-func loops,
+//   - package init functions, and
+//   - instantiations of generic functions.
+//
+// Synthetic wrapper functions may share the same position
+// as the function they wrap.
+//
 // Type() returns the function's Signature.
 //
+// A generic function is a function or method that has uninstantiated type
+// parameters (TypeParams() != nil). Consider a hypothetical generic
+// method, (*Map[K,V]).Get. It may be instantiated with all
+// non-parameterized types as (*Map[string,int]).Get or with
+// parameterized types as (*Map[string,U]).Get, where U is a type parameter.
+// In both instantiations, Origin() refers to the instantiated generic
+// method, (*Map[K,V]).Get, TypeParams() refers to the parameters [K,V] of
+// the generic method. TypeArgs() refers to [string,U] or [string,int],
+// respectively, and is nil in the generic method.
 type Function struct {
-	node
-
 	name      string
-	object    types.Object     // a declared *types.Func or one of its wrappers
-	method    *types.Selection // info about provenance of synthetic methods
+	object    *types.Func // symbol for declared function (nil for FuncLit or synthetic init)
+	method    *selection  // info about provenance of synthetic methods; thunk => non-nil
 	Signature *types.Signature
-	generics  instanceWrapperMap
+	pos       token.Pos
+	syntax    ast.Node
 
-	Synthetic Synthetic
-	parent    *Function     // enclosing function if anon; nil if global
-	Pkg       *Package      // enclosing package; nil for shared funcs (wrappers and error.Error)
-	Prog      *Program      // enclosing program
+	// source information
+	Synthetic string      // provenance of synthetic function; "" for true source functions
+	info      *types.Info // type annotations (if syntax != nil)
+	goversion string      // Go version of syntax (NB: init is special)
+
+	parent *Function // enclosing function if anon; nil if global
+	Pkg    *Package  // enclosing package; nil for shared funcs (wrappers and error.Error)
+	Prog   *Program  // enclosing program
+
+	exprToValue map[ast.Expr]struct {
+		v      Value
+		isAddr bool
+	}
+
+	buildshared *task // wait for a shared function to be done building (may be nil if <=1 builder ever needs to wait)
+
+	// These fields are populated only when the function body is built:
+
 	Params    []*Parameter  // function parameters; for methods, includes receiver
 	FreeVars  []*FreeVar    // free variables whose values must be supplied by closure
-	Locals    []*Alloc      // local variables of this function
+	Locals    []*Alloc      // frame-allocated variables of this function
 	Blocks    []*BasicBlock // basic blocks of the function; nil => external
-	Exit      *BasicBlock   // The function's exit block
-	AnonFuncs []*Function   // anonymous functions directly beneath this one
+	Recover   *BasicBlock   // optional; control transfers here after recovered panic
+	AnonFuncs []*Function   // anonymous functions (from FuncLit, RangeStmt) directly beneath this one
 	referrers []Instruction // referring instructions (iff Parent() != nil)
-	NoReturn  NoReturn      // Calling this function will always terminate control flow.
+	anonIdx   int32         // position of a nested function in parent's AnonFuncs. fn.Parent()!=nil => fn.Parent().AnonFunc[fn.anonIdx] == fn.
 
-	*functionBody
-}
+	SCCs []*SCC // SCC DAG in reverse topological order
 
-type instanceWrapperMap struct {
-	h       typeutil.Hasher
-	entries map[uint32][]struct {
-		key *typeparams.TypeList
-		val *Function
-	}
-	len int
-}
+	recvtypeparams *types.TypeParamList // receiver type parameters of this function. recvtypeparams.Len() > 0 => method on generic or instance of generic type
+	recvtypeargs   []types.Type         // type arguments that instantiated recvtypeparams. len(recvtypeargs) > 0 => method on instance of generic type
+	typeparams     *types.TypeParamList // type parameters of this function. typeparams.Len() > 0 => generic or instance of generic function or method
+	typeargs       []types.Type         // type arguments that instantiated typeparams. len(typeargs) > 0 => instance of generic function or method
+	topLevelOrigin *Function            // the origin function if this is an instance of a source function. nil if Parent()!=nil.
+	generic        *generic             // instances of this function, if generic
 
-func typeListIdentical(l1, l2 *typeparams.TypeList) bool {
-	if l1.Len() != l2.Len() {
-		return false
-	}
-	for i := 0; i < l1.Len(); i++ {
-		t1 := l1.At(i)
-		t2 := l2.At(i)
-		if !types.Identical(t1, t2) {
-			return false
-		}
-	}
-	return true
-}
+	// The following fields are cleared after building.
+	build            buildFunc                // algorithm to build function body (nil => built)
+	currentBlock     *BasicBlock              // where to emit code
+	vars             map[*types.Var]Value     // addresses of local variables
+	results          []*Alloc                 // result allocations of the current function
+	returnVars       []*types.Var             // variables for a return statement. Either results or for range-over-func a parent's results
+	targets          *targets                 // linked stack of branch targets
+	lblocks          map[*types.Label]*lblock // labelled blocks
+	subst            *subster                 // type parameter substitutions (if non-nil)
+	jump             *types.Var               // synthetic variable for the yield state (non-nil => range-over-func)
+	deferstack       *types.Var               // synthetic variable holding enclosing ssa:deferstack()
+	source           *Function                // nearest enclosing source function
+	exits            []*exit                  // exits of the function that need to be resolved
+	uniq             int64                    // source of unique ints within the source tree while building
+	liftableBlockMap BlockMap[liftableBlockDesc]
 
-func (m *instanceWrapperMap) At(key *typeparams.TypeList) *Function {
-	if m.entries == nil {
-		m.entries = make(map[uint32][]struct {
-			key *typeparams.TypeList
-			val *Function
-		})
-		m.h = typeutil.MakeHasher()
-	}
-
-	var hash uint32
-	for i := 0; i < key.Len(); i++ {
-		t := key.At(i)
-		hash += m.h.Hash(t)
-	}
-
-	for _, e := range m.entries[hash] {
-		if typeListIdentical(e.key, key) {
-			return e.val
-		}
-	}
-	return nil
-}
-
-func (m *instanceWrapperMap) Set(key *typeparams.TypeList, val *Function) {
-	if m.entries == nil {
-		m.entries = make(map[uint32][]struct {
-			key *typeparams.TypeList
-			val *Function
-		})
-		m.h = typeutil.MakeHasher()
-	}
-
-	var hash uint32
-	for i := 0; i < key.Len(); i++ {
-		t := key.At(i)
-		hash += m.h.Hash(t)
-	}
-	for i, e := range m.entries[hash] {
-		if typeListIdentical(e.key, key) {
-			m.entries[hash][i].val = val
-			return
-		}
-	}
-	m.entries[hash] = append(m.entries[hash], struct {
-		key *typeparams.TypeList
-		val *Function
-	}{key, val})
-	m.len++
-}
-
-func (m *instanceWrapperMap) Len() int {
-	return m.len
-}
-
-type NoReturn uint8
-
-const (
-	Returns NoReturn = iota
-	AlwaysExits
-	AlwaysUnwinds
-	NeverReturns
-)
-
-type functionBody struct {
-	// The following fields are set transiently during building,
-	// then cleared.
-	currentBlock    *BasicBlock              // where to emit code
-	objects         map[types.Object]Value   // addresses of local variables
-	namedResults    []*Alloc                 // tuple of named results
-	implicitResults []*Alloc                 // tuple of results
-	targets         *targets                 // linked stack of branch targets
-	lblocks         map[types.Object]*lblock // labelled blocks
-	consts          []Constant
-	wr              *HTMLWriter
-	fakeExits       BlockSet
-	blocksets       [5]BlockSet
-	hasDefer        bool
-
-	// a contiguous block of instructions that will be used by blocks,
-	// to avoid making multiple allocations.
-	scratchInstructions []Instruction
-}
-
-func (fn *Function) results() []*Alloc {
-	if len(fn.namedResults) > 0 {
-		return fn.namedResults
-	}
-	return fn.implicitResults
+	blocksets [4]BlockSet
 }
 
 // BasicBlock represents an IR basic block.
@@ -502,19 +438,24 @@ func (fn *Function) results() []*Alloc {
 //
 // The order of Preds and Succs is significant (to Phi and If
 // instructions, respectively).
-//
 type BasicBlock struct {
 	Index        int            // index of this block within Parent().Blocks
 	Comment      string         // optional label; no semantic significance
 	parent       *Function      // parent function
 	Instrs       []Instruction  // instructions in order
 	Preds, Succs []*BasicBlock  // predecessors and successors
+	SCC          *SCC           // strongly connected component
 	succs2       [2]*BasicBlock // initial space for Succs
 	dom          domInfo        // dominator tree info
-	pdom         domInfo        // post-dominator tree info
-	post         int
-	gaps         int // number of nil Instrs (transient)
-	rundefers    int // number of rundefers (transient)
+	gaps         int            // number of nil Instrs (transient)
+	rundefers    int            // number of rundefers (transient)
+}
+
+type SCC struct {
+	Index        int
+	Blocks       []*BasicBlock
+	Preds, Succs []*SCC
+	reachable    big.Int
 }
 
 // Pure values ----------------------------------------
@@ -534,7 +475,6 @@ type BasicBlock struct {
 //
 // Pos() returns the position of the value that was captured, which
 // belongs to an enclosing function.
-//
 type FreeVar struct {
 	node
 
@@ -548,76 +488,76 @@ type FreeVar struct {
 }
 
 // A Parameter represents an input parameter of a function.
-//
 type Parameter struct {
-	register
+	node
 
-	name   string
-	object types.Object // a *types.Var; nil for non-source locals
+	name      string
+	object    *types.Var // non-nil
+	typ       types.Type
+	parent    *Function
+	referrers []Instruction
 }
 
-// A Const represents the value of a constant expression.
+// A Const represents a value known at build time.
 //
-// The underlying type of a constant may be any boolean, numeric, or
-// string type.  In addition, a Const may represent the nil value of
-// any reference type---interface, map, channel, pointer, slice, or
-// function---but not "untyped nil".
+// Consts include true constants of boolean, numeric, and string types, as
+// defined by the Go spec; these are represented by a non-nil Value field.
 //
-// All source-level constant expressions are represented by a Const
-// of the same type and value.
-//
-// Value holds the exact value of the constant, independent of its
-// Type(), using the same representation as package go/constant uses for
-// constants, or nil for a typed nil value.
-//
-// Pos() returns token.NoPos.
+// Consts also include the "zero" value of any type, of which the nil values
+// of various pointer-like types are a special case; these are represented
+// by a nil Value field.
 //
 // Example printed form:
-// 	Const <int> {42}
-// 	Const <untyped string> {"test"}
-// 	Const <MyComplex> {(3 + 4i)}
 //
+//	42:int
+//	"hello":untyped string
+//	3+4i:MyComplex
+//	nil:*int
+//	nil:[]string
+//	[3]int{}:[3]int
+//	struct{x string}{}:struct{x string}
+//	0:interface{int|int64}
+//	nil:interface{bool|int} // no go/constant representation
 type Const struct {
-	register
+	node
 
+	typ   types.Type
 	Value constant.Value
 }
 
 type AggregateConst struct {
-	register
+	node
 
-	Values []Constant
+	typ    types.Type
+	Values []Value
 }
 
-// TODO add the element's zero constant to ArrayConst
-type ArrayConst struct {
+type CompositeValue struct {
 	register
-}
 
-type GenericConst struct {
-	register
+	// Bitmap records which elements were explicitly provided. For example, [4]byte{2: x} would have a bitmap of 0010.
+	Bitmap big.Int
+	// The number of bits set in Bitmap
+	// TODO(dh): remove NumSet. we can just query the bitmap.
+	NumSet int
+	// Dense list of values in the composite literal. Omitted elements are filled in with zero values.
+	Values []Value
 }
 
 type Constant interface {
-	Instruction
 	Value
 	aConstant()
 	RelString(*types.Package) string
-	equal(Constant) bool
-	setType(types.Type)
 }
 
 func (*Const) aConstant()          {}
 func (*AggregateConst) aConstant() {}
-func (*ArrayConst) aConstant()     {}
-func (*GenericConst) aConstant()   {}
 
 // A Global is a named Value holding the address of a package-level
 // variable.
 //
 // Pos() returns the position of the ast.ValueSpec.Names[*]
 // identifier.
-//
 type Global struct {
 	node
 
@@ -637,20 +577,19 @@ type Global struct {
 // Go spec (excluding "make" and "new") or one of these ir-defined
 // intrinsics:
 //
-//   // wrapnilchk returns ptr if non-nil, panics otherwise.
-//   // (For use in indirection wrappers.)
-//   func ir:wrapnilchk(ptr *T, recvType, methodName string) *T
+//	// wrapnilchk returns ptr if non-nil, panics otherwise.
+//	// (For use in indirection wrappers.)
+//	func ir:wrapnilchk(ptr *T, recvType, methodName string) *T
 //
-//   // noreturnWasPanic returns true if the previously called
-//   // function panicked, false if it exited the process.
-//   func ir:noreturnWasPanic() bool
+//	// noreturnWasPanic returns true if the previously called
+//	// function panicked, false if it exited the process.
+//	func ir:noreturnWasPanic() bool
 //
 // Object() returns a *types.Builtin for built-ins defined by the spec,
 // nil for others.
 //
 // Type() returns a *types.Signature representing the effective
 // signature of the built-in for this call.
-//
 type Builtin struct {
 	node
 
@@ -667,15 +606,12 @@ type Builtin struct {
 // type of the allocated variable is actually
 // Type().Underlying().(*types.Pointer).Elem().
 //
-// If Heap is false, Alloc allocates space in the function's
-// activation record (frame); we refer to an Alloc(Heap=false) as a
-// "stack" alloc.  Each stack Alloc returns the same address each time
-// it is executed within the same activation; the space is
-// re-initialized to zero.
+// If Heap is false, Alloc zero-initializes the same local variable in
+// the call frame and returns its address; in this case the Alloc must
+// be present in Function.Locals. We call this a "local" alloc.
 //
-// If Heap is true, Alloc allocates space in the heap; we
-// refer to an Alloc(Heap=true) as a "heap" alloc.  Each heap Alloc
-// returns a different address each time it is executed.
+// If Heap is true, Alloc allocates a new zero-initialized variable
+// each time the instruction is executed. We call this a "new" alloc.
 //
 // When Alloc is applied to a channel, map or slice type, it returns
 // the address of an uninitialized (nil) reference of that kind; store
@@ -687,61 +623,18 @@ type Builtin struct {
 // allocates a varargs slice.
 //
 // Example printed form:
-// 	t1 = StackAlloc <*int>
-// 	t2 = HeapAlloc <*int> (new)
 //
+//	t0 = local int
+//	t1 = new int
 type Alloc struct {
 	register
 	Heap  bool
 	index int // dense numbering; for lifting
 }
 
-var _ Instruction = (*Sigma)(nil)
-var _ Value = (*Sigma)(nil)
-
-// The Sigma instruction represents an SSI σ-node, which splits values
-// at branches in the control flow.
-//
-// Conceptually, σ-nodes exist at the end of blocks that branch and
-// constitute parallel assignments to one value per destination block.
-// However, such a representation would be awkward to work with, so
-// instead we place σ-nodes at the beginning of branch targets. The
-// From field denotes to which incoming edge the node applies.
-//
-// Within a block, all σ-nodes must appear before all non-σ nodes.
-//
-// Example printed form:
-// 	t2 = Sigma <int> [#0] t1 (x)
-//
-type Sigma struct {
-	register
-	From *BasicBlock
-	X    Value
-
-	live bool // used during lifting
-}
-
-type CopyInfo uint64
-
-const (
-	CopyInfoUnspecified CopyInfo = 0
-	CopyInfoNotNil      CopyInfo = 1 << iota
-	CopyInfoNotZeroLength
-	CopyInfoNotNegative
-	CopyInfoSingleConcreteType
-	CopyInfoClosed
-)
-
-type Copy struct {
-	register
-	X    Value
-	Why  Instruction
-	Info CopyInfo
-}
-
 // The Phi instruction represents an SSA φ-node, which combines values
 // that differ across incoming control-flow edges and yields a new
-// value.  Within a block, all φ-nodes must appear before all non-φ, non-σ
+// value.  Within a block, all φ-nodes must appear before all non-φ
 // nodes.
 //
 // Pos() returns the position of the && or || for short-circuit
@@ -749,8 +642,8 @@ type Copy struct {
 // during SSA renaming.
 //
 // Example printed form:
-// 	t3 = Phi <int> 2:t1 4:t2 (x)
 //
+//	t2 = phi [0: t0, 1: t1]
 type Phi struct {
 	register
 	Edges []Value // Edges[i] is value for Block().Preds[i]
@@ -769,10 +662,10 @@ type Phi struct {
 // Pos() returns the ast.CallExpr.Lparen, if explicit in the source.
 //
 // Example printed form:
-// 	t3 = Call <()> println t1 t2
-// 	t4 = Call <()> foo$1
-// 	t6 = Invoke <string> t5.String
 //
+//	t2 = println(t0, t1)
+//	t4 = t3()
+//	t7 = invoke t5.Println(...t6)
 type Call struct {
 	register
 	Call CallCommon
@@ -783,8 +676,8 @@ type Call struct {
 // Pos() returns the ast.BinaryExpr.OpPos, if explicit in the source.
 //
 // Example printed form:
-// 	t3 = BinOp <int> {+} t2 t1
 //
+//	t1 = t0 + 1:int
 type BinOp struct {
 	register
 	// One of:
@@ -800,10 +693,9 @@ type BinOp struct {
 // SUB is negation.
 // NOT is logical negation.
 //
-//
 // Example printed form:
-// 	t2 = UnOp <int> {^} t1
 //
+//	t0 = ^x
 type UnOp struct {
 	register
 	Op token.Token // One of: NOT SUB XOR ! - ^
@@ -817,8 +709,8 @@ type UnOp struct {
 // specified.
 //
 // Example printed form:
-// 	t2 = Load <int> t1
 //
+//	t2 = Load <int> t1
 type Load struct {
 	register
 	X Value
@@ -828,20 +720,28 @@ type Load struct {
 // change to Type().
 //
 // Type changes are permitted:
-//    - between a named type and its underlying type.
-//    - between two named types of the same underlying type.
-//    - between (possibly named) pointers to identical base types.
-//    - from a bidirectional channel to a read- or write-channel,
-//      optionally adding/removing a name.
+//   - between a named type and its underlying type.
+//   - between two named types of the same underlying type.
+//   - between (possibly named) pointers to identical base types.
+//   - from a bidirectional channel to a read- or write-channel,
+//     optionally adding/removing a name.
+//   - between a type (t) and an instance of the type (tσ), i.e.
+//     Type() == σ(X.Type()) (or X.Type()== σ(Type())) where
+//     σ is the type substitution of Parent().TypeParams by
+//     Parent().TypeArgs.
 //
 // This operation cannot fail dynamically.
+//
+// Type changes may to be to or from a type parameter (or both). All
+// types in the type set of X.Type() have a value-preserving type
+// change to all types in the type set of Type().
 //
 // Pos() returns the ast.CallExpr.Lparen, if the instruction arose
 // from an explicit conversion in the source.
 //
 // Example printed form:
-// 	t2 = ChangeType <*T> t1
 //
+//	t1 = changetype *int <- IntPtr (t0)
 type ChangeType struct {
 	register
 	X Value
@@ -852,13 +752,18 @@ type ChangeType struct {
 //
 // A conversion may change the value and representation of its operand.
 // Conversions are permitted:
-//    - between real numeric types.
-//    - between complex numeric types.
-//    - between string and []byte or []rune.
-//    - between pointers and unsafe.Pointer.
-//    - between unsafe.Pointer and uintptr.
-//    - from (Unicode) integer to (UTF-8) string.
+//   - between real numeric types.
+//   - between complex numeric types.
+//   - between string and []byte or []rune.
+//   - between pointers and unsafe.Pointer.
+//   - between unsafe.Pointer and uintptr.
+//   - from (Unicode) integer to (UTF-8) string.
+//
 // A conversion may imply a type name change also.
+//
+// Conversions may to be to or from a type parameter. All types in
+// the type set of X.Type() can be converted to all types in the type
+// set of Type().
 //
 // This operation cannot fail dynamically.
 //
@@ -869,11 +774,30 @@ type ChangeType struct {
 // from an explicit conversion in the source.
 //
 // Example printed form:
-// 	t2 = Convert <[]byte> t1
 //
+//	t1 = convert []byte <- string (t0)
 type Convert struct {
 	register
 	X Value
+}
+
+// The MultiConvert instruction yields the conversion of value X to type
+// Type(). Either X.Type() or Type() must be a type parameter. Each
+// type in the type set of X.Type() can be converted to each type in the
+// type set of Type().
+//
+// See the documentation for Convert, ChangeType, SliceToArray, and SliceToArrayPointer
+// for the conversions that are permitted.
+//
+// This operation can fail dynamically (see SliceToArrayPointer).
+//
+// Example printed form:
+//
+//	t1 = multiconvert D <- S (t0) [*[2]rune <- []rune | string <- []rune]
+type MultiConvert struct {
+	register
+	X        Value
+	from, to types.Type
 }
 
 // ChangeInterface constructs a value of one interface type from a
@@ -886,8 +810,8 @@ type Convert struct {
 // otherwise.
 //
 // Example printed form:
-// 	t2 = ChangeInterface <I1> t1
 //
+//	t1 = change interface interface{} <- I (t0)
 type ChangeInterface struct {
 	register
 	X Value
@@ -899,10 +823,32 @@ type ChangeInterface struct {
 // Pos() returns the ast.CallExpr.Lparen, if the instruction arose
 // from an explicit conversion in the source.
 //
-// Example printed form:
-// 	t1 = SliceToArrayPointer <*[4]byte> t1
+// Conversion may to be to or from a type parameter. All types in
+// the type set of X.Type() must be a slice types that can be converted to
+// all types in the type set of Type() which must all be pointer to array
+// types.
 //
+// This operation can fail dynamically if the length of the slice is less
+// than the length of the array.
+//
+// Example printed form:
+//
+//	t1 = slice to array pointer *[4]byte <- []byte (t0)
 type SliceToArrayPointer struct {
+	register
+	X Value
+}
+
+// The SliceToArray instruction yields the conversion of slice X to
+// array.
+//
+// Pos() returns the ast.CallExpr.Lparen, if the instruction arose
+// from an explicit conversion in the source.
+//
+// Example printed form:
+//
+//	t2 = SliceToArray <[4]byte> t1
+type SliceToArray struct {
 	register
 	X Value
 }
@@ -914,14 +860,16 @@ type SliceToArrayPointer struct {
 // of X, and Program.MethodValue(m) to find the implementation of a method.
 //
 // To construct the zero value of an interface type T, use:
-// 	NewConst(constant.MakeNil(), T, pos)
+//
+//	NewConst(constant.MakeNil(), T, pos)
 //
 // Pos() returns the ast.CallExpr.Lparen, if the instruction arose
 // from an explicit conversion in the source.
 //
 // Example printed form:
-// 	t2 = MakeInterface <interface{}> t1
 //
+//	t1 = make interface{} <- int (42:int)
+//	t1 = make Stringer <- t0
 type MakeInterface struct {
 	register
 	X Value
@@ -936,9 +884,9 @@ type MakeInterface struct {
 // closure or the ast.SelectorExpr.Sel for a bound method closure.
 //
 // Example printed form:
-// 	t1 = MakeClosure <func()> foo$1 t1 t2
-// 	t5 = MakeClosure <func(int)> (T).foo$bound t4
 //
+//	t0 = make closure anon@1.2 [x y z]
+//	t1 = make closure bound$(main.I).add [i]
 type MakeClosure struct {
 	register
 	Fn       Value   // always a *Function
@@ -954,9 +902,9 @@ type MakeClosure struct {
 // the ast.CompositeLit.Lbrack if created by a literal.
 //
 // Example printed form:
-// 	t1 = MakeMap <map[string]int>
-// 	t2 = MakeMap <StringIntMap> t1
 //
+//	t1 = make map[string]int t0
+//	t1 = make StringIntMap t0
 type MakeMap struct {
 	register
 	Reserve Value // initial space reservation; nil => default
@@ -971,9 +919,9 @@ type MakeMap struct {
 // created it.
 //
 // Example printed form:
-// 	t3 = MakeChan <chan int> t1
-// 	t4 = MakeChan <chan IntChan> t2
 //
+//	t1 = make chan int t0
+//	t1 = make IntChan t0
 type MakeChan struct {
 	register
 	Size Value // int; size of buffer; zero => synchronous.
@@ -993,9 +941,9 @@ type MakeChan struct {
 // created it.
 //
 // Example printed form:
-// 	t3 = MakeSlice <[]string> t1 t2
-// 	t4 = MakeSlice <StringSlice> t1 t2
 //
+//	t2 = make []string t1 t0
+//	t2 = make StringSlice t1 t0
 type MakeSlice struct {
 	register
 	Len Value
@@ -1016,8 +964,8 @@ type MakeSlice struct {
 // NoPos if not explicit in the source (e.g. a variadic argument slice).
 //
 // Example printed form:
-// 	t4 = Slice <[]int> t3 t2 t1 <nil>
 //
+//	t2 = slice t0[t1:]
 type Slice struct {
 	register
 	X              Value // slice, string, or *array
@@ -1035,15 +983,18 @@ type Slice struct {
 // Type() returns a (possibly named) *types.Pointer.
 //
 // Pos() returns the position of the ast.SelectorExpr.Sel for the
-// field, if explicit in the source.
+// field, if explicit in the source. For implicit selections, returns
+// the position of the inducing explicit selection. If produced for a
+// struct literal S{f: e}, it returns the position of the colon; for
+// S{e} it returns the start of expression e.
 //
 // Example printed form:
-// 	t2 = FieldAddr <*int> [0] (X) t1
 //
+//	t1 = &t0.name [#1]
 type FieldAddr struct {
 	register
 	X     Value // *struct
-	Field int   // field is X.Type().Underlying().(*types.Pointer).Elem().Underlying().(*types.Struct).Field(Field)
+	Field int   // index into CoreType(CoreType(X.Type()).(*types.Pointer).Elem()).(*types.Struct).Fields
 }
 
 // The Field instruction yields the Field of struct X.
@@ -1053,22 +1004,23 @@ type FieldAddr struct {
 // package-local identifiers and permit compact representations.
 //
 // Pos() returns the position of the ast.SelectorExpr.Sel for the
-// field, if explicit in the source.
+// field, if explicit in the source. For implicit selections, returns
+// the position of the inducing explicit selection.
 //
 // Example printed form:
-// 	t2 = FieldAddr <int> [0] (X) t1
 //
+//	t1 = t0.name [#1]
 type Field struct {
 	register
 	X     Value // struct
-	Field int   // index into X.Type().(*types.Struct).Fields
+	Field int   // index into CoreType(X.Type()).(*types.Struct).Fields
 }
 
 // The IndexAddr instruction yields the address of the element at
 // index Index of collection X.  Index is an integer expression.
 //
-// The elements of maps and strings are not addressable; use StringLookup, MapLookup or
-// MapUpdate instead.
+// The elements of maps and strings are not addressable; use Lookup (map),
+// Index (string), or MapUpdate instead.
 //
 // Dynamically, this instruction panics if X evaluates to a nil *array
 // pointer.
@@ -1079,29 +1031,32 @@ type Field struct {
 // explicit in the source.
 //
 // Example printed form:
-// 	t3 = IndexAddr <*int> t2 t1
 //
+//	t2 = &t0[t1]
 type IndexAddr struct {
 	register
-	X     Value // slice or *array,
+	X     Value // *array, slice or type parameter with types array, *array, or slice.
 	Index Value // numeric index
 }
 
-// The Index instruction yields element Index of array X.
+// The Index instruction yields element Index of collection X, an array,
+// string or type parameter containing an array, a string, a pointer to an,
+// array or a slice.
 //
 // Pos() returns the ast.IndexExpr.Lbrack for the index operation, if
 // explicit in the source.
 //
 // Example printed form:
-// 	t3 = Index <int> t2 t1
 //
+//	t2 = t0[t1]
 type Index struct {
 	register
-	X     Value // array
+	X     Value // array, string or type parameter with types array, *array, slice, or string.
 	Index Value // integer index
 }
 
 // The MapLookup instruction yields element Index of collection X, a map.
+// Index is the appropriate key type.
 //
 // If CommaOk, the result is a 2-tuple of the value above and a
 // boolean indicating the result of a map membership test for the key.
@@ -1110,9 +1065,9 @@ type Index struct {
 // Pos() returns the ast.IndexExpr.Lbrack, if explicit in the source.
 //
 // Example printed form:
-// 	t4 = MapLookup <string> t3 t1
-// 	t6 = MapLookup <(string, bool)> t3 t2
 //
+//	t2 = t0[t1]
+//	t5 = t3[t4],ok
 type MapLookup struct {
 	register
 	X       Value // map
@@ -1126,8 +1081,8 @@ type MapLookup struct {
 // Pos() returns the ast.IndexExpr.Lbrack, if explicit in the source.
 //
 // Example printed form:
-// 	t3 = StringLookup <uint8> t2 t1
 //
+//	t3 = StringLookup <uint8> t2 t1
 type StringLookup struct {
 	register
 	X     Value // string
@@ -1136,7 +1091,6 @@ type StringLookup struct {
 
 // SelectState is a helper for Select.
 // It represents one goal state and its corresponding communication.
-//
 type SelectState struct {
 	Dir       types.ChanDir // direction of case (SendOnly or RecvOnly)
 	Chan      Value         // channel to use (for send or receive)
@@ -1151,7 +1105,9 @@ type SelectState struct {
 // Let n be the number of States for which Dir==RECV and Tᵢ (0 ≤ i < n)
 // be the element type of each such state's Chan.
 // Select returns an n+2-tuple
-//    (index int, recvOk bool, r₀ T₀, ... rₙ-1 Tₙ-1)
+//
+//	(index int, recvOk bool, r₀ T₀, ... rₙ-1 Tₙ-1)
+//
 // The tuple's components, described below, must be accessed via the
 // Extract instruction.
 //
@@ -1177,9 +1133,9 @@ type SelectState struct {
 // Pos() returns the ast.SelectStmt.Select.
 //
 // Example printed form:
-// 	t6 = SelectNonBlocking <(index int, ok bool, int)> [<-t4, t5<-t1]
-// 	t11 = SelectBlocking <(index int, ok bool)> []
 //
+//	t3 = select nonblocking [<-t0, t1<-t2]
+//	t4 = select blocking []
 type Select struct {
 	register
 	States   []*SelectState
@@ -1196,8 +1152,8 @@ type Select struct {
 // Pos() returns the ast.RangeStmt.For.
 //
 // Example printed form:
-// 	t2 = Range <iter> t1
 //
+//	t0 = range "hello":string
 type Range struct {
 	register
 	X Value // string or map
@@ -1219,9 +1175,8 @@ type Range struct {
 // The types of k and/or v may be types.Invalid.
 //
 // Example printed form:
-// 	t5 = Next <(ok bool, k int, v rune)> t2
-// 	t5 = Next <(ok bool, k invalid type, v invalid type)> t2
 //
+//	t1 = next t0
 type Next struct {
 	register
 	Iter     Value
@@ -1239,6 +1194,9 @@ type Next struct {
 // is AssertedType's zero value.  The components of the pair must be
 // accessed using the Extract instruction.
 //
+// If Underlying: tests whether interface value X has the underlying
+// type AssertedType.
+//
 // If AssertedType is a concrete type, TypeAssert checks whether the
 // dynamic type in interface X is equal to it, and if so, the result
 // of the conversion is a copy of the value in the interface.
@@ -1253,16 +1211,17 @@ type Next struct {
 // Type() reflects the actual type of the result, possibly a
 // 2-types.Tuple; AssertedType is the asserted type.
 //
-// Pos() returns the ast.CallExpr.Lparen if the instruction arose from
-// an explicit T(e) conversion; the ast.TypeAssertExpr.Lparen if the
-// instruction arose from an explicit e.(T) operation; or the
-// ast.CaseClause.Case if the instruction arose from a case of a
-// type-switch statement.
+// Depending on the TypeAssert's purpose, Pos may return:
+//   - the ast.CallExpr.Lparen of an explicit T(e) conversion;
+//   - the ast.TypeAssertExpr.Lparen of an explicit e.(T) operation;
+//   - the ast.CaseClause.Case of a case of a type-switch statement;
+//   - the Ident(m).NamePos of an interface method value i.m
+//     (for which TypeAssert may be used to effect the nil check).
 //
 // Example printed form:
-// 	t2 = TypeAssert <int> t1
-// 	t4 = TypeAssert <(value fmt.Stringer, ok bool)> t1
 //
+//	t1 = typeassert t0.(int)
+//	t3 = typeassert,ok t2.(T)
 type TypeAssert struct {
 	register
 	X            Value
@@ -1277,8 +1236,8 @@ type TypeAssert struct {
 // MapLookup and others.
 //
 // Example printed form:
-// 	t7 = Extract <bool> [1] (ok) t4
 //
+//	t1 = extract t0 #1
 type Extract struct {
 	register
 	Tuple Value
@@ -1295,26 +1254,22 @@ type Extract struct {
 // Pos() returns NoPos.
 //
 // Example printed form:
-// 	Jump → b1
 //
+//	jump done
 type Jump struct {
 	anInstruction
-	Comment string
 }
 
 // The Unreachable pseudo-instruction signals that execution cannot
 // continue after the preceding function call because it terminates
 // the process.
 //
-// The instruction acts as a control instruction, jumping to the exit
-// block. However, this jump will never execute.
-//
 // An Unreachable instruction must be the last instruction of its
-// containing BasicBlock.
+// containing BasicBlock, which must have no successors.
 //
 // Example printed form:
-// 	Unreachable → b1
 //
+//	Unreachable
 type Unreachable struct {
 	anInstruction
 }
@@ -1329,8 +1284,8 @@ type Unreachable struct {
 // Pos() returns the *ast.IfStmt, if explicit in the source.
 //
 // Example printed form:
-// 	If t2 → b1 b2
 //
+//	if t0 goto done else body
 type If struct {
 	anInstruction
 	Cond Value
@@ -1369,9 +1324,9 @@ type TypeSwitch struct {
 // Pos() returns the ast.ReturnStmt.Return, if explicit in the source.
 //
 // Example printed form:
-// 	Return
-// 	Return t1 t2
 //
+//	return
+//	return t0, t1
 type Return struct {
 	anInstruction
 	Results []Value
@@ -1387,8 +1342,8 @@ type Return struct {
 // Pos() returns NoPos.
 //
 // Example printed form:
-// 	RunDefers
 //
+//	rundefers
 type RunDefers struct {
 	anInstruction
 }
@@ -1396,7 +1351,7 @@ type RunDefers struct {
 // The Panic instruction initiates a panic with value X.
 //
 // A Panic instruction must be the last instruction of its containing
-// BasicBlock, which must have one successor, the exit block.
+// BasicBlock, which must have no successors.
 //
 // NB: 'go panic(x)' and 'defer panic(x)' do not use this instruction;
 // they are treated as calls to a built-in function.
@@ -1405,8 +1360,8 @@ type RunDefers struct {
 // in the source.
 //
 // Example printed form:
-// 	Panic t1
 //
+//	panic t0
 type Panic struct {
 	anInstruction
 	X Value // an interface{}
@@ -1420,10 +1375,10 @@ type Panic struct {
 // Pos() returns the ast.GoStmt.Go.
 //
 // Example printed form:
-// 	Go println t1
-// 	Go t3
-// 	GoInvoke t4.Bar t2
 //
+//	go println(t0, t1)
+//	go t3()
+//	go invoke t5.Println(...t6)
 type Go struct {
 	anInstruction
 	Call CallCommon
@@ -1432,18 +1387,25 @@ type Go struct {
 // The Defer instruction pushes the specified call onto a stack of
 // functions to be called by a RunDefers instruction or by a panic.
 //
+// If DeferStack != nil, it indicates the defer list that the defer is
+// added to. Defer list values come from the Builtin function
+// ssa:deferstack. Calls to ssa:deferstack() produces the defer stack
+// of the current function frame. DeferStack allows for deferring into an
+// alternative function stack than the current function.
+//
 // See CallCommon for generic function call documentation.
 //
 // Pos() returns the ast.DeferStmt.Defer.
 //
 // Example printed form:
-// 	Defer println t1
-// 	Defer t3
-// 	DeferInvoke t4.Bar t2
 //
+//	defer println(t0, t1)
+//	defer t3()
+//	defer invoke t5.Println(...t6)
 type Defer struct {
 	anInstruction
-	Call CallCommon
+	Call       CallCommon
+	DeferStack Value // stack of deferred functions (from ssa:deferstack() intrinsic) onto which this function is pushed
 }
 
 // The Send instruction sends X on channel Chan.
@@ -1451,8 +1413,8 @@ type Defer struct {
 // Pos() returns the ast.SendStmt.Arrow, if explicit in the source.
 //
 // Example printed form:
-// 	Send t2 t1
 //
+//	send t0 <- t1
 type Send struct {
 	anInstruction
 	Chan, X Value
@@ -1469,8 +1431,9 @@ type Send struct {
 // Pos() returns the ast.RangeStmt.For.
 //
 // Example printed form:
-// 	t2 = Recv <int> t1
-// 	t3 = Recv <(int, bool)> t1
+//
+//	t2 = Recv <int> t1
+//	t3 = Recv <(int, bool)> t1
 type Recv struct {
 	register
 	Chan    Value
@@ -1486,8 +1449,8 @@ type Recv struct {
 // implementation choices, the details are not specified.
 //
 // Example printed form:
-// 	Store {int} t2 t1
 //
+//	*x = y
 type Store struct {
 	anInstruction
 	Addr Value
@@ -1502,8 +1465,8 @@ type Store struct {
 // Pos() returns NoPos.
 //
 // Example printed form:
-// 	BlankStore t1
 //
+//	BlankStore t1
 type BlankStore struct {
 	anInstruction
 	Val Value
@@ -1516,8 +1479,8 @@ type BlankStore struct {
 // if explicit in the source.
 //
 // Example printed form:
-// 	MapUpdate t3 t1 t2
 //
+//	t0[t1] = t2
 type MapUpdate struct {
 	anInstruction
 	Map   Value
@@ -1525,16 +1488,21 @@ type MapUpdate struct {
 	Value Value
 }
 
-// A DebugRef instruction maps a source-level expression Expr to the
+// A debugRef instruction maps a source-level expression Expr to the
 // IR value X that represents the value (!IsAddr) or address (IsAddr)
 // of that expression.
 //
-// DebugRef is a pseudo-instruction: it has no dynamic effect.
+// debugRef is a pseudo-instruction: it has no dynamic effect.
 //
 // Pos() returns Expr.Pos(), the start position of the source-level
 // expression.  This is not the same as the "designated" token as
 // documented at Value.Pos(). e.g. CallExpr.Pos() does not return the
 // position of the ("designated") Lparen token.
+//
+// If Expr is an *ast.Ident denoting a var or func, Object() returns
+// the object; though this information can be obtained from the type
+// checker, including it here greatly facilitates debugging.
+// For non-Ident expressions, Object() returns nil.
 //
 // DebugRefs are generated only for functions built with debugging
 // enabled; see Package.SetDebugMode() and the GlobalDebug builder
@@ -1549,11 +1517,11 @@ type MapUpdate struct {
 // ordinary SSA renaming machinery.)
 //
 // Example printed form:
-//      ; *ast.CallExpr @ 102:9 is t5
-//      ; var x float64 @ 109:72 is x
-//      ; address of *ast.CompositeLit @ 216:10 is t0
 //
-type DebugRef struct {
+//	; *ast.CallExpr @ 102:9 is t5
+//	; var x float64 @ 109:72 is x
+//	; address of *ast.CompositeLit @ 216:10 is t0
+type debugRef struct {
 	anInstruction
 	Expr   ast.Expr     // the referring expression (never *ast.ParenExpr)
 	object types.Object // the identity of the source var/func
@@ -1570,7 +1538,6 @@ type DebugRef struct {
 //
 // Temporary names are automatically assigned to each register on
 // completion of building a function in IR form.
-//
 type register struct {
 	anInstruction
 	typ       types.Type // type of virtual register
@@ -1579,11 +1546,7 @@ type register struct {
 
 type node struct {
 	source ast.Node
-	id     ID
 }
-
-func (n *node) setID(id ID) { n.id = id }
-func (n node) ID() ID       { return n.id }
 
 func (n *node) setSource(source ast.Node) { n.source = source }
 func (n *node) Source() ast.Node          { return n.source }
@@ -1599,7 +1562,21 @@ func (n *node) Pos() token.Pos {
 // It provides the implementations of the Block and setBlock methods.
 type anInstruction struct {
 	node
-	block *BasicBlock // the basic block of this instruction
+	id      ID
+	block   *BasicBlock // the basic block of this instruction
+	comment string
+}
+
+func (instr *anInstruction) setID(id ID) {
+	instr.id = id
+}
+
+func (instr anInstruction) ID() ID {
+	return instr.id
+}
+
+func (instr anInstruction) Comment() string {
+	return instr.comment
 }
 
 // CallCommon is contained by Go, Defer and Call to hold the
@@ -1614,15 +1591,17 @@ type anInstruction struct {
 // 'func'.
 //
 // Value may be one of:
-//    (a) a *Function, indicating a statically dispatched call
-//        to a package-level function, an anonymous function, or
-//        a method of a named type.
-//    (b) a *MakeClosure, indicating an immediately applied
-//        function literal with free variables.
-//    (c) a *Builtin, indicating a statically dispatched call
-//        to a built-in function.
-//    (d) any other value, indicating a dynamically dispatched
-//        function call.
+//
+//	(a) a *Function, indicating a statically dispatched call
+//	    to a package-level function, an anonymous function, or
+//	    a method of a named type.
+//	(b) a *MakeClosure, indicating an immediately applied
+//	    function literal with free variables.
+//	(c) a *Builtin, indicating a statically dispatched call
+//	    to a built-in function.
+//	(d) any other value, indicating a dynamically dispatched
+//	    function call.
+//
 // StaticCallee returns the identity of the callee in cases
 // (a) and (b), nil otherwise.
 //
@@ -1630,40 +1609,49 @@ type anInstruction struct {
 // Args[0] contains the receiver parameter.
 //
 // Example printed form:
-// 	t3 = Call <()> println t1 t2
-// 	Go t3
-// 	Defer t3
+//
+//	t2 = println(t0, t1)
+//	go t3()
+//	defer t5(...t6)
 //
 // 2. "invoke" mode: when Method is non-nil (IsInvoke), a CallCommon
 // represents a dynamically dispatched call to an interface method.
 // In this mode, Value is the interface value and Method is the
-// interface's abstract method.  Note: an abstract method may be
-// shared by multiple interfaces due to embedding; Value.Type()
-// provides the specific interface used for this call.
+// interface's abstract method. The interface value may be a type
+// parameter. Note: an interface method may be shared by multiple
+// interfaces due to embedding; Value.Type() provides the specific
+// interface used for this call.
 //
 // Value is implicitly supplied to the concrete method implementation
 // as the receiver parameter; in other words, Args[0] holds not the
 // receiver but the first true argument.
 //
 // Example printed form:
-// 	t6 = Invoke <string> t5.String
-// 	GoInvoke t4.Bar t2
-// 	DeferInvoke t4.Bar t2
+//
+//	t1 = invoke t0.String()
+//	go invoke t3.Run(t2)
+//	defer invoke t4.Handle(...t5)
 //
 // For all calls to variadic functions (Signature().Variadic()),
 // the last element of Args is a slice.
-//
 type CallCommon struct {
-	Value    Value       // receiver (invoke mode) or func value (call mode)
-	Method   *types.Func // abstract method (invoke mode)
-	Args     []Value     // actual parameters (in static method call, includes receiver)
-	TypeArgs []types.Type
-	Results  Value
+	Value  Value       // receiver (invoke mode) or func value (call mode)
+	Method *types.Func // interface method (invoke mode)
+	Args   []Value     // actual parameters (in static method call, includes receiver)
+
+	source ast.Node
 }
 
 // IsInvoke returns true if this call has "invoke" (not "call") mode.
 func (c *CallCommon) IsInvoke() bool {
 	return c.Method != nil
+}
+
+func (c *CallCommon) Pos() token.Pos {
+	if c.source != nil {
+		return c.source.Pos()
+	}
+	return token.NoPos
 }
 
 // Signature returns the signature of the called function.
@@ -1673,7 +1661,6 @@ func (c *CallCommon) IsInvoke() bool {
 //
 // In either "call" or "invoke" mode, if the callee is a method, its
 // receiver is represented by sig.Recv, not sig.Params().At(0).
-//
 func (c *CallCommon) Signature() *types.Signature {
 	if c.Method != nil {
 		return c.Method.Type().(*types.Signature)
@@ -1716,7 +1703,6 @@ func (c *CallCommon) Description() string {
 // The CallInstruction interface, implemented by *Go, *Defer and *Call,
 // exposes the common parts of function-calling instructions,
 // yet provides a way back to the Value defined by *Call alone.
-//
 type CallInstruction interface {
 	Instruction
 	Common() *CallCommon // returns the common parts of the call
@@ -1726,6 +1712,10 @@ type CallInstruction interface {
 func (s *Call) Common() *CallCommon  { return &s.Call }
 func (s *Defer) Common() *CallCommon { return &s.Call }
 func (s *Go) Common() *CallCommon    { return &s.Call }
+
+func (s *Call) setSource(source ast.Node)  { s.source = source; s.Call.source = source }
+func (s *Defer) setSource(source ast.Node) { s.source = source; s.Call.source = source }
+func (s *Go) setSource(source ast.Node)    { s.source = source; s.Call.source = source }
 
 func (s *Call) Value() *Call  { return s }
 func (s *Defer) Value() *Call { return nil }
@@ -1753,13 +1743,18 @@ func (v *Global) String() string                       { return v.RelString(nil)
 func (v *Global) Package() *Package                    { return v.Pkg }
 func (v *Global) RelString(from *types.Package) string { return relString(v, from) }
 
-func (v *Function) Name() string         { return v.name }
-func (v *Function) Type() types.Type     { return v.Signature }
-func (v *Function) Token() token.Token   { return token.FUNC }
-func (v *Function) Object() types.Object { return v.object }
-func (v *Function) String() string       { return v.RelString(nil) }
-func (v *Function) Package() *Package    { return v.Pkg }
-func (v *Function) Parent() *Function    { return v.parent }
+func (v *Function) Name() string       { return v.name }
+func (v *Function) Type() types.Type   { return v.Signature }
+func (v *Function) Token() token.Token { return token.FUNC }
+func (v *Function) Object() types.Object {
+	if v.object != nil {
+		return types.Object(v.object)
+	}
+	return nil
+}
+func (v *Function) String() string    { return v.RelString(nil) }
+func (v *Function) Package() *Package { return v.Pkg }
+func (v *Function) Parent() *Function { return v.parent }
 func (v *Function) Referrers() *[]Instruction {
 	if v.parent != nil {
 		return &v.referrers
@@ -1767,7 +1762,187 @@ func (v *Function) Referrers() *[]Instruction {
 	return nil
 }
 
-func (v *Parameter) Object() types.Object { return v.object }
+// Returns returns an iterator over all blocks containing return statements.
+func (v *Function) Returns() iter.Seq[*BasicBlock] {
+	return func(yield func(*BasicBlock) bool) {
+		for _, b := range v.Blocks {
+			if _, ok := b.Control().(*Return); ok {
+				if !yield(b) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// Exits returns an iterator over all blocks that have no successors.
+func (v *Function) Exits() iter.Seq[*BasicBlock] {
+	return func(yield func(*BasicBlock) bool) {
+		for _, b := range v.Blocks {
+			if len(b.Succs) == 0 {
+				if !yield(b) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// Nodes returns an iterator over the basic block indices.
+func (v *Function) Nodes() iter.Seq[int] {
+	return func(yield func(int) bool) {
+		for i := range v.Blocks {
+			if !yield(i) {
+				return
+			}
+		}
+	}
+}
+
+// NumNodes returns the number of basic blocks in the graph.
+func (v *Function) NumNodes() int { return len(v.Blocks) }
+
+// Out returns an iterator over the successor block indices of a given node.
+func (v *Function) Out(node int) iter.Seq[int] {
+	return func(yield func(int) bool) {
+		for _, succ := range v.Blocks[node].Succs {
+			if !yield(succ.Index) {
+				return
+			}
+		}
+	}
+}
+
+func (v *Parameter) Type() types.Type          { return v.typ }
+func (v *Parameter) Name() string              { return v.name }
+func (v *Parameter) Object() types.Object      { return v.object }
+func (v *Parameter) Referrers() *[]Instruction { return &v.referrers }
+func (v *Parameter) Pos() token.Pos            { return v.object.Pos() }
+func (v *Parameter) Parent() *Function         { return v.parent }
+
+// TypeParams are the function's type parameters if generic or the
+// type parameters that were instantiated if fn is an instantiation.
+//
+// Specifically, the resulting list behaves like:
+//
+//	func        f       // []
+//	func        f[P]    // [P]
+//	func (T)    m       // []
+//	func (T)    m[P]    // [P]
+//	func (T[P]) m       // [P]
+//	func (T[P]) m[Q]    // [P (index=0), Q (index=0)]
+//
+// Note that receiver type parameters precede other type parameters.
+// Also, type parameters may have the same index if they come from
+// different source type parameter lists.
+func (fn *Function) TypeParams() *types.TypeParamList {
+	return consTypeParamLists(fn.recvtypeparams, fn.typeparams)
+}
+
+func consTypeParamLists(l, r *types.TypeParamList) *types.TypeParamList {
+	if l.Len() == 0 {
+		return r
+	}
+	if r.Len() == 0 {
+		return l
+	}
+
+	tpars := make([]*types.TypeParam, l.Len()+r.Len())
+	for i := range l.Len() {
+		tpars[i] = l.At(i)
+	}
+	for i := range r.Len() {
+		tpars[i+l.Len()] = r.At(i)
+	}
+	// This logic unsafely assumes (and asserts) that the layout of the
+	// TypeParamList is identical to that of a slice of TypeParams. This
+	// is a hack while we work on getting a constructor for TypeParamList
+	// approved (see go.dev/issue/79603).
+	t := reflect.TypeFor[types.TypeParamList]()
+	if t.NumField() != 1 {
+		panic("TypeParamList has unexpected fields")
+	}
+	if f := t.Field(0); f.Offset != 0 || f.Type != reflect.TypeFor[[]*types.TypeParam]() {
+		panic("TypeParamList field is not []*TypeParam")
+	}
+	return (*types.TypeParamList)(unsafe.Pointer(&tpars))
+}
+
+// TypeArgs are the types that TypeParams() were instantiated by to create fn
+// from fn.Origin().
+//
+// Specifically, the resulting slice behaves like:
+//
+//	f                   // []
+//	f[int]              // [int]
+//	T.m                 // []
+//	T.m[int]            // [int]
+//	T[int].m            // [int]
+//	T[int].m[uint]      // [int, uint]
+//
+// Note that receiver type arguments precede other type arguments.
+func (fn *Function) TypeArgs() []types.Type {
+	return slices.Concat(fn.recvtypeargs, fn.typeargs)
+}
+
+// Origin returns the generic function from which fn was instantiated,
+// or nil if fn is not an instantiation.
+func (fn *Function) Origin() *Function {
+	if fn.parent != nil && fn.parent.hasTypeArgs() {
+		// Nested functions are BUILT at a different time than their instances.
+		// Build declared package if not yet BUILT. This is not an expected use
+		// case, but is simple and robust.
+		fn.declaredPackage().Build()
+	}
+	return origin(fn)
+}
+
+// hasTypeParams returns whether fn has any type parameters
+func (fn *Function) hasTypeParams() bool {
+	return fn.recvtypeparams.Len()+fn.typeparams.Len() > 0
+}
+
+// hasTypeArgs returns whether fn has any type arguments
+func (fn *Function) hasTypeArgs() bool {
+	return len(fn.recvtypeargs)+len(fn.typeargs) > 0
+}
+
+// subrtargs returns fn's receiver type parameters substituted with receiver type arguments
+func (fn *Function) subrtargs(m *types.Func) []types.Type {
+	return fn.subst.types(receiverTypeArgs(m))
+}
+
+// subtargs returns fn's type parameters substituted with (possibly implied) type arguments
+func (fn *Function) subtargs(id *ast.Ident) []types.Type {
+	return fn.subst.types(instanceArgs(fn.info, id))
+}
+
+// targstr returns a comma-separated string of the types in targs
+func targstr(targs []types.Type) string {
+	var sb strings.Builder
+	if len(targs) > 0 {
+		sb.WriteString("[")
+		for i := range targs {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(targs[i].String())
+		}
+		sb.WriteString("]")
+	}
+	return sb.String()
+}
+
+// origin is the function that fn is an instantiation of. Returns nil if fn is
+// not an instantiation.
+//
+// Precondition: fn and the origin function are done building.
+func origin(fn *Function) *Function {
+	if fn.parent != nil && fn.parent.hasTypeArgs() {
+		return origin(fn.parent).AnonFuncs[fn.anonIdx]
+	}
+	return fn.topLevelOrigin
+}
 
 func (v *Alloc) Type() types.Type          { return v.typ }
 func (v *Alloc) Referrers() *[]Instruction { return &v.referrers }
@@ -1800,9 +1975,13 @@ func (c *NamedConst) Object() types.Object                 { return c.object }
 func (c *NamedConst) Package() *Package                    { return c.pkg }
 func (c *NamedConst) RelString(from *types.Package) string { return relString(c, from) }
 
+func (v *Function) Pos() token.Pos   { return v.pos }
+func (v *Function) Source() ast.Node { return v.syntax }
+
+func (d *debugRef) Object() types.Object { return d.object }
+
 // Func returns the package-level function of the specified name,
 // or nil if not found.
-//
 func (p *Package) Func(name string) (f *Function) {
 	f, _ = p.Members[name].(*Function)
 	return
@@ -1810,7 +1989,6 @@ func (p *Package) Func(name string) (f *Function) {
 
 // Var returns the package-level variable of the specified name,
 // or nil if not found.
-//
 func (p *Package) Var(name string) (g *Global) {
 	g, _ = p.Members[name].(*Global)
 	return
@@ -1818,7 +1996,6 @@ func (p *Package) Var(name string) (g *Global) {
 
 // Const returns the package-level constant of the specified name,
 // or nil if not found.
-//
 func (p *Package) Const(name string) (c *NamedConst) {
 	c, _ = p.Members[name].(*NamedConst)
 	return
@@ -1826,13 +2003,12 @@ func (p *Package) Const(name string) (c *NamedConst) {
 
 // Type returns the package-level type of the specified name,
 // or nil if not found.
-//
 func (p *Package) Type(name string) (t *Type) {
 	t, _ = p.Members[name].(*Type)
 	return
 }
 
-func (s *DebugRef) Pos() token.Pos { return s.Expr.Pos() }
+func (s *debugRef) Pos() token.Pos { return s.Expr.Pos() }
 
 // Operands.
 
@@ -1861,7 +2037,7 @@ func (s *Call) Operands(rands []*Value) []*Value {
 }
 
 func (s *Defer) Operands(rands []*Value) []*Value {
-	return s.Call.Operands(rands)
+	return append(s.Call.Operands(rands), &s.DeferStack)
 }
 
 func (v *ChangeInterface) Operands(rands []*Value) []*Value {
@@ -1876,15 +2052,19 @@ func (v *Convert) Operands(rands []*Value) []*Value {
 	return append(rands, &v.X)
 }
 
+func (v *MultiConvert) Operands(rands []*Value) []*Value {
+	return append(rands, &v.X)
+}
+
 func (v *SliceToArrayPointer) Operands(rands []*Value) []*Value {
 	return append(rands, &v.X)
 }
 
-func (s *DebugRef) Operands(rands []*Value) []*Value {
-	return append(rands, &s.X)
+func (v *SliceToArray) Operands(rands []*Value) []*Value {
+	return append(rands, &v.X)
 }
 
-func (s *Copy) Operands(rands []*Value) []*Value {
+func (s *debugRef) Operands(rands []*Value) []*Value {
 	return append(rands, &s.X)
 }
 
@@ -1977,10 +2157,6 @@ func (s *Panic) Operands(rands []*Value) []*Value {
 	return append(rands, &s.X)
 }
 
-func (v *Sigma) Operands(rands []*Value) []*Value {
-	return append(rands, &v.X)
-}
-
 func (v *Phi) Operands(rands []*Value) []*Value {
 	for i := range v.Edges {
 		rands = append(rands, &v.Edges[i])
@@ -2042,13 +2218,24 @@ func (v *Load) Operands(rands []*Value) []*Value {
 	return append(rands, &v.X)
 }
 
+func (v *AggregateConst) Operands(rands []*Value) []*Value {
+	for i := range v.Values {
+		rands = append(rands, &v.Values[i])
+	}
+	return rands
+}
+
+func (v *CompositeValue) Operands(rands []*Value) []*Value {
+	for i := range v.Values {
+		rands = append(rands, &v.Values[i])
+	}
+	return rands
+}
+
 // Non-Instruction Values:
-func (v *Builtin) Operands(rands []*Value) []*Value        { return rands }
-func (v *FreeVar) Operands(rands []*Value) []*Value        { return rands }
-func (v *Const) Operands(rands []*Value) []*Value          { return rands }
-func (v *ArrayConst) Operands(rands []*Value) []*Value     { return rands }
-func (v *AggregateConst) Operands(rands []*Value) []*Value { return rands }
-func (v *GenericConst) Operands(rands []*Value) []*Value   { return rands }
-func (v *Function) Operands(rands []*Value) []*Value       { return rands }
-func (v *Global) Operands(rands []*Value) []*Value         { return rands }
-func (v *Parameter) Operands(rands []*Value) []*Value      { return rands }
+func (v *Builtin) Operands(rands []*Value) []*Value   { return rands }
+func (v *FreeVar) Operands(rands []*Value) []*Value   { return rands }
+func (v *Const) Operands(rands []*Value) []*Value     { return rands }
+func (v *Function) Operands(rands []*Value) []*Value  { return rands }
+func (v *Global) Operands(rands []*Value) []*Value    { return rands }
+func (v *Parameter) Operands(rands []*Value) []*Value { return rands }

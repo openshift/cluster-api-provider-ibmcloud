@@ -36,10 +36,9 @@ RUN  --mount=type=cache,target=/root/.local/share/golang \
 # Copy the go source
 COPY cmd/main.go cmd/main.go
 COPY api/ api/
-COPY controllers/ controllers/
-COPY cloud/ cloud/
 COPY pkg/ pkg/
 COPY internal/ internal/
+COPY webhooks/ webhooks/
 
 # Build
 ARG TARGETOS

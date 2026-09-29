@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/pointer"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/cmd/capibmadm/printer"
 	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/accounts"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/pagingutils"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/util/paging"
 )
 
 // ListCommand vpc image list command.
@@ -98,7 +98,7 @@ func listImages(ctx context.Context, resourceGroupName string) error {
 		return true, "", nil
 	}
 
-	if err = pagingutils.PagingHelper(f); err != nil {
+	if err = paging.Helper(f); err != nil {
 		return err
 	}
 

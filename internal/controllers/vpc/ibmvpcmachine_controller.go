@@ -26,6 +26,7 @@ import (
 
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -49,9 +50,8 @@ import (
 	"sigs.k8s.io/cluster-api/util/finalizers"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/vpc/v1beta2"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/cloud/scope/vpc"
-	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/endpoints"
-	capibmrecord "sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/record"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/endpoints"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/scope/vpc"
 )
 
 // IBMVPCMachineReconciler reconciles a IBMVPCMachine object.
@@ -145,6 +145,7 @@ func (r *IBMVPCMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Machine:         machine,
 		IBMVPCMachine:   ibmVPCMachine,
 		ServiceEndpoint: r.ServiceEndpoint,
+		Recorder:        r.Recorder,
 	})
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create scope: %w", err)
@@ -257,7 +258,7 @@ func (r *IBMVPCMachineReconciler) reconcileNormal(ctx context.Context, machineSc
 				Status: metav1.ConditionFalse,
 				Reason: infrav1.InstanceErroredReason,
 			})
-			capibmrecord.Warnf(machineScope.IBMVPCMachine, "FailedBuildInstance", "Failed to build the instance - %s", msg)
+			r.Recorder.Eventf(machineScope.IBMVPCMachine, corev1.EventTypeWarning, "FailedBuildInstance", "Failed to build the instance - %s", msg)
 			return ctrl.Result{}, nil
 		case vpcv1.InstanceStatusRunningConst:
 			machineRunning = true

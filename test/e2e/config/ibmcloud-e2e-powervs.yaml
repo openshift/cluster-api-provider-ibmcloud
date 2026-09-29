@@ -9,31 +9,31 @@ providers:
   - name: cluster-api
     type: CoreProvider
     versions:
-    - name: v1.13.1
-      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.13.1/core-components.yaml
+    - name: v1.14.0
+      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.14.0/core-components.yaml
       type: url
       files:
       - sourcePath: "${PWD}/test/e2e/data/shared/metadata.yaml"
   - name: kubeadm
     type: BootstrapProvider
     versions:
-    - name: v1.13.1
-      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.13.1/bootstrap-components.yaml
+    - name: v1.14.0
+      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.14.0/bootstrap-components.yaml
       type: url
       files:
       - sourcePath: "${PWD}/test/e2e/data/shared/metadata.yaml"
   - name: kubeadm
     type: ControlPlaneProvider
     versions:
-    - name: v1.13.1
-      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.13.1/control-plane-components.yaml
+    - name: v1.14.0
+      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.14.0/control-plane-components.yaml
       type: url
       files:
       - sourcePath: "${PWD}/test/e2e/data/shared/metadata.yaml"
   - name: ibmcloud
     type: InfrastructureProvider
     versions:
-    - name: v0.14.0
+    - name: v0.15.0
       value: "${PWD}/config/default"
       files:
       - sourcePath: "${PWD}/metadata.yaml"
@@ -55,7 +55,7 @@ variables:
   IBMPOWERVS_VIP_EXTERNAL: "${IBMPOWERVS_VIP_EXTERNAL:-}"
   IBMPOWERVS_VIP_CIDR: "${IBMPOWERVS_VIP_CIDR:-}"
   IBMPOWERVS_IMAGE_NAME: "${IBMPOWERVS_IMAGE_NAME:-}"
-  IBMPOWERVS_SERVICE_INSTANCE_ID: "${IBMPOWERVS_SERVICE_INSTANCE_ID:-}"
+  IBMPOWERVS_WORKSPACE_ID: "${IBMPOWERVS_WORKSPACE_ID:-}"
   IBMPOWERVS_NETWORK_NAME:  "${IBMPOWERVS_NETWORK_NAME:-}"
 
 intervals:

@@ -1,0 +1,140 @@
+/*
+Copyright 2022 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package powervs
+
+import (
+	"context"
+
+	"github.com/IBM-Cloud/power-go-client/power/models"
+	"github.com/IBM/go-sdk-core/v5/core"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/powervs/v1beta3"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/cos"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/powervs"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcecontroller"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/resourcemanager"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/transitgateway"
+	"sigs.k8s.io/cluster-api-provider-ibmcloud/pkg/cloud/services/vpc"
+)
+
+const (
+	clusterName      = "foo-cluster"
+	machineName      = "foo-machine"
+	pvsImage         = "foo-image"
+	pvsNetwork       = "foo-network"
+	defaultNamespace = "default"
+	idSuffix         = "-id"
+)
+
+// stubClientBuilder is a test-only ClientBuilder that returns nil clients.
+// Use it when the test bypasses real IBM Cloud calls by injecting mocks directly into scope fields.
+type stubClientBuilder struct {
+	powerVSClient powervs.PowerVS
+	vpcClient     vpc.Vpc
+	tgClient      transitgateway.TransitGateway
+	rcClient      resourcecontroller.ResourceController
+	rmClient      resourcemanager.ResourceManager
+}
+
+func (s stubClientBuilder) GetAuthenticator(_ context.Context) (core.Authenticator, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetPowerVSClient(_ context.Context, _ ClientOptions) (powervs.PowerVS, error) {
+	return s.powerVSClient, nil
+}
+func (s stubClientBuilder) GetVPCClient(_ context.Context, _ ClientOptions) (vpc.Vpc, error) {
+	return s.vpcClient, nil
+}
+func (s stubClientBuilder) GetTransitGatewayClient(_ context.Context, _ ClientOptions) (transitgateway.TransitGateway, error) {
+	return s.tgClient, nil
+}
+func (s stubClientBuilder) GetResourceControllerClient(_ context.Context, _ ClientOptions) (resourcecontroller.ResourceController, error) {
+	return s.rcClient, nil
+}
+func (s stubClientBuilder) GetResourceManagerClient(_ context.Context, _ ClientOptions) (resourcemanager.ResourceManager, error) {
+	return s.rmClient, nil
+}
+func (s stubClientBuilder) GetCOSClient(_ context.Context, _ COSClientOptions) (cos.Cos, error) {
+	return nil, nil
+}
+func (s stubClientBuilder) GetHMACCOSClient(_ context.Context, _ HMACCOSClientOptions) (cos.Cos, error) {
+	return nil, nil
+}
+
+func newCluster(name string) *clusterv1.Cluster {
+	return &clusterv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: defaultNamespace,
+		},
+		Spec: clusterv1.ClusterSpec{},
+	}
+}
+
+func newPowerVSCluster(name string) *infrav1.IBMPowerVSCluster {
+	return &infrav1.IBMPowerVSCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: defaultNamespace,
+		},
+	}
+}
+
+func newMachine(machineName string) *clusterv1.Machine {
+	return &clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      machineName,
+			Namespace: defaultNamespace,
+		},
+		Spec: clusterv1.MachineSpec{
+			Bootstrap: clusterv1.Bootstrap{
+				DataSecretName: core.StringPtr(machineName),
+			},
+		},
+	}
+}
+
+func newBootstrapSecret(clusterName, machineName string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel: clusterName,
+			},
+			Name:      machineName,
+			Namespace: defaultNamespace,
+		},
+		Data: map[string][]byte{
+			"value": []byte("user data"),
+		},
+	}
+}
+
+func newDHCPServerDetails(serverID, leaseIP, instanceMac string) *models.DHCPServerDetail {
+	return &models.DHCPServerDetail{
+		ID: ptr.To(serverID),
+		Leases: []*models.DHCPServerLeases{
+			{
+				InstanceIP:         ptr.To(leaseIP),
+				InstanceMacAddress: ptr.To(instanceMac),
+			},
+		},
+	}
+}

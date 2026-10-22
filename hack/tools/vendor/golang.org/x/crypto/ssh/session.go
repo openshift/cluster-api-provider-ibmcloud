@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sync"
 )
 
@@ -124,7 +123,7 @@ type Session struct {
 	// output and error.
 	//
 	// If either is nil, Run connects the corresponding file
-	// descriptor to an instance of ioutil.Discard. There is a
+	// descriptor to an instance of io.Discard. There is a
 	// fixed amount of buffering that is shared for the two streams.
 	// If either blocks it may eventually cause the remote
 	// command to block.
@@ -424,6 +423,9 @@ func (s *Session) wait(reqs <-chan *Request) error {
 	for msg := range reqs {
 		switch msg.Type {
 		case "exit-status":
+			if len(msg.Payload) < 4 {
+				return errors.New("ssh: malformed exit-status request")
+			}
 			wm.status = int(binary.BigEndian.Uint32(msg.Payload))
 		case "exit-signal":
 			var sigval struct {
@@ -506,7 +508,7 @@ func (s *Session) stdout() {
 		return
 	}
 	if s.Stdout == nil {
-		s.Stdout = ioutil.Discard
+		s.Stdout = io.Discard
 	}
 	s.copyFuncs = append(s.copyFuncs, func() error {
 		_, err := io.Copy(s.Stdout, s.ch)
@@ -519,7 +521,7 @@ func (s *Session) stderr() {
 		return
 	}
 	if s.Stderr == nil {
-		s.Stderr = ioutil.Discard
+		s.Stderr = io.Discard
 	}
 	s.copyFuncs = append(s.copyFuncs, func() error {
 		_, err := io.Copy(s.Stderr, s.ch.Stderr())

@@ -25,7 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
+	"golang.org/x/oauth2"
 
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
 )
@@ -42,39 +43,39 @@ const (
 // We support GitLab repositories that use the generic packages feature to publish artifacts and versions.
 // Repositories must use versioned releases.
 type gitLabRepository struct {
-	providerConfig        config.Provider
-	configVariablesClient config.VariablesClient
-	httpClient            *http.Client
-	host                  string
-	projectSlug           string
-	packageName           string
-	defaultVersion        string
-	rootPath              string
-	componentsPath        string
+	providerConfig           config.Provider
+	configVariablesClient    config.VariablesClient
+	authenticatingHTTPClient *http.Client
+	host                     string
+	projectSlug              string
+	packageName              string
+	defaultVersion           string
+	rootPath                 string
+	componentsPath           string
 }
 
 var _ Repository = &gitLabRepository{}
 
 // NewGitLabRepository returns a gitLabRepository implementation.
-func NewGitLabRepository(providerConfig config.Provider, configVariablesClient config.VariablesClient) (Repository, error) {
+func NewGitLabRepository(ctx context.Context, providerConfig config.Provider, configVariablesClient config.VariablesClient) (Repository, error) {
 	if configVariablesClient == nil {
-		return nil, errors.New("invalid arguments: configVariablesClient can't be nil")
+		return nil, pkgerrors.New("invalid arguments: configVariablesClient can't be nil")
 	}
 
 	rURL, err := url.Parse(providerConfig.URL())
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid url")
+		return nil, pkgerrors.Wrap(err, "invalid url")
 	}
 
-	urlSplit := strings.Split(strings.TrimPrefix(rURL.RawPath, "/"), "/")
+	urlSplit := strings.Split(strings.TrimPrefix(rURL.EscapedPath(), "/"), "/")
 
 	// Check if the url is a Gitlab repository
 	if rURL.Scheme != httpsScheme ||
 		len(urlSplit) != 9 ||
-		!strings.HasPrefix(rURL.RawPath, gitlabPackagesAPIPrefix) ||
+		!strings.HasPrefix(rURL.EscapedPath(), gitlabPackagesAPIPrefix) ||
 		urlSplit[4] != gitlabPackagesAPIPackages ||
 		urlSplit[5] != gitlabPackagesAPIGeneric {
-		return nil, errors.New("invalid url: a GitLab repository url should be in the form https://{host}/api/v4/projects/{projectSlug}/packages/generic/{packageName}/{defaultVersion}/{componentsPath}")
+		return nil, pkgerrors.New("invalid url: a GitLab repository url should be in the form https://{host}/api/v4/projects/{projectSlug}/packages/generic/{packageName}/{defaultVersion}/{componentsPath}")
 	}
 
 	httpClient := http.DefaultClient
@@ -87,18 +88,29 @@ func NewGitLabRepository(providerConfig config.Provider, configVariablesClient c
 	componentsPath := urlSplit[8]
 
 	repo := &gitLabRepository{
-		providerConfig:        providerConfig,
-		configVariablesClient: configVariablesClient,
-		httpClient:            httpClient,
-		host:                  host,
-		projectSlug:           projectSlug,
-		packageName:           packageName,
-		defaultVersion:        defaultVersion,
-		rootPath:              rootPath,
-		componentsPath:        componentsPath,
+		providerConfig:           providerConfig,
+		configVariablesClient:    configVariablesClient,
+		authenticatingHTTPClient: httpClient,
+		host:                     host,
+		projectSlug:              projectSlug,
+		packageName:              packageName,
+		defaultVersion:           defaultVersion,
+		rootPath:                 rootPath,
+		componentsPath:           componentsPath,
+	}
+	if token, err := configVariablesClient.Get(config.GitLabAccessTokenVariable); err == nil {
+		repo.setClientToken(ctx, token)
 	}
 
 	return repo, nil
+}
+
+// setClientToken sets authenticatingHTTPClient field of gitLabRepository struct.
+func (g *gitLabRepository) setClientToken(ctx context.Context, token string) {
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: token, TokenType: "Bearer"},
+	)
+	g.authenticatingHTTPClient = oauth2.NewClient(ctx, ts)
 }
 
 // Host returns host field of gitLabRepository struct.
@@ -117,8 +129,8 @@ func (g *gitLabRepository) DefaultVersion() string {
 }
 
 // GetVersions returns the list of versions that are available in a provider repository.
-func (g *gitLabRepository) GetVersions() ([]string, error) {
-	// FIXME Get versions from GitLab API
+func (g *gitLabRepository) GetVersions(_ context.Context) ([]string, error) {
+	// TODO Get versions from GitLab API
 	return []string{g.defaultVersion}, nil
 }
 
@@ -133,8 +145,7 @@ func (g *gitLabRepository) ComponentsPath() string {
 }
 
 // GetFile returns a file for a given provider version.
-func (g *gitLabRepository) GetFile(version, path string) ([]byte, error) {
-	ctx := context.TODO()
+func (g *gitLabRepository) GetFile(ctx context.Context, version, path string) ([]byte, error) {
 	url := fmt.Sprintf(
 		"https://%s/api/v4/projects/%s/packages/generic/%s/%s/%s",
 		g.host,
@@ -148,27 +159,31 @@ func (g *gitLabRepository) GetFile(version, path string) ([]byte, error) {
 		return content, nil
 	}
 
-	timeoutctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	timeoutctx, cancel := context.WithTimeoutCause(ctx, 30*time.Second, pkgerrors.New("http request timeout expired"))
 	defer cancel()
 	request, err := http.NewRequestWithContext(timeoutctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get file %q with version %q from %q: failed to create request", path, version, url)
+		return nil, pkgerrors.Wrapf(err, "failed to get file %q with version %q from %q: failed to create request", path, version, url)
 	}
 
-	response, err := g.httpClient.Do(request)
+	response, err := g.authenticatingHTTPClient.Do(request)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get file %q with version %q from %q", path, version, url)
+		return nil, pkgerrors.Wrapf(err, "failed to get file %q with version %q from %q", path, version, url)
 	}
 
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return nil, errors.Errorf("failed to get file %q with version %q from %q, got %d", path, version, url, response.StatusCode)
+		// explicitly check for 401 and return a more specific error
+		if response.StatusCode == http.StatusUnauthorized {
+			return nil, pkgerrors.Errorf("failed to get file %q with version %q from %q: unauthorized access, please check your credentials", path, version, url)
+		}
+		return nil, pkgerrors.Errorf("failed to get file %q with version %q from %q, got %d", path, version, url, response.StatusCode)
 	}
 
 	content, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get file %q with version %q from %q", path, version, url)
+		return nil, pkgerrors.Wrapf(err, "failed to get file %q with version %q from %q", path, version, url)
 	}
 
 	cacheFiles[url] = content

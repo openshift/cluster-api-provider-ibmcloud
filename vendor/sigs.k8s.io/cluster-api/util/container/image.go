@@ -18,18 +18,14 @@ limitations under the License.
 package container
 
 import (
-
-	//  Import the crypto sha256 algorithm for the docker image parser to work
-	_ "crypto/sha256"
-
-	//  Import the crypto/sha512 algorithm for the docker image parser to work with 384 and 512 sha hashes
-	_ "crypto/sha512"
+	_ "crypto/sha256" // Import the crypto/sha256 algorithm for the docker image parser to work with sha256 hashes.
+	_ "crypto/sha512" // Import the crypto/sha512 algorithm for the docker image parser to work with 384 and 512 sha hashes.
 	"fmt"
 	"path"
 	"regexp"
 
-	"github.com/docker/distribution/reference"
-	"github.com/pkg/errors"
+	"github.com/distribution/reference"
+	pkgerrors "github.com/pkg/errors"
 )
 
 var (
@@ -88,20 +84,20 @@ func (i Image) String() string {
 func ModifyImageRepository(imageName, repositoryName string) (string, error) {
 	image, err := ImageFromString(imageName)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to parse image name")
+		return "", pkgerrors.Wrap(err, "failed to parse image name")
 	}
 	nameUpdated, err := reference.WithName(path.Join(repositoryName, image.Name))
 	if err != nil {
-		return "", errors.Wrap(err, "failed to update repository name")
+		return "", pkgerrors.Wrap(err, "failed to update repository name")
 	}
 	if image.Tag != "" {
 		retagged, err := reference.WithTag(nameUpdated, image.Tag)
 		if err != nil {
-			return "", errors.Wrap(err, "failed to parse image tag")
+			return "", pkgerrors.Wrap(err, "failed to parse image tag")
 		}
 		return reference.FamiliarString(retagged), nil
 	}
-	return "", errors.New("image must be tagged")
+	return "", pkgerrors.New("image must be tagged")
 }
 
 // ModifyImageTag takes an imageName (e.g., repository/image:tag), and returns an image name with updated tag.
@@ -110,17 +106,17 @@ func ModifyImageTag(imageName, tagName string) (string, error) {
 
 	namedRef, err := reference.ParseNormalizedNamed(imageName)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to parse image name")
+		return "", pkgerrors.Wrap(err, "failed to parse image name")
 	}
 	// return error if images use digest as version instead of tag
 	if _, isCanonical := namedRef.(reference.Canonical); isCanonical {
-		return "", errors.New("image uses digest as version, cannot update tag ")
+		return "", pkgerrors.New("image uses digest as version, cannot update tag ")
 	}
 
 	// update the image tag with tagName
 	namedTagged, err := reference.WithTag(namedRef, normalisedTagName)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to update image tag")
+		return "", pkgerrors.Wrap(err, "failed to update image tag")
 	}
 
 	return reference.TagNameOnly(namedTagged).String(), nil

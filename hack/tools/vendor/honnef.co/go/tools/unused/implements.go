@@ -1,6 +1,10 @@
 package unused
 
-import "go/types"
+import (
+	"go/types"
+
+	"honnef.co/go/tools/go/types/typeutil"
+)
 
 // lookupMethod returns the index of and method with matching package and name, or (-1, nil).
 func lookupMethod(T *types.Interface, pkg *types.Package, name string) (int, *types.Func) {
@@ -37,7 +41,7 @@ func sameId(obj types.Object, pkg *types.Package, name string) bool {
 	return pkg.Path() == obj.Pkg().Path()
 }
 
-func (g *graph) implements(V types.Type, T *types.Interface, msV *types.MethodSet) ([]*types.Selection, bool) {
+func implements(V types.Type, T *types.Interface, msV *types.MethodSet) ([]*types.Selection, bool) {
 	// fast path for common case
 	if T.Empty() {
 		return nil, true
@@ -45,8 +49,7 @@ func (g *graph) implements(V types.Type, T *types.Interface, msV *types.MethodSe
 
 	if ityp, _ := V.Underlying().(*types.Interface); ityp != nil {
 		// TODO(dh): is this code reachable?
-		for i := 0; i < T.NumMethods(); i++ {
-			m := T.Method(i)
+		for m := range T.Methods() {
 			_, obj := lookupMethod(ityp, m.Pkg(), m.Name())
 			switch {
 			case obj == nil:
@@ -60,8 +63,9 @@ func (g *graph) implements(V types.Type, T *types.Interface, msV *types.MethodSe
 
 	// A concrete type implements T if it implements all methods of T.
 	var sels []*types.Selection
-	for i := 0; i < T.NumMethods(); i++ {
-		m := T.Method(i)
+
+	mapping := map[*types.TypeParam]types.Type{}
+	for m := range T.Methods() {
 		sel := msV.Lookup(m.Pkg(), m.Name())
 		if sel == nil {
 			return nil, false
@@ -72,11 +76,27 @@ func (g *graph) implements(V types.Type, T *types.Interface, msV *types.MethodSe
 			return nil, false
 		}
 
-		if !types.Identical(f.Type(), m.Type()) {
+		if ok := typeutil.Unify(f.Type(), m.Type(), mapping); !ok {
 			return nil, false
 		}
 
 		sels = append(sels, sel)
 	}
+	for tparam, targ := range mapping {
+		// This checks constraints on a best-effort basis, erring on the side
+		// of accepting too many types.
+		if !satisfiesConstraint(targ, tparam) {
+			return nil, false
+		}
+	}
 	return sels, true
+}
+
+func satisfiesConstraint(t types.Type, tp *types.TypeParam) bool {
+	if t == nil {
+		// t is nil when we unify two type parameters.
+		return true
+	}
+	bound := tp.Constraint().Underlying().(*types.Interface)
+	return types.Satisfies(t, bound)
 }

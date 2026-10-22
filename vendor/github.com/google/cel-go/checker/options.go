@@ -17,6 +17,8 @@ package checker
 type options struct {
 	crossTypeNumericComparisons  bool
 	homogeneousAggregateLiterals bool
+	validatedDeclarations        *Scopes
+	jsonFieldNames               bool
 }
 
 // Option is a functional option for configuring the type-checker
@@ -31,11 +33,19 @@ func CrossTypeNumericComparisons(enabled bool) Option {
 	}
 }
 
-// HomogeneousAggregateLiterals toggles support for constructing lists and maps whose elements all
-// have the same type.
-func HomogeneousAggregateLiterals(enabled bool) Option {
+// ValidatedDeclarations provides a references to validated declarations which will be copied
+// into new checker instances.
+func ValidatedDeclarations(env *Env) Option {
 	return func(opts *options) error {
-		opts.homogeneousAggregateLiterals = enabled
+		opts.validatedDeclarations = env.validatedDeclarations()
+		return nil
+	}
+}
+
+// JSONFieldNames enables the use of json names instead of the standard protobuf snake_case field names
+func JSONFieldNames(enabled bool) Option {
+	return func(opts *options) error {
+		opts.jsonFieldNames = enabled
 		return nil
 	}
 }

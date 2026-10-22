@@ -31,7 +31,7 @@ func copyFile(srcFilePath, destFilePath string) error {
 	if err != nil {
 		return err
 	}
-	destFile, err := os.Create(destFilePath) //nolint:gosec // No security issue: destFilePath is safe.
+	destFile, err := os.Create(destFilePath) //nolint:gosec // G304: destFilePath is provided by the test framework, not user input.
 	if err != nil {
 		return err
 	}

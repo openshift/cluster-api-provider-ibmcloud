@@ -1584,7 +1584,7 @@ func TestDeleteCOSInstance(t *testing.T) {
 	})
 }
 
-func TestDeleteDHCPServer(t *testing.T) {
+func TestDeleteDHCPNetwork(t *testing.T) {
 	var (
 		mockPowerVS *mockP.MockPowerVS
 		mockCtrl    *gomock.Controller
@@ -1603,7 +1603,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 		t.Cleanup(teardown)
 
 		clusterScope := ClusterScope{IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{}}
-		err := clusterScope.DeleteDHCPServer(ctx)
+		err := clusterScope.DeleteDHCPNetwork(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When PowerVS service instance is created by controller", func(t *testing.T) {
@@ -1626,7 +1626,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 				},
 			},
 		}}
-		err := clusterScope.DeleteDHCPServer(ctx)
+		err := clusterScope.DeleteDHCPNetwork(ctx)
 		g.Expect(err).To(BeNil())
 	})
 
@@ -1640,7 +1640,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 				Network: infrav1.NetworkStatus{},
 			},
 		}}
-		err := clusterScope.DeleteDHCPServer(ctx)
+		err := clusterScope.DeleteDHCPNetwork(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When the DHCP server is not found", func(t *testing.T) {
@@ -1669,7 +1669,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 			IBMPowerVSClient: mockPowerVS,
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("dhcp server does not exist"))
-		err := clusterScope.DeleteDHCPServer(ctx)
+		err := clusterScope.DeleteDHCPNetwork(ctx)
 		g.Expect(err).To(BeNil())
 	})
 	t.Run("When GetDHCPServer returns error", func(t *testing.T) {
@@ -1698,7 +1698,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 			IBMPowerVSClient: mockPowerVS,
 		}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("error getting dhcp server"))
-		err := clusterScope.DeleteDHCPServer(ctx)
+		err := clusterScope.DeleteDHCPNetwork(ctx)
 		g.Expect(err).To(MatchError(ContainSubstring("error getting dhcp server")))
 	})
 	t.Run("When DeleteDHCPServer returns error", func(t *testing.T) {
@@ -1729,7 +1729,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 		dhcpServer := &models.DHCPServerDetail{ID: ptr.To("dhcpServerID")}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any(), gomock.Any()).Return(dhcpServer, nil)
 		mockPowerVS.EXPECT().DeleteDHCPServer(gomock.Any(), gomock.Any()).Return(fmt.Errorf("error deleting dhcp server"))
-		err := clusterScope.DeleteDHCPServer(ctx)
+		err := clusterScope.DeleteDHCPNetwork(ctx)
 		g.Expect(err.Error()).To(Equal("failed to delete DHCP server: error deleting dhcp server"))
 	})
 	t.Run("When DHCP server deletion is successful", func(t *testing.T) {
@@ -1760,7 +1760,7 @@ func TestDeleteDHCPServer(t *testing.T) {
 		dhcpServer := &models.DHCPServerDetail{ID: ptr.To("dhcpServerID")}
 		mockPowerVS.EXPECT().GetDHCPServer(gomock.Any(), gomock.Any()).Return(dhcpServer, nil)
 		mockPowerVS.EXPECT().DeleteDHCPServer(gomock.Any(), gomock.Any()).Return(nil)
-		err := clusterScope.DeleteDHCPServer(ctx)
+		err := clusterScope.DeleteDHCPNetwork(ctx)
 		g.Expect(err).To(BeNil())
 	})
 }
@@ -8623,8 +8623,8 @@ func TestReconcileCOSInstanceMissingBranches(t *testing.T) {
 	}
 }
 
-// TestDeleteDHCPServerMissingBranches covers uncovered branches in DeleteDHCPServer.
-func TestDeleteDHCPServerMissingBranches(t *testing.T) {
+// TestDeleteDHCPNetworkMissingBranches covers uncovered branches in DeleteDHCPNetwork.
+func TestDeleteDHCPNetworkMissingBranches(t *testing.T) {
 	testCases := []struct {
 		name        string
 		setupScope  func(t *testing.T) *ClusterScope
@@ -8747,7 +8747,7 @@ func TestDeleteDHCPServerMissingBranches(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
 			scope := tc.setupScope(t)
-			err := scope.DeleteDHCPServer(ctx)
+			err := scope.DeleteDHCPNetwork(ctx)
 			if tc.expectedErr != "" {
 				g.Expect(err).To(HaveOccurred())
 				g.Expect(err.Error()).To(ContainSubstring(tc.expectedErr))
@@ -11359,5 +11359,1614 @@ func TestCreateVPCSecurityGroupRulesIdempotency(t *testing.T) {
 		ruleIDs, err := clusterScope.createVPCSecurityGroupRules(ctx, specRules, "sg-id", existingRules)
 		g.Expect(err).To(BeNil())
 		g.Expect(ruleIDs).To(Equal([]string{"new-rule-id"}))
+	})
+}
+
+// TestReconcileNetworkProvisionDHCPSubnet tests the reconcileNetworkProvisionDHCPSubnet function.
+func TestReconcileNetworkProvisionDHCPSubnet(t *testing.T) {
+	var (
+		mockPowerVS *mockP.MockPowerVS
+		mockCtrl    *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockPowerVS = mockP.NewMockPowerVS(mockCtrl)
+	}
+	teardown := func() { mockCtrl.Finish() }
+
+	t.Run("When GetNetworkByName finds existing network (idempotency recovery)", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "my-cluster"},
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type: infrav1.NetworkProvisionTypeDHCPSubnet,
+							DHCPSubnet: infrav1.DHCPSubnet{
+								Name: "my-dhcp-subnet",
+								CIDR: "192.168.10.0/24",
+							},
+						},
+					},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any(), "my-dhcp-subnet").Return(
+			&models.NetworkReference{NetworkID: ptr.To("recovered-net-id"), Name: ptr.To("my-dhcp-subnet")},
+			nil,
+		)
+		requeue, err := clusterScope.reconcileNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal("recovered-net-id"))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.Name).To(Equal("my-dhcp-subnet"))
+	})
+
+	t.Run("When GetNetworkByName returns error, propagates error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "my-cluster"},
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type:       infrav1.NetworkProvisionTypeDHCPSubnet,
+							DHCPSubnet: infrav1.DHCPSubnet{Name: "my-dhcp-subnet"},
+						},
+					},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any(), "my-dhcp-subnet").Return(
+			nil, fmt.Errorf("API lookup error"),
+		)
+		requeue, err := clusterScope.reconcileNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(MatchError(ContainSubstring("API lookup error")))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When network does not exist, CreateNetwork is called and status is set", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "my-cluster"},
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type: infrav1.NetworkProvisionTypeDHCPSubnet,
+							DHCPSubnet: infrav1.DHCPSubnet{
+								Name:       "my-dhcp-subnet",
+								CIDR:       "192.168.10.0/24",
+								DNSServers: []string{"8.8.8.8"},
+							},
+						},
+					},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any(), "my-dhcp-subnet").Return(nil, nil)
+		mockPowerVS.EXPECT().CreateNetwork(gomock.Any(), gomock.Any()).Return(
+			&models.Network{NetworkID: ptr.To("new-net-id"), Name: ptr.To("my-dhcp-subnet")},
+			nil,
+		)
+		requeue, err := clusterScope.reconcileNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue()) // Requeue once to verify network via fast-path
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal("new-net-id"))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.Name).To(Equal("my-dhcp-subnet"))
+	})
+
+	t.Run("When CreateNetwork returns error, propagates error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "my-cluster"},
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type:       infrav1.NetworkProvisionTypeDHCPSubnet,
+							DHCPSubnet: infrav1.DHCPSubnet{Name: "my-dhcp-subnet"},
+						},
+					},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any(), "my-dhcp-subnet").Return(nil, nil)
+		mockPowerVS.EXPECT().CreateNetwork(gomock.Any(), gomock.Any()).Return(
+			nil, fmt.Errorf("create network API error"),
+		)
+		requeue, err := clusterScope.reconcileNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(MatchError(ContainSubstring("create network API error")))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When CreateNetwork returns nil response, error returned", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "my-cluster"},
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type:       infrav1.NetworkProvisionTypeDHCPSubnet,
+							DHCPSubnet: infrav1.DHCPSubnet{Name: "my-dhcp-subnet"},
+						},
+					},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any(), "my-dhcp-subnet").Return(nil, nil)
+		mockPowerVS.EXPECT().CreateNetwork(gomock.Any(), gomock.Any()).Return(nil, nil)
+		requeue, err := clusterScope.reconcileNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(MatchError(ContainSubstring("nil or incomplete response")))
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("When spec Name is empty, auto-generated name is used", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "auto-cluster"},
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type: infrav1.NetworkProvisionTypeDHCPSubnet,
+							// Only CIDR set — Name will be auto-generated from cluster name
+							DHCPSubnet: infrav1.DHCPSubnet{CIDR: "10.0.0.0/24"},
+						},
+					},
+				},
+			},
+		}
+		expectedName := ResourceName("auto-cluster", ResourceTypeDHCPSubnet, "")
+		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any(), expectedName).Return(nil, nil)
+		mockPowerVS.EXPECT().CreateNetwork(gomock.Any(), gomock.Any()).Return(
+			&models.Network{NetworkID: ptr.To("auto-net-id"), Name: ptr.To(expectedName)},
+			nil,
+		)
+		requeue, err := clusterScope.reconcileNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue()) // Requeue once to verify network via fast-path
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal("auto-net-id"))
+	})
+}
+
+// TestDeleteNetworkProvisionDHCPSubnet tests the deleteNetworkProvisionDHCPSubnet function.
+func TestDeleteNetworkProvisionDHCPSubnet(t *testing.T) {
+	var (
+		mockPowerVS *mockP.MockPowerVS
+		mockCtrl    *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockPowerVS = mockP.NewMockPowerVS(mockCtrl)
+	}
+	teardown := func() { mockCtrl.Finish() }
+
+	t.Run("When network ID is empty in status, nothing to delete", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					Network: infrav1.NetworkStatus{},
+				},
+			},
+		}
+		err := clusterScope.deleteNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When GetNetworkByID returns 404, treated as already deleted", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					Network: infrav1.NetworkStatus{ID: "net-id-gone"},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any(), "net-id-gone").Return(nil, fmt.Errorf("network not found: 404"))
+		err := clusterScope.deleteNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When GetNetworkByID returns unexpected error, propagates error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					Network: infrav1.NetworkStatus{ID: "net-id"},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any(), "net-id").Return(nil, fmt.Errorf("internal server error"))
+		err := clusterScope.deleteNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(MatchError(ContainSubstring("internal server error")))
+	})
+
+	t.Run("When GetNetworkByID returns nil network, treated as already deleted", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					Network: infrav1.NetworkStatus{ID: "net-id"},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any(), "net-id").Return(nil, nil)
+		err := clusterScope.deleteNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When DeleteNetwork returns error, propagates error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					Network: infrav1.NetworkStatus{ID: "net-id"},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any(), "net-id").Return(
+			&models.Network{NetworkID: ptr.To("net-id"), Name: ptr.To("my-dhcp-subnet")}, nil,
+		)
+		mockPowerVS.EXPECT().DeleteNetwork(gomock.Any(), "net-id").Return(fmt.Errorf("delete API error"))
+		err := clusterScope.deleteNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(MatchError(ContainSubstring("delete API error")))
+	})
+
+	t.Run("When DeleteNetwork succeeds", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					Network: infrav1.NetworkStatus{ID: "net-id"},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any(), "net-id").Return(
+			&models.Network{NetworkID: ptr.To("net-id"), Name: ptr.To("my-dhcp-subnet")}, nil,
+		)
+		mockPowerVS.EXPECT().DeleteNetwork(gomock.Any(), "net-id").Return(nil)
+		err := clusterScope.deleteNetworkProvisionDHCPSubnet(ctx)
+		g.Expect(err).To(BeNil())
+	})
+}
+
+// TestDeleteDHCPNetworkDHCPSubnetPath verifies that DeleteDHCPNetwork dispatches to
+// deleteNetworkProvisionDHCPSubnet when the spec uses the DHCPSubnet provision path.
+func TestDeleteDHCPNetworkDHCPSubnetPath(t *testing.T) {
+	var (
+		mockPowerVS *mockP.MockPowerVS
+		mockCtrl    *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockPowerVS = mockP.NewMockPowerVS(mockCtrl)
+	}
+	teardown := func() { mockCtrl.Finish() }
+
+	t.Run("When DHCPSubnet path is configured, DeleteDHCPNetwork calls deleteNetworkProvisionDHCPSubnet", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type:       infrav1.NetworkProvisionTypeDHCPSubnet,
+							DHCPSubnet: infrav1.DHCPSubnet{Name: "my-dhcp-subnet"},
+						},
+					},
+					Workspace: infrav1.WorkspaceSource{Type: infrav1.SourceTypeReference},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					Network: infrav1.NetworkStatus{ID: "net-id"},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any(), "net-id").Return(
+			&models.Network{NetworkID: ptr.To("net-id"), Name: ptr.To("my-dhcp-subnet")}, nil,
+		)
+		mockPowerVS.EXPECT().DeleteNetwork(gomock.Any(), "net-id").Return(nil)
+		err := clusterScope.DeleteDHCPNetwork(ctx)
+		g.Expect(err).To(BeNil())
+	})
+}
+
+// TestReconcileNetworkProvisionDHCPSubnetPath verifies the routing in reconcileNetworkProvision.
+func TestReconcileNetworkProvisionDHCPSubnetPath(t *testing.T) {
+	var (
+		mockPowerVS *mockP.MockPowerVS
+		mockCtrl    *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockPowerVS = mockP.NewMockPowerVS(mockCtrl)
+	}
+	teardown := func() { mockCtrl.Finish() }
+
+	t.Run("When only DHCPSubnet is set, reconcileNetworkProvision routes to DHCPSubnet handler", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type:       infrav1.NetworkProvisionTypeDHCPSubnet,
+							DHCPSubnet: infrav1.DHCPSubnet{Name: "test-subnet"},
+						},
+					},
+				},
+			},
+		}
+		// DHCPSubnet path: only GetNetworkByName and CreateNetwork should be called (not ListDHCPServers)
+		mockPowerVS.EXPECT().GetNetworkByName(gomock.Any(), "test-subnet").Return(nil, nil)
+		mockPowerVS.EXPECT().CreateNetwork(gomock.Any(), gomock.Any()).Return(
+			&models.Network{NetworkID: ptr.To("subnet-net-id"), Name: ptr.To("test-subnet")},
+			nil,
+		)
+		requeue, err := clusterScope.reconcileNetworkProvision(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue()) // Requeue once to verify network via fast-path
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.Network.ID).To(Equal("subnet-net-id"))
+	})
+
+	t.Run("When ReconcileNetwork fast-path skips DHCP server check for DHCPSubnet provision", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+
+		// Network ID is already set in status; DHCPSubnet path — no DHCP server ID expected.
+		clusterScope := ClusterScope{
+			IBMPowerVSClient: mockPowerVS,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					Network: infrav1.NetworkSource{
+						Type: infrav1.SourceTypeProvision,
+						Provision: infrav1.NetworkProvisionConfig{
+							Type:       infrav1.NetworkProvisionTypeDHCPSubnet,
+							DHCPSubnet: infrav1.DHCPSubnet{Name: "test-subnet"},
+						},
+					},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					Network: infrav1.NetworkStatus{
+						ID:   "existing-net-id",
+						Name: "test-subnet",
+						// No DHCPServer.ID — this is normal for DHCPSubnet path
+					},
+				},
+			},
+		}
+		mockPowerVS.EXPECT().GetNetworkByID(gomock.Any(), "existing-net-id").Return(
+			&models.Network{NetworkID: ptr.To("existing-net-id"), Name: ptr.To("test-subnet")}, nil,
+		)
+		// Should NOT call isDHCPServerActive, GetDHCPServer, or requeue
+		requeue, err := clusterScope.ReconcileNetwork(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse()) // ready — no requeue
+	})
+}
+
+func TestReconcileVPCRoutingTables(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	rtID := "rt-id-abc123"
+	rtName := "my-routing-table"
+	vpcID := "vpc-id-xyz"
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	t.Run("No routing tables in spec — no-op returns false,nil", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec:   infrav1.IBMPowerVSClusterSpec{},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Routing table has unsupported type — returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("VPC ID not yet in status — requeues without error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{
+						Type:      infrav1.SourceTypeProvision,
+						Provision: infrav1.VPCRoutingTableProvision{Name: rtName},
+					}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{},
+			},
+		}
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("Lookup by ID — GetVPCRoutingTable returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{
+						Type:      infrav1.SourceTypeReference,
+						Reference: infrav1.ResourceIdentifier{ID: rtID},
+					}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTable(gomock.Any()).Return(nil, nil, errors.New("api error"))
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Lookup by ID — routing table is stable, returns ready=true no requeue", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{
+						Type:      infrav1.SourceTypeReference,
+						Reference: infrav1.ResourceIdentifier{ID: rtID},
+					}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		stableState := string(vpcv1.RoutingTableLifecycleStateStableConst)
+		mockVPC.EXPECT().GetVPCRoutingTable(gomock.Any()).Return(&vpcv1.RoutingTable{
+			ID:             ptr.To(rtID),
+			Name:           ptr.To(rtName),
+			LifecycleState: ptr.To(stableState),
+		}, nil, nil)
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCRoutingTables).To(HaveLen(1))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCRoutingTables[0].Ready).To(Equal(infrav1.VPCRoutingTableReadyStatusReady))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCRoutingTables[0].ID).To(Equal(rtID))
+	})
+
+	t.Run("Lookup by ID — routing table is pending, returns requeue=true", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{
+						Type:      infrav1.SourceTypeReference,
+						Reference: infrav1.ResourceIdentifier{ID: rtID},
+					}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTable(gomock.Any()).Return(&vpcv1.RoutingTable{
+			ID:             ptr.To(rtID),
+			Name:           ptr.To(rtName),
+			LifecycleState: ptr.To("pending"),
+		}, nil, nil)
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCRoutingTables[0].Ready).To(Equal(infrav1.VPCRoutingTableReadyStatusNotReady))
+	})
+
+	t.Run("Lookup by name — GetVPCRoutingTableByName returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{
+						Type:      infrav1.SourceTypeProvision,
+						Provision: infrav1.VPCRoutingTableProvision{Name: rtName},
+					}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTableByName(vpcID, rtName).Return(nil, errors.New("lookup error"))
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Lookup by name — routing table exists and is stable", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{
+						Type:      infrav1.SourceTypeProvision,
+						Provision: infrav1.VPCRoutingTableProvision{Name: rtName},
+					}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		stableState := string(vpcv1.RoutingTableLifecycleStateStableConst)
+		mockVPC.EXPECT().GetVPCRoutingTableByName(vpcID, rtName).Return(&vpcv1.RoutingTable{
+			ID:             ptr.To(rtID),
+			Name:           ptr.To(rtName),
+			LifecycleState: ptr.To(stableState),
+		}, nil)
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCRoutingTables).To(HaveLen(1))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCRoutingTables[0].Name).To(Equal(rtName))
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCRoutingTables[0].Ready).To(Equal(infrav1.VPCRoutingTableReadyStatusReady))
+	})
+
+	t.Run("Lookup by name — not found, CreateVPCRoutingTable returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{
+						Type:      infrav1.SourceTypeProvision,
+						Provision: infrav1.VPCRoutingTableProvision{Name: rtName},
+					}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTableByName(vpcID, rtName).Return(nil, nil)
+		mockVPC.EXPECT().CreateVPCRoutingTable(gomock.Any()).Return(nil, nil, errors.New("create failed"))
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Lookup by name — not found, created successfully, requeue=true", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{{
+						Type:      infrav1.SourceTypeProvision,
+						Provision: infrav1.VPCRoutingTableProvision{Name: rtName},
+					}},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTableByName(vpcID, rtName).Return(nil, nil)
+		mockVPC.EXPECT().CreateVPCRoutingTable(gomock.Any()).Return(&vpcv1.RoutingTable{
+			ID:   ptr.To(rtID),
+			Name: ptr.To(rtName),
+		}, nil, nil)
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+		// Status is nil for newly-created table (populated on next reconcile)
+		g.Expect(clusterScope.IBMPowerVSCluster.Status.VPCRoutingTables).To(BeEmpty())
+	})
+}
+
+func TestResolveNextHopFromLB(t *testing.T) {
+	t.Run("No load balancers in status — returns empty string and false", func(t *testing.T) {
+		g := NewWithT(t)
+		scope := &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{},
+			},
+		}
+		ip, ok := scope.resolveNextHopFromLB()
+		g.Expect(ok).To(BeFalse())
+		g.Expect(ip).To(BeEmpty())
+	})
+
+	t.Run("Load balancer in status with no private IPs — returns empty string and false", func(t *testing.T) {
+		g := NewWithT(t)
+		scope := &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					LoadBalancers: []infrav1.LoadBalancerStatus{
+						{Name: "lb-1", ID: "lb-id-1", PrivateIPs: nil},
+					},
+				},
+			},
+		}
+		ip, ok := scope.resolveNextHopFromLB()
+		g.Expect(ok).To(BeFalse())
+		g.Expect(ip).To(BeEmpty())
+	})
+
+	t.Run("Load balancer in status with private IPs — returns first IP and true", func(t *testing.T) {
+		g := NewWithT(t)
+		scope := &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					LoadBalancers: []infrav1.LoadBalancerStatus{
+						{Name: "lb-1", ID: "lb-id-1", PrivateIPs: []string{"10.240.0.5", "10.240.0.6"}},
+					},
+				},
+			},
+		}
+		ip, ok := scope.resolveNextHopFromLB()
+		g.Expect(ok).To(BeTrue())
+		g.Expect(ip).To(Equal("10.240.0.5"))
+	})
+
+	t.Run("First LB has no private IPs, second does — returns second LB's first IP", func(t *testing.T) {
+		g := NewWithT(t)
+		scope := &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Status: infrav1.IBMPowerVSClusterStatus{
+					LoadBalancers: []infrav1.LoadBalancerStatus{
+						{Name: "lb-1", ID: "lb-id-1"},
+						{Name: "lb-2", ID: "lb-id-2", PrivateIPs: []string{"10.240.0.9"}},
+					},
+				},
+			},
+		}
+		ip, ok := scope.resolveNextHopFromLB()
+		g.Expect(ok).To(BeTrue())
+		g.Expect(ip).To(Equal("10.240.0.9"))
+	})
+
+	t.Run("Multiple LBs in status — prioritizes route-mode NLB over ALB", func(t *testing.T) {
+		g := NewWithT(t)
+		scope := &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					LoadBalancers: []infrav1.LoadBalancerSource{
+						{
+							Type: infrav1.SourceTypeProvision,
+							Provision: infrav1.LoadBalancerProvision{
+								Name: "cluster-alb",
+							},
+						},
+						{
+							Type: infrav1.SourceTypeProvision,
+							Provision: infrav1.LoadBalancerProvision{
+								Name:      "cluster-nlb",
+								Profile:   infrav1.PowerVSLoadBalancerProfileNetworkFixed,
+								RouteMode: infrav1.PowerVSLoadBalancerRouteModeEnabled,
+							},
+						},
+					},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					LoadBalancers: []infrav1.LoadBalancerStatus{
+						{Name: "cluster-alb", ID: "alb-id", PrivateIPs: []string{"10.240.0.5", "10.240.0.4"}},
+						{Name: "cluster-nlb", ID: "nlb-id", PrivateIPs: []string{"10.240.0.7", "10.240.0.6"}},
+					},
+				},
+			},
+		}
+		ip, ok := scope.resolveNextHopFromLB()
+		g.Expect(ok).To(BeTrue())
+		g.Expect(ip).To(Equal("10.240.0.7"))
+	})
+}
+
+func TestReconcileVPCRoutingTable_NextHopResolution(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() { mockCtrl.Finish() }
+
+	const (
+		vpcID  = "vpc-nexthop-test"
+		rtName = "rt-nexthop-test"
+		rtID   = "rt-id-nexthop"
+		lbIP   = "10.240.0.5"
+	)
+
+	provisionRT := func(routes []infrav1.VPCRoutingTableRoute) infrav1.VPCRoutingTableSource {
+		return infrav1.VPCRoutingTableSource{
+			Type: infrav1.SourceTypeProvision,
+			Provision: infrav1.VPCRoutingTableProvision{
+				Name:   rtName,
+				Routes: routes,
+			},
+		}
+	}
+
+	t.Run("deliver route with explicit nextHop — used as-is, no LB lookup", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{provisionRT([]infrav1.VPCRoutingTableRoute{
+						{Action: infrav1.VPCRoutingTableRouteActionDeliver, Destination: "0.0.0.0/0", NextHop: "10.1.2.3", Zone: "us-south-1"},
+					})},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTableByName(vpcID, rtName).Return(nil, nil)
+		// Expect CreateVPCRoutingTable to be called with the explicit nextHop (no LB lookup needed).
+		mockVPC.EXPECT().CreateVPCRoutingTable(gomock.Any()).DoAndReturn(
+			func(opts *vpcv1.CreateVPCRoutingTableOptions) (*vpcv1.RoutingTable, *core.DetailedResponse, error) {
+				g.Expect(opts.Routes).To(HaveLen(1))
+				nh, ok := opts.Routes[0].NextHop.(*vpcv1.RouteNextHopPrototypeRouteNextHopIPRouteNextHopIPUnicastIP)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(*nh.Address).To(Equal("10.1.2.3"))
+				return &vpcv1.RoutingTable{ID: ptr.To(rtID), Name: ptr.To(rtName)}, nil, nil
+			},
+		)
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("deliver route with empty nextHop, LB has private IP — IP injected and table created", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{provisionRT([]infrav1.VPCRoutingTableRoute{
+						{Action: infrav1.VPCRoutingTableRouteActionDeliver, Destination: "0.0.0.0/0", Zone: "us-south-1"},
+					})},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					VPC:           infrav1.VPCStatus{ID: vpcID},
+					LoadBalancers: []infrav1.LoadBalancerStatus{{Name: "pvs-rt-test-lb", PrivateIPs: []string{lbIP}}},
+				},
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTableByName(vpcID, rtName).Return(nil, nil)
+		mockVPC.EXPECT().CreateVPCRoutingTable(gomock.Any()).DoAndReturn(
+			func(opts *vpcv1.CreateVPCRoutingTableOptions) (*vpcv1.RoutingTable, *core.DetailedResponse, error) {
+				g.Expect(opts.Routes).To(HaveLen(1))
+				nh, ok := opts.Routes[0].NextHop.(*vpcv1.RouteNextHopPrototypeRouteNextHopIPRouteNextHopIPUnicastIP)
+				g.Expect(ok).To(BeTrue())
+				g.Expect(*nh.Address).To(Equal(lbIP))
+				return &vpcv1.RoutingTable{ID: ptr.To(rtID), Name: ptr.To(rtName)}, nil, nil
+			},
+		)
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("deliver route with empty nextHop, no LBs with private IPs yet — requeues without error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{provisionRT([]infrav1.VPCRoutingTableRoute{
+						{Action: infrav1.VPCRoutingTableRouteActionDeliver, Destination: "0.0.0.0/0", Zone: "us-south-1"},
+					})},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					VPC:           infrav1.VPCStatus{ID: vpcID},
+					LoadBalancers: []infrav1.LoadBalancerStatus{{Name: "pvs-rt-test-lb"}}, // no PrivateIPs yet
+				},
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTableByName(vpcID, rtName).Return(nil, nil)
+		// CreateVPCRoutingTable must NOT be called — we requeue to wait for the LB.
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("delegate route with empty nextHop — passed through without LB lookup", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{provisionRT([]infrav1.VPCRoutingTableRoute{
+						{Action: infrav1.VPCRoutingTableRouteActionDelegate, Destination: "10.0.0.0/8", Zone: "us-south-1"},
+					})},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{VPC: infrav1.VPCStatus{ID: vpcID}},
+				// deliberately no LoadBalancers in status — should not matter for delegate action
+			},
+		}
+		mockVPC.EXPECT().GetVPCRoutingTableByName(vpcID, rtName).Return(nil, nil)
+		mockVPC.EXPECT().CreateVPCRoutingTable(gomock.Any()).Return(
+			&vpcv1.RoutingTable{ID: ptr.To(rtID), Name: ptr.To(rtName)}, nil, nil,
+		)
+		requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+}
+
+
+
+func TestReconcileVPCPublicGateways(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	pgwID := "pgw-id-abc123"
+	pgwName := "my-public-gateway"
+	vpcID := "vpc-id-xyz"
+	rgID := "rg-id-xyz"
+	zone := "us-south-1"
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() { mockCtrl.Finish() }
+
+	scopeWithRG := func(spec infrav1.IBMPowerVSClusterSpec, vpcStatusID string) *ClusterScope {
+		return &ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: spec,
+				Status: infrav1.IBMPowerVSClusterStatus{
+					VPC:           infrav1.VPCStatus{ID: vpcStatusID},
+					ResourceGroup: infrav1.ResourceReference{ID: rgID},
+				},
+			},
+		}
+	}
+
+	t.Run("No public gateways in spec — no-op returns false,nil", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{}, vpcID)
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("VPC ID not yet in status — requeues without error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{
+				{Type: infrav1.SourceTypeProvision, Zone: zone, Provision: infrav1.VPCPublicGatewayProvision{Name: pgwName}},
+			},
+		}, "")
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeTrue())
+	})
+
+	t.Run("Public gateway has unknown type — returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{{}},
+		}, vpcID)
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Reference by ID — GetPublicGateway returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{
+				{Type: infrav1.SourceTypeReference, Reference: infrav1.ResourceIdentifier{ID: pgwID}},
+			},
+		}, vpcID)
+		mockVPC.EXPECT().GetPublicGateway(gomock.Any()).Return(nil, nil, errors.New("api error"))
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Reference by ID — gateway found, status populated", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{
+				{Type: infrav1.SourceTypeReference, Reference: infrav1.ResourceIdentifier{ID: pgwID}},
+			},
+		}, vpcID)
+		mockVPC.EXPECT().GetPublicGateway(gomock.Any()).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To(pgwID),
+			Name: ptr.To(pgwName),
+			Zone: &vpcv1.ZoneReference{Name: ptr.To(zone)},
+		}, &core.DetailedResponse{StatusCode: 200}, nil)
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(scope.IBMPowerVSCluster.Status.VPCPublicGateways).To(HaveLen(1))
+		g.Expect(scope.IBMPowerVSCluster.Status.VPCPublicGateways[0].ID).To(Equal(pgwID))
+		g.Expect(scope.IBMPowerVSCluster.Status.VPCPublicGateways[0].Zone).To(Equal(zone))
+	})
+
+	t.Run("Reference by name — GetVPCPublicGatewayByName returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{
+				{Type: infrav1.SourceTypeReference, Reference: infrav1.ResourceIdentifier{Name: pgwName}},
+			},
+		}, vpcID)
+		mockVPC.EXPECT().GetVPCPublicGatewayByName(pgwName, rgID).Return(nil, errors.New("lookup error"))
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Reference by name — gateway found, status populated", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{
+				{Type: infrav1.SourceTypeReference, Reference: infrav1.ResourceIdentifier{Name: pgwName}},
+			},
+		}, vpcID)
+		mockVPC.EXPECT().GetVPCPublicGatewayByName(pgwName, rgID).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To(pgwID),
+			Name: ptr.To(pgwName),
+			Zone: &vpcv1.ZoneReference{Name: ptr.To(zone)},
+		}, nil)
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(scope.IBMPowerVSCluster.Status.VPCPublicGateways).To(HaveLen(1))
+		g.Expect(scope.IBMPowerVSCluster.Status.VPCPublicGateways[0].Name).To(Equal(pgwName))
+	})
+
+	t.Run("Provision — not found, no zone — returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{
+				{Type: infrav1.SourceTypeProvision, Provision: infrav1.VPCPublicGatewayProvision{Name: pgwName}},
+			},
+		}, vpcID)
+		mockVPC.EXPECT().GetVPCPublicGatewayByName(pgwName, rgID).Return(nil, nil)
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Provision — not found, CreatePublicGateway returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{
+				{Type: infrav1.SourceTypeProvision, Zone: zone, Provision: infrav1.VPCPublicGatewayProvision{Name: pgwName}},
+			},
+		}, vpcID)
+		mockVPC.EXPECT().GetVPCPublicGatewayByName(pgwName, rgID).Return(nil, nil)
+		mockVPC.EXPECT().CreatePublicGateway(gomock.Any()).Return(nil, nil, errors.New("create failed"))
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(requeue).To(BeFalse())
+	})
+
+	t.Run("Provision — not found, created successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithRG(infrav1.IBMPowerVSClusterSpec{
+			VPCPublicGateways: []infrav1.VPCPublicGateway{
+				{Type: infrav1.SourceTypeProvision, Zone: zone, Provision: infrav1.VPCPublicGatewayProvision{Name: pgwName}},
+			},
+		}, vpcID)
+		mockVPC.EXPECT().GetVPCPublicGatewayByName(pgwName, rgID).Return(nil, nil)
+		mockVPC.EXPECT().CreatePublicGateway(gomock.Any()).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To(pgwID),
+			Name: ptr.To(pgwName),
+			Zone: &vpcv1.ZoneReference{Name: ptr.To(zone)},
+		}, &core.DetailedResponse{StatusCode: 201}, nil)
+		requeue, err := scope.ReconcileVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+		g.Expect(requeue).To(BeFalse())
+		g.Expect(scope.IBMPowerVSCluster.Status.VPCPublicGateways).To(HaveLen(1))
+		g.Expect(scope.IBMPowerVSCluster.Status.VPCPublicGateways[0].ID).To(Equal(pgwID))
+	})
+}
+
+func TestDeleteVPCRoutingTables(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() {
+		mockCtrl.Finish()
+	}
+
+	scopeWithProvisionRT := func() *ClusterScope {
+		return &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCRoutingTables: []infrav1.VPCRoutingTableSource{
+						{
+							Type:      infrav1.SourceTypeProvision,
+							Provision: infrav1.VPCRoutingTableProvision{Name: "rt-test"},
+						},
+					},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					VPC: infrav1.VPCStatus{ID: "vpc-id"},
+					VPCRoutingTables: []infrav1.VPCRoutingTableStatus{
+						{ID: "rt-id", Name: "rt-test"},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("When routing table is not managed, skip deletion", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := scopeWithProvisionRT()
+		clusterScope.IBMPowerVSCluster.Spec.VPCRoutingTables = []infrav1.VPCRoutingTableSource{
+			{
+				Type:      infrav1.SourceTypeReference,
+				Reference: infrav1.ResourceIdentifier{ID: "rt-id", Name: "rt-test"},
+			},
+		}
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When routing table is not found (404), skip deletion", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := scopeWithProvisionRT()
+		mockVpc.EXPECT().GetVPCRoutingTable(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When GetVPCRoutingTable returns error other than 404", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := scopeWithProvisionRT()
+		mockVpc.EXPECT().GetVPCRoutingTable(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 500}, errors.New("server error"))
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCRoutingTables(ctx)
+		g.Expect(err).To(Not(BeNil()))
+	})
+
+	t.Run("When DeleteVPCRoutingTable returns error", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := scopeWithProvisionRT()
+		mockVpc.EXPECT().GetVPCRoutingTable(gomock.Any()).Return(&vpcv1.RoutingTable{
+			ID:   ptr.To("rt-id"),
+			Name: ptr.To("rt-test"),
+		}, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockVpc.EXPECT().DeleteVPCRoutingTable(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("failed to delete routing table"))
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCRoutingTables(ctx)
+		g.Expect(err).To(Not(BeNil()))
+	})
+
+	t.Run("When DeleteVPCRoutingTable successfully deletes routing table", func(*testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		clusterScope := scopeWithProvisionRT()
+		mockVpc.EXPECT().GetVPCRoutingTable(gomock.Any()).Return(&vpcv1.RoutingTable{
+			ID:   ptr.To("rt-id"),
+			Name: ptr.To("rt-test"),
+		}, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockVpc.EXPECT().DeleteVPCRoutingTable(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		clusterScope.IBMVPCClient = mockVpc
+		err := clusterScope.DeleteVPCRoutingTables(ctx)
+		g.Expect(err).To(BeNil())
+	})
+}
+
+func TestDeleteVPCPublicGateways(t *testing.T) {
+	var (
+		mockVpc  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVpc = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() { mockCtrl.Finish() }
+
+	scopeWithProvisionPGW := func() *ClusterScope {
+		return &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCPublicGateways: []infrav1.VPCPublicGateway{
+						{Type: infrav1.SourceTypeProvision, Provision: infrav1.VPCPublicGatewayProvision{Name: "pgw-test"}},
+					},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					VPCPublicGateways: []infrav1.VPCPublicGatewayStatus{
+						{ID: "pgw-id", Name: "pgw-test", Zone: "us-south-1"},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("When public gateway is referenced (not managed), skip deletion", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithProvisionPGW()
+		scope.IBMPowerVSCluster.Spec.VPCPublicGateways = []infrav1.VPCPublicGateway{
+			{Type: infrav1.SourceTypeReference, Reference: infrav1.ResourceIdentifier{ID: "pgw-id", Name: "pgw-test"}},
+		}
+		scope.IBMVPCClient = mockVpc
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When public gateway is not found (404), skip deletion", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithProvisionPGW()
+		mockVpc.EXPECT().GetPublicGateway(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 404}, errors.New("not found"))
+		scope.IBMVPCClient = mockVpc
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When GetPublicGateway returns non-404 error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithProvisionPGW()
+		mockVpc.EXPECT().GetPublicGateway(gomock.Any()).Return(nil, &core.DetailedResponse{StatusCode: 500}, errors.New("server error"))
+		scope.IBMVPCClient = mockVpc
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When DeletePublicGateway returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithProvisionPGW()
+		mockVpc.EXPECT().GetPublicGateway(gomock.Any()).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To("pgw-id"),
+			Name: ptr.To("pgw-test"),
+		}, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockVpc.EXPECT().DeletePublicGateway(gomock.Any()).Return(&core.DetailedResponse{}, errors.New("delete failed"))
+		scope.IBMVPCClient = mockVpc
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).ToNot(BeNil())
+	})
+
+	t.Run("When DeletePublicGateway succeeds", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithProvisionPGW()
+		mockVpc.EXPECT().GetPublicGateway(gomock.Any()).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To("pgw-id"),
+			Name: ptr.To("pgw-test"),
+		}, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockVpc.EXPECT().DeletePublicGateway(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		scope.IBMVPCClient = mockVpc
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When public gateway is attached to a subnet, unsets public gateway before deleting", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithProvisionPGW()
+		scope.IBMPowerVSCluster.Status.VPCSubnets = []infrav1.VPCSubnetStatus{
+			{
+				ID:   "subnet-1",
+				Name: "my-subnet",
+				PublicGateway: infrav1.VPCPublicGatewayStatus{
+					ID:   "pgw-id",
+					Name: "pgw-test",
+				},
+			},
+		}
+		mockVpc.EXPECT().GetPublicGateway(gomock.Any()).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To("pgw-id"),
+			Name: ptr.To("pgw-test"),
+		}, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockVpc.EXPECT().UnsetSubnetPublicGateway(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		mockVpc.EXPECT().DeletePublicGateway(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		scope.IBMVPCClient = mockVpc
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When Reference-type subnet has public gateway attached, detaches but does not delete gateway", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCSubnets: []infrav1.VPCSubnetSource{
+						{
+							Type: infrav1.SourceTypeReference,
+							Reference: infrav1.ResourceIdentifier{
+								ID:   "subnet-ref-id",
+								Name: "ref-subnet",
+							},
+							PublicGateway: infrav1.ResourceIdentifier{
+								ID:   "pgw-ref-id",
+								Name: "pgw-ref",
+							},
+						},
+					},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					VPCSubnets: []infrav1.VPCSubnetStatus{
+						{
+							ID:   "subnet-ref-id",
+							Name: "ref-subnet",
+							PublicGateway: infrav1.VPCPublicGatewayStatus{
+								ID:   "pgw-ref-id",
+								Name: "pgw-ref",
+							},
+						},
+					},
+				},
+			},
+		}
+		// Only UnsetSubnetPublicGateway should be called — no GetPublicGateway or DeletePublicGateway.
+		mockVpc.EXPECT().UnsetSubnetPublicGateway(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		scope.IBMVPCClient = mockVpc
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When Reference-type subnet detach returns error, continues without failing", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := &ClusterScope{
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{
+					VPCSubnets: []infrav1.VPCSubnetSource{
+						{
+							Type: infrav1.SourceTypeReference,
+							Reference: infrav1.ResourceIdentifier{
+								ID:   "subnet-ref-id",
+								Name: "ref-subnet",
+							},
+							PublicGateway: infrav1.ResourceIdentifier{
+								ID:   "pgw-ref-id",
+								Name: "pgw-ref",
+							},
+						},
+					},
+				},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					VPCSubnets: []infrav1.VPCSubnetStatus{
+						{
+							ID:   "subnet-ref-id",
+							Name: "ref-subnet",
+							PublicGateway: infrav1.VPCPublicGatewayStatus{
+								ID:   "pgw-ref-id",
+								Name: "pgw-ref",
+							},
+						},
+					},
+				},
+			},
+		}
+		// Error from unset is tolerated (gateway may already be detached).
+		mockVpc.EXPECT().UnsetSubnetPublicGateway(gomock.Any()).Return(&core.DetailedResponse{StatusCode: 404}, errors.New("already detached"))
+		scope.IBMVPCClient = mockVpc
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+	})
+
+	t.Run("When Provision-type subnet has no publicGateway in spec, reference detach loop is skipped", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithProvisionPGW()
+		// No VPCSubnets in spec — reference loop has nothing to iterate.
+		scope.IBMVPCClient = mockVpc
+		// Provision PGW has no status entry with a matching gateway, so no calls expected
+		// other than the managed-gateway deletion path which needs GetPublicGateway.
+		mockVpc.EXPECT().GetPublicGateway(gomock.Any()).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To("pgw-id"),
+			Name: ptr.To("pgw-test"),
+		}, &core.DetailedResponse{StatusCode: 200}, nil)
+		mockVpc.EXPECT().DeletePublicGateway(gomock.Any()).Return(&core.DetailedResponse{}, nil)
+		err := scope.DeleteVPCPublicGateways(ctx)
+		g.Expect(err).To(BeNil())
+	})
+}
+
+func TestReconcileSubnetPublicGateway(t *testing.T) {
+	var (
+		mockVPC  *mock.MockVpc
+		mockCtrl *gomock.Controller
+	)
+
+	pgwID := "pgw-id-123"
+	pgwName := "pgw-name-test"
+	subnetID := "subnet-id-123"
+	rgID := "rg-id-xyz"
+
+	setup := func(t *testing.T) {
+		t.Helper()
+		mockCtrl = gomock.NewController(t)
+		mockVPC = mock.NewMockVpc(mockCtrl)
+	}
+	teardown := func() { mockCtrl.Finish() }
+
+	scopeWithStatus := func(pgwStatus []infrav1.VPCPublicGatewayStatus) *ClusterScope {
+		return &ClusterScope{
+			IBMVPCClient: mockVPC,
+			IBMPowerVSCluster: &infrav1.IBMPowerVSCluster{
+				Spec: infrav1.IBMPowerVSClusterSpec{},
+				Status: infrav1.IBMPowerVSClusterStatus{
+					ResourceGroup:     infrav1.ResourceReference{ID: rgID},
+					VPCPublicGateways: pgwStatus,
+				},
+			},
+		}
+	}
+
+	t.Run("nil pgwRef with nil currentPGW returns nil, nil", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithStatus(nil)
+		res, err := scope.reconcileSubnetPublicGateway(ctx, subnetID, nil, nil)
+		g.Expect(err).To(BeNil())
+		g.Expect(res).To(BeNil())
+	})
+
+	t.Run("pgwRef by ID already attached to current PGW is idempotent", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithStatus(nil)
+		current := &vpcv1.PublicGatewayReference{
+			ID:   ptr.To(pgwID),
+			Name: ptr.To(pgwName),
+		}
+		ref := &infrav1.ResourceIdentifier{ID: pgwID, Name: pgwName}
+		res, err := scope.reconcileSubnetPublicGateway(ctx, subnetID, ref, current)
+		g.Expect(err).To(BeNil())
+		g.Expect(res).ToNot(BeNil())
+		g.Expect(res.ID).To(Equal(pgwID))
+	})
+
+	t.Run("pgwRef by Name found in cluster status attaches successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithStatus([]infrav1.VPCPublicGatewayStatus{
+			{ID: pgwID, Name: pgwName},
+		})
+		ref := &infrav1.ResourceIdentifier{Name: pgwName}
+		mockVPC.EXPECT().SetSubnetPublicGateway(gomock.Any()).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To(pgwID),
+			Name: ptr.To(pgwName),
+		}, &core.DetailedResponse{}, nil)
+
+		res, err := scope.reconcileSubnetPublicGateway(ctx, subnetID, ref, nil)
+		g.Expect(err).To(BeNil())
+		g.Expect(res).ToNot(BeNil())
+		g.Expect(res.ID).To(Equal(pgwID))
+		g.Expect(res.Name).To(Equal(pgwName))
+	})
+
+	t.Run("pgwRef by Name looked up via API attaches successfully", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithStatus(nil)
+		ref := &infrav1.ResourceIdentifier{Name: pgwName}
+		mockVPC.EXPECT().GetVPCPublicGatewayByName(pgwName, rgID).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To(pgwID),
+			Name: ptr.To(pgwName),
+		}, nil)
+		mockVPC.EXPECT().SetSubnetPublicGateway(gomock.Any()).Return(&vpcv1.PublicGateway{
+			ID:   ptr.To(pgwID),
+			Name: ptr.To(pgwName),
+		}, &core.DetailedResponse{}, nil)
+
+		res, err := scope.reconcileSubnetPublicGateway(ctx, subnetID, ref, nil)
+		g.Expect(err).To(BeNil())
+		g.Expect(res).ToNot(BeNil())
+		g.Expect(res.ID).To(Equal(pgwID))
+	})
+
+	t.Run("pgwRef by Name not found returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithStatus(nil)
+		ref := &infrav1.ResourceIdentifier{Name: pgwName}
+		mockVPC.EXPECT().GetVPCPublicGatewayByName(pgwName, rgID).Return(nil, nil)
+
+		res, err := scope.reconcileSubnetPublicGateway(ctx, subnetID, ref, nil)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(res).To(BeNil())
+	})
+
+	t.Run("SetSubnetPublicGateway returns error", func(t *testing.T) {
+		g := NewWithT(t)
+		setup(t)
+		t.Cleanup(teardown)
+		scope := scopeWithStatus([]infrav1.VPCPublicGatewayStatus{
+			{ID: pgwID, Name: pgwName},
+		})
+		ref := &infrav1.ResourceIdentifier{ID: pgwID}
+		mockVPC.EXPECT().SetSubnetPublicGateway(gomock.Any()).Return(nil, &core.DetailedResponse{}, errors.New("attach failed"))
+
+		res, err := scope.reconcileSubnetPublicGateway(ctx, subnetID, ref, nil)
+		g.Expect(err).ToNot(BeNil())
+		g.Expect(res).To(BeNil())
 	})
 }

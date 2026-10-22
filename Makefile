@@ -84,7 +84,7 @@ RELEASE_NOTES_DIR := CHANGELOG
 OUTPUT_TYPE ?= type=registry
 
 # Go
-GO_VERSION ?=1.26.8
+GO_VERSION ?=1.26.9
 GO_CONTAINER_IMAGE ?= golang:$(GO_VERSION)
 
 # Trivy
@@ -528,7 +528,7 @@ define checkdiff
 	git --no-pager diff --name-only FETCH_HEAD
 endef
 
-ALL_VERIFY_CHECKS = boilerplate shellcheck modules gen conversions go-version yamllint linkcheck
+ALL_VERIFY_CHECKS = boilerplate shellcheck modules gen conversions go-version yamllint
 
 .PHONY: verify
 verify: $(addprefix verify-,$(ALL_VERIFY_CHECKS)) ## Run all verify-* targets

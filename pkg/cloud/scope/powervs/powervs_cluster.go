@@ -693,24 +693,27 @@ func (s *ClusterScope) ReconcileNetwork(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("failed to fetch network by ID: %w", err)
 		}
 
-		// If we provisioned this network via DHCP, ensure the DHCP server is fully active
-		if cluster.Spec.Network.Type == infrav1.SourceTypeProvision {
-			dhcpServerID := cluster.Status.Network.DHCPServer.ID
-			if dhcpServerID == "" {
-				log.Info("Recovering state: Network ID is present but DHCP Server ID is missing in status. Requeuing to resolve", "networkID", networkID)
-				return true, nil
-			}
+		// Reference networks and DHCPSubnet networks don't create a separate DHCP server resource.
+		if cluster.Spec.Network.Type != infrav1.SourceTypeProvision || s.isDHCPSubnetProvisioned() {
+			return false, nil
+		}
 
-			log.V(3).Info("Verifying provisioned DHCP server state", "dhcpServerID", dhcpServerID)
-			active, err := s.isDHCPServerActive(ctx)
-			if err != nil {
-				return false, fmt.Errorf("failed to check if DHCP server is active: %w", err)
-			}
+		// For provisioned DHCPServer networks, ensure the DHCP server is fully active.
+		dhcpServerID := cluster.Status.Network.DHCPServer.ID
+		if dhcpServerID == "" {
+			log.Info("Recovering state: Network ID is present but DHCP Server ID is missing in status. Requeuing to resolve", "networkID", networkID)
+			return true, nil
+		}
 
-			if !active {
-				log.V(3).Info("DHCP server is still building")
-				return true, nil // requeue and wait
-			}
+		log.V(3).Info("Verifying provisioned DHCP server state", "dhcpServerID", dhcpServerID)
+		active, err := s.isDHCPServerActive(ctx)
+		if err != nil {
+			return false, fmt.Errorf("failed to check if DHCP server is active: %w", err)
+		}
+
+		if !active {
+			log.V(3).Info("DHCP server is still building")
+			return true, nil // requeue and wait
 		}
 
 		// Network is resolved and ready!
@@ -774,8 +777,26 @@ func (s *ClusterScope) reconcileNetworkReference(ctx context.Context) (bool, err
 	return true, nil // requeue so the fast-path verifies it
 }
 
-// reconcileNetworkProvision handles the logic when the controller must create a new DHCP server and Network.
+// isDHCPSubnetProvisioned returns true when the cluster was configured to use the DHCPSubnet
+// provisioning path (NetworkProvisionTypeDHCPSubnet). Used to discriminate between the two
+// network-provision sub-paths without field-sniffing.
+func (s *ClusterScope) isDHCPSubnetProvisioned() bool {
+	return s.IBMPowerVSCluster.Spec.Network.Provision.Type == infrav1.NetworkProvisionTypeDHCPSubnet
+}
+
+// reconcileNetworkProvision routes to the correct network-provisioning sub-handler based on
+// the explicit ProvisionType discriminant set by the user in NetworkProvisionConfig.
 func (s *ClusterScope) reconcileNetworkProvision(ctx context.Context) (bool, error) {
+	switch s.IBMPowerVSCluster.Spec.Network.Provision.Type {
+	case infrav1.NetworkProvisionTypeDHCPSubnet:
+		return s.reconcileNetworkProvisionDHCPSubnet(ctx)
+	default:
+		return s.reconcileNetworkProvisionDHCPServer(ctx)
+	}
+}
+
+// reconcileNetworkProvisionDHCPServer handles the logic when the controller must create a new DHCP server and Network.
+func (s *ClusterScope) reconcileNetworkProvisionDHCPServer(ctx context.Context) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 	dhcpSpec := s.IBMPowerVSCluster.Spec.Network.Provision.DHCPServer
 
@@ -827,6 +848,63 @@ func (s *ClusterScope) reconcileNetworkProvision(ctx context.Context) (bool, err
 	s.IBMPowerVSCluster.Status.Network.DHCPServer.ID = dhcpServerID
 
 	return true, nil // Requeue to wait for it to become ACTIVE
+}
+
+// reconcileNetworkProvisionDHCPSubnet handles direct PowerVS network creation with EnableDHCP=true.
+// Unlike the DHCP server path this creates only a network resource — no separate DHCP server object.
+func (s *ClusterScope) reconcileNetworkProvisionDHCPSubnet(ctx context.Context) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+	spec := s.IBMPowerVSCluster.Spec.Network.Provision.DHCPSubnet
+
+	// 1. Determine the network name
+	networkName := spec.Name
+	if networkName == "" {
+		networkName = ResourceName(s.IBMPowerVSCluster.Name, ResourceTypeDHCPSubnet, "")
+	}
+
+	// 2. Idempotency check: look up by name before creating
+	existing, err := s.IBMPowerVSClient.GetNetworkByName(ctx, networkName)
+	if err != nil {
+		return false, fmt.Errorf("failed to check for existing DHCP subnet network %q: %w", networkName, err)
+	}
+	if existing != nil && existing.NetworkID != nil && existing.Name != nil {
+		log.Info("Recovered previously provisioned DHCP subnet network", "networkID", *existing.NetworkID, "networkName", *existing.Name)
+		s.IBMPowerVSCluster.Status.Network.ID = *existing.NetworkID
+		s.IBMPowerVSCluster.Status.Network.Name = *existing.Name
+		return false, nil
+	}
+
+	// 3. Build and issue the CreateNetwork request with EnableDHCP=true
+	body := &models.NetworkCreate{
+		Name:       networkName,
+		Type:       ptr.To("vlan"), // DHCP subnets are always private (vlan) networks
+		EnableDHCP: ptr.To(true),
+	}
+	if spec.CIDR != "" {
+		body.Cidr = spec.CIDR
+	}
+	if len(spec.DNSServers) > 0 {
+		body.DNSServers = spec.DNSServers
+	}
+
+	log.Info("Provisioning new DHCP subnet network", "name", networkName)
+	network, err := s.IBMPowerVSClient.CreateNetwork(ctx, body)
+	if err != nil {
+		return false, fmt.Errorf("failed to provision DHCP subnet network %q: %w", networkName, err)
+	}
+	if network == nil || network.NetworkID == nil || network.Name == nil {
+		return false, fmt.Errorf("created DHCP subnet network returned nil or incomplete response")
+	}
+
+	log.Info("Successfully provisioned DHCP subnet network", "networkID", *network.NetworkID, "networkName", *network.Name)
+
+	s.IBMPowerVSCluster.Status.Network.ID = *network.NetworkID
+	s.IBMPowerVSCluster.Status.Network.Name = *network.Name
+
+	// Requeue once: the fast-path in ReconcileNetwork will call GetNetworkByID to confirm the
+	// network is visible before marking it ready. PowerVS NetworkCreate is synchronous in practice,
+	// but a single requeue is cheap insurance against eventual-consistency delays.
+	return true, nil
 }
 
 // isDHCPServerActive checks if the DHCP server status is active.
@@ -1507,6 +1585,17 @@ func (s *ClusterScope) ReconcileVPCSubnets(ctx context.Context) (bool, error) {
 				return false, fmt.Errorf("tracked VPC subnet (id: %s) was not found in IBM Cloud", existingStatus.ID)
 			}
 
+			// Reconcile public gateway attachment if configured
+			if subnetSpec.PublicGateway.ID != "" || subnetSpec.PublicGateway.Name != "" {
+				attachedPGW, err := s.reconcileSubnetPublicGateway(ctx, existingStatus.ID, &subnetSpec.PublicGateway, subnetDetails.PublicGateway)
+				if err != nil {
+					return false, err
+				}
+				if attachedPGW != nil {
+					existingStatus.PublicGateway = *attachedPGW
+				}
+			}
+
 			// Subnet is healthy and verified; carry on to the next list entry
 			continue
 		}
@@ -1538,6 +1627,18 @@ func (s *ClusterScope) ReconcileVPCSubnets(ctx context.Context) (bool, error) {
 			continue
 		}
 
+		var attachedPGW infrav1.VPCPublicGatewayStatus
+		if subnetSpec.PublicGateway.ID != "" || subnetSpec.PublicGateway.Name != "" {
+			var err error
+			pgw, err := s.reconcileSubnetPublicGateway(ctx, *subnetDetails.ID, &subnetSpec.PublicGateway, subnetDetails.PublicGateway)
+			if err != nil {
+				return false, err
+			}
+			if pgw != nil {
+				attachedPGW = *pgw
+			}
+		}
+
 		// Dynamically extract the actual Zone from the cloud payload if available, fallback to spec
 		actualZone := subnetSpec.Zone
 		if subnetDetails.Zone != nil && subnetDetails.Zone.Name != nil {
@@ -1546,9 +1647,10 @@ func (s *ClusterScope) ReconcileVPCSubnets(ctx context.Context) (bool, error) {
 
 		// 6. Update Status array using the new struct
 		s.updateSubnetStatusList(infrav1.VPCSubnetStatus{
-			ID:   *subnetDetails.ID,
-			Name: *subnetDetails.Name,
-			Zone: actualZone,
+			ID:            *subnetDetails.ID,
+			Name:          *subnetDetails.Name,
+			Zone:          actualZone,
+			PublicGateway: attachedPGW,
 		})
 	}
 
@@ -1692,10 +1794,11 @@ func (s *ClusterScope) ReconcileLoadBalancers(ctx context.Context) (bool, error)
 			}
 
 			s.SetLoadBalancerStatus(ctx, lbName, infrav1.LoadBalancerStatus{
-				Name:     lbName,
-				ID:       *loadBalancer.ID,
-				State:    infrav1.LoadBalancerState(*loadBalancer.ProvisioningStatus),
-				Hostname: ptr.Deref(loadBalancer.Hostname, ""),
+				Name:       lbName,
+				ID:         *loadBalancer.ID,
+				State:      infrav1.LoadBalancerState(*loadBalancer.ProvisioningStatus),
+				Hostname:   ptr.Deref(loadBalancer.Hostname, ""),
+				PrivateIPs: extractPrivateIPs(*loadBalancer),
 			})
 			continue
 		}
@@ -1733,13 +1836,23 @@ func (s *ClusterScope) ReconcileLoadBalancers(ctx context.Context) (bool, error)
 			if isReady := s.checkLoadBalancerState(ctx, *loadBalancer); !isReady {
 				log.V(3).Info("LoadBalancer is still not Active", "loadBalancerName", lbName, "state", *loadBalancer.ProvisioningStatus)
 				isAnyLoadBalancerNotReady = true
+			} else if provision.RouteMode == infrav1.PowerVSLoadBalancerRouteModeEnabled {
+				// LB is active; ensure the bypass pool and portless listener exist.
+				requeue, err := s.reconcileRouteModeLoadBalancerResources(ctx, *loadBalancer.ID, provision)
+				if err != nil {
+					return false, fmt.Errorf("failed to reconcile route-mode resources for load balancer %s: %w", lbName, err)
+				}
+				if requeue {
+					isAnyLoadBalancerNotReady = true
+				}
 			}
 
 			s.SetLoadBalancerStatus(ctx, lbName, infrav1.LoadBalancerStatus{
-				Name:     lbName,
-				ID:       *loadBalancer.ID,
-				State:    infrav1.LoadBalancerState(*loadBalancer.ProvisioningStatus),
-				Hostname: ptr.Deref(loadBalancer.Hostname, ""),
+				Name:       lbName,
+				ID:         *loadBalancer.ID,
+				State:      infrav1.LoadBalancerState(*loadBalancer.ProvisioningStatus),
+				Hostname:   ptr.Deref(loadBalancer.Hostname, ""),
+				PrivateIPs: extractPrivateIPs(*loadBalancer),
 			})
 			continue
 		}
@@ -1752,6 +1865,17 @@ func (s *ClusterScope) ReconcileLoadBalancers(ctx context.Context) (bool, error)
 		if lbStatus != nil {
 			log.V(3).Info("Found load balancer in cloud", "loadBalancerID", lbStatus.ID)
 			s.SetLoadBalancerStatus(ctx, lbName, *lbStatus)
+			// If this is a route-mode LB found by name (first pass after creation), reconcile its resources.
+			if provision.RouteMode == infrav1.PowerVSLoadBalancerRouteModeEnabled &&
+				lbStatus.State == infrav1.LoadBalancerStateActive {
+				requeue, err := s.reconcileRouteModeLoadBalancerResources(ctx, lbStatus.ID, provision)
+				if err != nil {
+					return false, fmt.Errorf("failed to reconcile route-mode resources for load balancer %s: %w", lbName, err)
+				}
+				if requeue {
+					isAnyLoadBalancerNotReady = true
+				}
+			}
 			continue
 		}
 
@@ -1775,6 +1899,17 @@ func (s *ClusterScope) ReconcileLoadBalancers(ctx context.Context) (bool, error)
 		return false, nil
 	}
 	return true, nil
+}
+
+// extractPrivateIPs returns the list of private IP address strings from a VPC LoadBalancer.
+func extractPrivateIPs(lb vpcv1.LoadBalancer) []string {
+	ips := make([]string, 0, len(lb.PrivateIps))
+	for _, ip := range lb.PrivateIps {
+		if ip.Address != nil {
+			ips = append(ips, *ip.Address)
+		}
+	}
+	return ips
 }
 
 // SetLoadBalancerStatus updates or appends the load balancer status.
@@ -1819,10 +1954,11 @@ func (s *ClusterScope) checkLoadBalancer(ctx context.Context, name string) (*inf
 		return nil, nil
 	}
 	return &infrav1.LoadBalancerStatus{
-		Name:     name,
-		ID:       *loadBalancer.ID,
-		State:    infrav1.LoadBalancerState(*loadBalancer.ProvisioningStatus),
-		Hostname: ptr.Deref(loadBalancer.Hostname, ""),
+		Name:       name,
+		ID:         *loadBalancer.ID,
+		State:      infrav1.LoadBalancerState(*loadBalancer.ProvisioningStatus),
+		Hostname:   ptr.Deref(loadBalancer.Hostname, ""),
+		PrivateIPs: extractPrivateIPs(*loadBalancer),
 	}, nil
 }
 
@@ -1848,6 +1984,18 @@ func (s *ClusterScope) createLoadBalancer(ctx context.Context, lbName string, pr
 		ID: &resourceGroupID,
 	})
 
+	// Set the Load Balancer Profile if defined
+	if prov.Profile != "" {
+		options.SetProfile(&vpcv1.LoadBalancerProfileIdentityByName{
+			Name: ptr.To(string(prov.Profile)),
+		})
+	}
+
+	// Enable routing mode when requested — required for network-fixed LBs acting as VNF next-hops
+	if prov.RouteMode == infrav1.PowerVSLoadBalancerRouteModeEnabled {
+		options.SetRouteMode(true)
+	}
+
 	if len(s.IBMPowerVSCluster.Status.VPCSubnets) == 0 {
 		return nil, fmt.Errorf("no VPC subnets are present in cluster status for load balancer creation")
 	}
@@ -1862,42 +2010,47 @@ func (s *ClusterScope) createLoadBalancer(ctx context.Context, lbName string, pr
 		options.Subnets = append(options.Subnets, subnet)
 	}
 
-	options.SetPools([]vpcv1.LoadBalancerPoolPrototypeLoadBalancerContext{
-		{
-			Algorithm:     core.StringPtr("round_robin"),
-			HealthMonitor: &vpcv1.LoadBalancerPoolHealthMonitorPrototype{Delay: core.Int64Ptr(5), MaxRetries: core.Int64Ptr(2), Timeout: core.Int64Ptr(2), Type: core.StringPtr("tcp")},
-			Name:          core.StringPtr(fmt.Sprintf("%s-pool-%d", lbName, s.APIServerPort())),
-			Protocol:      core.StringPtr("tcp"),
-		},
-	})
-
-	options.SetListeners([]vpcv1.LoadBalancerListenerPrototypeLoadBalancerContext{
-		{
-			Protocol: core.StringPtr("tcp"),
-			Port:     core.Int64Ptr(int64(s.APIServerPort())),
-			DefaultPool: &vpcv1.LoadBalancerPoolIdentityByName{
-				Name: core.StringPtr(fmt.Sprintf("%s-pool-%d", lbName, s.APIServerPort())),
+	// Route-mode NLBs act as L3 next-hop routers — pools and listeners with fixed ports are
+	// not valid at creation time and the IBM Cloud API rejects them. The backend pool with
+	// Bypass failsafe policy and portless listener are configured separately post-creation.
+	if prov.RouteMode != infrav1.PowerVSLoadBalancerRouteModeEnabled {
+		options.SetPools([]vpcv1.LoadBalancerPoolPrototypeLoadBalancerContext{
+			{
+				Algorithm:     core.StringPtr("round_robin"),
+				HealthMonitor: &vpcv1.LoadBalancerPoolHealthMonitorPrototype{Delay: core.Int64Ptr(5), MaxRetries: core.Int64Ptr(2), Timeout: core.Int64Ptr(2), Type: core.StringPtr("tcp")},
+				Name:          core.StringPtr(fmt.Sprintf("%s-pool-%d", lbName, s.APIServerPort())),
+				Protocol:      core.StringPtr("tcp"),
 			},
-		},
-	})
+		})
 
-	for _, additionalListener := range prov.AdditionalListeners {
-		pool := vpcv1.LoadBalancerPoolPrototypeLoadBalancerContext{
-			Algorithm:     core.StringPtr("round_robin"),
-			HealthMonitor: &vpcv1.LoadBalancerPoolHealthMonitorPrototype{Delay: core.Int64Ptr(5), MaxRetries: core.Int64Ptr(2), Timeout: core.Int64Ptr(2), Type: core.StringPtr("tcp")},
-			Name:          ptr.To(fmt.Sprintf("additional-pool-%d", additionalListener.Port)),
-			Protocol:      core.StringPtr("tcp"),
-		}
-		options.Pools = append(options.Pools, pool)
-
-		listener := vpcv1.LoadBalancerListenerPrototypeLoadBalancerContext{
-			Protocol: core.StringPtr("tcp"),
-			Port:     core.Int64Ptr(additionalListener.Port),
-			DefaultPool: &vpcv1.LoadBalancerPoolIdentityByName{
-				Name: ptr.To(fmt.Sprintf("additional-pool-%d", additionalListener.Port)),
+		options.SetListeners([]vpcv1.LoadBalancerListenerPrototypeLoadBalancerContext{
+			{
+				Protocol: core.StringPtr("tcp"),
+				Port:     core.Int64Ptr(int64(s.APIServerPort())),
+				DefaultPool: &vpcv1.LoadBalancerPoolIdentityByName{
+					Name: core.StringPtr(fmt.Sprintf("%s-pool-%d", lbName, s.APIServerPort())),
+				},
 			},
+		})
+
+		for _, additionalListener := range prov.AdditionalListeners {
+			pool := vpcv1.LoadBalancerPoolPrototypeLoadBalancerContext{
+				Algorithm:     core.StringPtr("round_robin"),
+				HealthMonitor: &vpcv1.LoadBalancerPoolHealthMonitorPrototype{Delay: core.Int64Ptr(5), MaxRetries: core.Int64Ptr(2), Timeout: core.Int64Ptr(2), Type: core.StringPtr("tcp")},
+				Name:          ptr.To(fmt.Sprintf("additional-pool-%d", additionalListener.Port)),
+				Protocol:      core.StringPtr("tcp"),
+			}
+			options.Pools = append(options.Pools, pool)
+
+			listener := vpcv1.LoadBalancerListenerPrototypeLoadBalancerContext{
+				Protocol: core.StringPtr("tcp"),
+				Port:     core.Int64Ptr(additionalListener.Port),
+				DefaultPool: &vpcv1.LoadBalancerPoolIdentityByName{
+					Name: ptr.To(fmt.Sprintf("additional-pool-%d", additionalListener.Port)),
+				},
+			}
+			options.Listeners = append(options.Listeners, listener)
 		}
-		options.Listeners = append(options.Listeners, listener)
 	}
 
 	log.V(5).Info("Creating load balancer", "options", options)
@@ -1908,11 +2061,135 @@ func (s *ClusterScope) createLoadBalancer(ctx context.Context, lbName string, pr
 
 	lbState := infrav1.LoadBalancerState(*loadBalancer.ProvisioningStatus)
 	return &infrav1.LoadBalancerStatus{
-		Name:     lbName,
-		ID:       *loadBalancer.ID,
-		State:    lbState,
-		Hostname: ptr.Deref(loadBalancer.Hostname, ""),
+		Name:       lbName,
+		ID:         *loadBalancer.ID,
+		State:      lbState,
+		Hostname:   ptr.Deref(loadBalancer.Hostname, ""),
+		PrivateIPs: extractPrivateIPs(*loadBalancer),
 	}, nil
+}
+
+// reconcileRouteModeLoadBalancerResources creates the backend pool (with Bypass failsafe policy) and
+// front-end listener for a route-mode network load balancer, post-creation.
+//
+// Route-mode NLBs act as L3 next-hop routers. The IBM Cloud API rejects pools and listeners at LB
+// creation time, so they must be added once the LB reaches active state. This function is idempotent:
+// it checks for existing pools/listeners before issuing any create calls. It returns (true, nil) when
+// a write was issued and a requeue is needed, (false, nil) when everything is already in place.
+func (s *ClusterScope) reconcileRouteModeLoadBalancerResources(ctx context.Context, lbID string, prov infrav1.LoadBalancerProvision) (requeue bool, err error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// --- Pools ---
+	// Route-mode NLBs support multiple backend pools but only a single front-end listener.
+	poolsResp, _, err := s.IBMVPCClient.ListLoadBalancerPools(&vpcv1.ListLoadBalancerPoolsOptions{
+		LoadBalancerID: &lbID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to list pools for route-mode load balancer %s: %w", lbID, err)
+	}
+
+	// Build a set of existing pool names for idempotency checks.
+	existingPools := make(map[string]string) // name → ID
+	for _, p := range poolsResp.Pools {
+		if p.Name != nil && p.ID != nil {
+			existingPools[*p.Name] = *p.ID
+		}
+	}
+
+	// Determine the pools to create — from spec if provided, otherwise one default bypass pool.
+	specPools := prov.BackendPools
+	if len(specPools) == 0 {
+		specPools = []infrav1.LoadBalancerBackendPool{
+			{
+				Name:           fmt.Sprintf("%s-pool", prov.Name),
+				FailsafePolicy: infrav1.LoadBalancerBackendPoolFailsafePolicyBypass,
+				Algorithm:      infrav1.LoadBalancerBackendPoolAlgorithmRoundRobin,
+				Protocol:       infrav1.LoadBalancerBackendPoolProtocolTCP,
+				HealthMonitor: infrav1.LoadBalancerHealthMonitor{
+					Delay: 5, Retries: 2, Timeout: 2,
+					Type: infrav1.LoadBalancerBackendPoolHealthMonitorTypeTCP,
+				},
+			},
+		}
+	}
+
+	for _, specPool := range specPools {
+		poolName := specPool.Name
+		if poolName == "" {
+			poolName = fmt.Sprintf("%s-pool", prov.Name)
+		}
+		if _, exists := existingPools[poolName]; exists {
+			log.V(3).Info("Backend pool already exists, skipping", "loadBalancerID", lbID, "poolName", poolName)
+			continue
+		}
+
+		failsafeAction := string(infrav1.LoadBalancerBackendPoolFailsafePolicyBypass)
+		if specPool.FailsafePolicy != "" {
+			failsafeAction = string(specPool.FailsafePolicy)
+		}
+
+		log.Info("Creating backend pool for route-mode load balancer", "loadBalancerID", lbID, "poolName", poolName, "failsafePolicy", failsafeAction)
+		pool, _, err := s.IBMVPCClient.CreateLoadBalancerPool(&vpcv1.CreateLoadBalancerPoolOptions{
+			LoadBalancerID: &lbID,
+			Algorithm:      core.StringPtr(string(specPool.Algorithm)),
+			Protocol:       core.StringPtr(string(specPool.Protocol)),
+			HealthMonitor: &vpcv1.LoadBalancerPoolHealthMonitorPrototype{
+				Delay:      core.Int64Ptr(specPool.HealthMonitor.Delay),
+				MaxRetries: core.Int64Ptr(specPool.HealthMonitor.Retries),
+				Timeout:    core.Int64Ptr(specPool.HealthMonitor.Timeout),
+				Type:       core.StringPtr(string(specPool.HealthMonitor.Type)),
+			},
+			FailsafePolicy: &vpcv1.LoadBalancerPoolFailsafePolicyPrototype{
+				Action: core.StringPtr(failsafeAction),
+			},
+			Name: core.StringPtr(poolName),
+		})
+		if err != nil {
+			return false, fmt.Errorf("failed to create backend pool %s for route-mode load balancer %s: %w", poolName, lbID, err)
+		}
+		log.Info("Created backend pool for route-mode load balancer", "loadBalancerID", lbID, "poolID", *pool.ID, "poolName", *pool.Name)
+		existingPools[*pool.Name] = *pool.ID
+		// LB is now update_pending after each pool write; requeue to let it settle.
+		return true, nil
+	}
+
+	// Use the first pool as the listener's default pool (the single listener covers all ports).
+	var poolID, poolName string
+	for name, id := range existingPools {
+		poolID = id
+		poolName = name
+		break
+	}
+
+	// --- Listener ---
+	listenersResp, _, err := s.IBMVPCClient.ListLoadBalancerListeners(&vpcv1.ListLoadBalancerListenersOptions{
+		LoadBalancerID: &lbID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to list listeners for route-mode load balancer %s: %w", lbID, err)
+	}
+
+	if len(listenersResp.Listeners) == 0 {
+		log.Info("Creating front-end listener for route-mode load balancer", "loadBalancerID", lbID, "defaultPool", poolName)
+		_, _, err := s.IBMVPCClient.CreateLoadBalancerListener(&vpcv1.CreateLoadBalancerListenerOptions{
+			LoadBalancerID: &lbID,
+			Protocol:       core.StringPtr(string(infrav1.LoadBalancerListenerProtocolTCP)),
+			// Route-mode listeners must span the full port range (1–65535) rather than a fixed port.
+			PortMin: core.Int64Ptr(1),
+			PortMax: core.Int64Ptr(65535),
+			DefaultPool: &vpcv1.LoadBalancerPoolIdentityLoadBalancerPoolIdentityByID{
+				ID: &poolID,
+			},
+		})
+		if err != nil {
+			return false, fmt.Errorf("failed to create front-end listener for route-mode load balancer %s: %w", lbID, err)
+		}
+		log.Info("Created front-end listener for route-mode load balancer", "loadBalancerID", lbID, "defaultPool", poolName)
+		return true, nil
+	}
+
+	log.V(3).Info("Route-mode load balancer pool and listener already exist, nothing to do", "loadBalancerID", lbID)
+	return false, nil
 }
 
 // checkLoadBalancerState checks the state of a VPC load balancer.
@@ -1930,6 +2207,257 @@ func (s *ClusterScope) checkLoadBalancerState(ctx context.Context, lb vpcv1.Load
 		log.V(3).Info("Load balancer is in updating state")
 	}
 	return false
+}
+
+// ReconcileVPCRoutingTables evaluates user intent and reconciles all VPC routing tables.
+// It is a no-op when no routing tables are specified in the spec.
+func (s *ClusterScope) ReconcileVPCRoutingTables(ctx context.Context) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	if len(s.IBMPowerVSCluster.Spec.VPCRoutingTables) == 0 {
+		return false, nil
+	}
+
+	vpcID := s.IBMPowerVSCluster.Status.VPC.ID
+	if vpcID == "" {
+		log.V(3).Info("VPC ID not yet available in status, requeuing")
+		return true, nil
+	}
+
+	requeue := false
+	var updatedStatus []infrav1.VPCRoutingTableStatus
+
+	for _, rt := range s.IBMPowerVSCluster.Spec.VPCRoutingTables {
+		status, requiresRequeue, err := s.reconcileVPCRoutingTable(ctx, vpcID, rt)
+		if err != nil {
+			return false, err
+		}
+		if requiresRequeue {
+			requeue = true
+		}
+		if status != nil {
+			updatedStatus = append(updatedStatus, *status)
+		}
+	}
+
+	s.IBMPowerVSCluster.Status.VPCRoutingTables = updatedStatus
+	return requeue, nil
+}
+
+// resolveNextHopFromLB returns the first private IP of the first load balancer in status
+// that has at least one private IP. Prioritizes route-mode / network-fixed load balancers
+// provisioned for egress routing before falling back to any load balancer with a private IP.
+// Returns ("", false) when no load balancer with a private IP is available yet — the caller
+// should requeue rather than treat this as an error.
+func (s *ClusterScope) resolveNextHopFromLB() (string, bool) {
+	// First preference: find a route-mode or network load balancer provisioned for egress routing.
+	for _, specLB := range s.IBMPowerVSCluster.Spec.LoadBalancers {
+		if specLB.Provision.RouteMode == infrav1.PowerVSLoadBalancerRouteModeEnabled || specLB.Provision.Profile == infrav1.PowerVSLoadBalancerProfileNetworkFixed {
+			for _, statusLB := range s.IBMPowerVSCluster.Status.LoadBalancers {
+				if statusLB.Name == specLB.Provision.Name && len(statusLB.PrivateIPs) > 0 {
+					return statusLB.PrivateIPs[0], true
+				}
+			}
+		}
+	}
+
+	// Fallback: first available load balancer with private IPs.
+	for _, lb := range s.IBMPowerVSCluster.Status.LoadBalancers {
+		if len(lb.PrivateIPs) > 0 {
+			return lb.PrivateIPs[0], true
+		}
+	}
+	return "", false
+}
+
+// reconcileVPCRoutingTable reconciles a single VPC Routing Table for an IBMPowerVSCluster.
+// It looks up by ID (Reference) or by name (Provision), creates if absent, and returns the status and whether a requeue is needed.
+func (s *ClusterScope) reconcileVPCRoutingTable(ctx context.Context, vpcID string, routingTable infrav1.VPCRoutingTableSource) (*infrav1.VPCRoutingTableStatus, bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	switch routingTable.Type {
+	case infrav1.SourceTypeReference:
+		// Look up the existing routing table by ID or name from the reference.
+		refID := routingTable.Reference.ID
+		refName := routingTable.Reference.Name
+		var rtDetails *vpcv1.RoutingTable
+		var err error
+		if refID != "" {
+			rtDetails, _, err = s.IBMVPCClient.GetVPCRoutingTable(&vpcv1.GetVPCRoutingTableOptions{
+				VPCID: &vpcID,
+				ID:    &refID,
+			})
+			if err != nil {
+				return nil, false, fmt.Errorf("error retrieving routing table by id %s: %w", refID, err)
+			}
+			if rtDetails == nil || rtDetails.ID == nil {
+				return nil, false, fmt.Errorf("routing table with id %s not found", refID)
+			}
+		} else {
+			rtDetails, err = s.IBMVPCClient.GetVPCRoutingTableByName(vpcID, refName)
+			if err != nil {
+				return nil, false, fmt.Errorf("error retrieving routing table by name %s: %w", refName, err)
+			}
+			if rtDetails == nil || rtDetails.ID == nil {
+				return nil, false, fmt.Errorf("routing table with name %s not found", refName)
+			}
+		}
+		stable := rtDetails.LifecycleState != nil && *rtDetails.LifecycleState == string(vpcv1.RoutingTableLifecycleStateStableConst)
+		readyStatus := infrav1.VPCRoutingTableReadyStatusNotReady
+		if stable {
+			readyStatus = infrav1.VPCRoutingTableReadyStatusReady
+		}
+		return &infrav1.VPCRoutingTableStatus{
+			ID:    *rtDetails.ID,
+			Name:  ptr.Deref(rtDetails.Name, ""),
+			Ready: readyStatus,
+		}, !stable, nil
+
+	case infrav1.SourceTypeProvision:
+		// Look up by name first — may already exist from a previous reconcile.
+		rtDetails, err := s.IBMVPCClient.GetVPCRoutingTableByName(vpcID, routingTable.Provision.Name)
+		if err != nil {
+			return nil, false, fmt.Errorf("error retrieving routing table by name %s: %w", routingTable.Provision.Name, err)
+		}
+		if rtDetails != nil {
+			stable := rtDetails.LifecycleState != nil && *rtDetails.LifecycleState == string(vpcv1.RoutingTableLifecycleStateStableConst)
+			readyStatus := infrav1.VPCRoutingTableReadyStatusNotReady
+			if stable {
+				readyStatus = infrav1.VPCRoutingTableReadyStatusReady
+			}
+			return &infrav1.VPCRoutingTableStatus{
+				ID:    *rtDetails.ID,
+				Name:  ptr.Deref(rtDetails.Name, ""),
+				Ready: readyStatus,
+			}, !stable, nil
+		}
+		// Not found — create it.
+		provision, requeue := s.resolveProvisionNextHops(ctx, routingTable.Provision)
+		if requeue {
+			return nil, true, nil
+		}
+		log.V(3).Info("Creating VPC routing table", "name", provision.Name)
+		if err := s.createVPCRoutingTable(ctx, vpcID, provision); err != nil {
+			return nil, false, err
+		}
+		log.V(3).Info("VPC routing table created, requeueing to await stable state", "name", provision.Name)
+		// Return nil status here; next reconcile will populate it via the lookup-by-name path above.
+		return nil, true, nil
+
+	default:
+		return nil, false, fmt.Errorf("unsupported routing table source type %q", routingTable.Type)
+	}
+}
+
+// resolveProvisionNextHops returns a copy of the provision config with any empty nextHop fields
+// on deliver routes filled in from the first available load balancer private IP.
+// Returns requeue=true when deliver routes need a nextHop but no LB private IP is available yet —
+// the caller should requeue rather than treat this as an error.
+func (s *ClusterScope) resolveProvisionNextHops(ctx context.Context, provision infrav1.VPCRoutingTableProvision) (infrav1.VPCRoutingTableProvision, bool) {
+	log := ctrl.LoggerFrom(ctx)
+	needsNextHop := false
+	for _, r := range provision.Routes {
+		if r.Action == infrav1.VPCRoutingTableRouteActionDeliver && r.NextHop == "" {
+			needsNextHop = true
+			break
+		}
+	}
+	if !needsNextHop {
+		return provision, false
+	}
+	ip, ok := s.resolveNextHopFromLB()
+	if !ok {
+		log.V(3).Info("Waiting for load balancer private IP before creating routing table", "routingTable", provision.Name)
+		return provision, true
+	}
+	// Work on a copy of the routes slice so we never mutate the spec.
+	routes := make([]infrav1.VPCRoutingTableRoute, len(provision.Routes))
+	copy(routes, provision.Routes)
+	for i, r := range routes {
+		if r.Action == infrav1.VPCRoutingTableRouteActionDeliver && r.NextHop == "" {
+			routes[i].NextHop = ip
+		}
+	}
+	provision.Routes = routes
+	return provision, false
+}
+
+// createVPCRoutingTable creates a new VPC Routing Table using the provided provision config.
+func (s *ClusterScope) createVPCRoutingTable(ctx context.Context, vpcID string, provision infrav1.VPCRoutingTableProvision) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	options := &vpcv1.CreateVPCRoutingTableOptions{
+		VPCID: &vpcID,
+		Name:  &provision.Name,
+	}
+	switch provision.RouteDirectLinkIngress {
+	case infrav1.RoutingTableIngressPolicyEnabled:
+		options.RouteDirectLinkIngress = ptr.To(true)
+	case infrav1.RoutingTableIngressPolicyDisabled:
+		options.RouteDirectLinkIngress = ptr.To(false)
+	}
+	switch provision.RouteTransitGatewayIngress {
+	case infrav1.RoutingTableIngressPolicyEnabled:
+		options.RouteTransitGatewayIngress = ptr.To(true)
+	case infrav1.RoutingTableIngressPolicyDisabled:
+		options.RouteTransitGatewayIngress = ptr.To(false)
+	}
+	switch provision.RouteVPCZoneIngress {
+	case infrav1.RoutingTableIngressPolicyEnabled:
+		options.RouteVPCZoneIngress = ptr.To(true)
+	case infrav1.RoutingTableIngressPolicyDisabled:
+		options.RouteVPCZoneIngress = ptr.To(false)
+	}
+	if len(provision.AdvertiseRoutesTo) > 0 {
+		targets := make([]string, len(provision.AdvertiseRoutesTo))
+		for i, t := range provision.AdvertiseRoutesTo {
+			targets[i] = string(t)
+		}
+		options.AdvertiseRoutesTo = targets
+	}
+	if len(provision.Routes) > 0 {
+		options.Routes = buildRoutingTableRoutes(provision.Routes)
+	}
+
+	rtDetails, _, err := s.IBMVPCClient.CreateVPCRoutingTable(options)
+	if err != nil {
+		log.V(3).Error(err, "error creating VPC routing table", "name", provision.Name)
+		return fmt.Errorf("error creating VPC routing table: %w", err)
+	}
+	if rtDetails == nil || rtDetails.ID == nil {
+		return fmt.Errorf("nil response creating VPC routing table %s", provision.Name)
+	}
+	return nil
+}
+
+// buildRoutingTableRoutes converts VPCRoutingTableRoute spec entries to IBM Cloud SDK RoutePrototype values.
+func buildRoutingTableRoutes(routes []infrav1.VPCRoutingTableRoute) []vpcv1.RoutePrototype {
+	sdkRoutes := make([]vpcv1.RoutePrototype, 0, len(routes))
+	for _, r := range routes {
+		route := vpcv1.RoutePrototype{
+			Action:      ptr.To(string(r.Action)),
+			Destination: ptr.To(r.Destination),
+			Zone: &vpcv1.ZoneIdentityByName{
+				Name: ptr.To(r.Zone),
+			},
+		}
+		if r.Name != "" {
+			route.Name = &r.Name
+		}
+		if r.NextHop != "" {
+			route.NextHop = &vpcv1.RouteNextHopPrototypeRouteNextHopIPRouteNextHopIPUnicastIP{
+				Address: ptr.To(r.NextHop),
+			}
+		}
+		switch r.Advertise {
+		case infrav1.RouteAdvertisePolicyEnabled:
+			route.Advertise = ptr.To(true)
+		case infrav1.RouteAdvertisePolicyDisabled:
+			route.Advertise = ptr.To(false)
+		}
+		sdkRoutes = append(sdkRoutes, route)
+	}
+	return sdkRoutes
 }
 
 // ReconcileVPCSecurityGroups evaluates user intent and reconciles all VPC security groups.
@@ -2609,7 +3137,7 @@ func (s *ClusterScope) reconcileCOSReference(_ context.Context, ref infrav1.Reso
 		filter := resourcecontroller.InstanceFilter{
 			Name:           ref.Name,
 			ResourceID:     resourcecontroller.CosResourceID,
-			ResourcePlanID: resourcecontroller.CosResourcePlanID,
+			ResourcePlanID: resourcecontroller.GetCOSResourcePlanID(),
 		}
 		instance, err := s.ResourceClient.GetResourceInstanceByFilter(filter)
 		if err != nil {
@@ -2631,7 +3159,7 @@ func (s *ClusterScope) reconcileCOSProvision(ctx context.Context, name string) (
 	filter := resourcecontroller.InstanceFilter{
 		Name:           name,
 		ResourceID:     resourcecontroller.CosResourceID,
-		ResourcePlanID: resourcecontroller.CosResourcePlanID,
+		ResourcePlanID: resourcecontroller.GetCOSResourcePlanID(),
 	}
 	instance, err := s.ResourceClient.GetResourceInstanceByFilter(filter)
 	if err != nil {
@@ -2655,7 +3183,7 @@ func (s *ClusterScope) reconcileCOSProvision(ctx context.Context, name string) (
 		Name:           ptr.To(name),
 		Target:         ptr.To(target),
 		ResourceGroup:  ptr.To(resourceGroupID),
-		ResourcePlanID: ptr.To(resourcecontroller.CosResourcePlanID),
+		ResourcePlanID: ptr.To(resourcecontroller.GetCOSResourcePlanID()),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed creating COS instance via API: %w", err)
@@ -2818,6 +3346,368 @@ func (s *ClusterScope) DeleteVPCSecurityGroups(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// DeleteVPCRoutingTables deletes controller-provisioned VPC routing tables tracked in status.
+// Referenced (not provisioned) routing tables are skipped.
+func (s *ClusterScope) DeleteVPCRoutingTables(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Build the set of names the controller provisioned.
+	managed := make(map[string]bool)
+	for _, rt := range s.IBMPowerVSCluster.Spec.VPCRoutingTables {
+		if rt.Type == infrav1.SourceTypeProvision {
+			managed[rt.Provision.Name] = true
+		}
+	}
+
+	vpcID := s.IBMPowerVSCluster.Status.VPC.ID
+
+	for _, rtStatus := range s.IBMPowerVSCluster.Status.VPCRoutingTables {
+		if !managed[rtStatus.Name] {
+			log.Info("Skipping VPC routing table deletion — referenced, not managed by controller", "routingTableName", rtStatus.Name)
+			continue
+		}
+
+		// Verify it still exists.
+		rt, resp, err := s.IBMVPCClient.GetVPCRoutingTable(&vpcv1.GetVPCRoutingTableOptions{
+			VPCID: &vpcID,
+			ID:    &rtStatus.ID,
+		})
+		if err != nil {
+			if resp != nil && resp.StatusCode == ResourceNotFoundCode {
+				log.Info("VPC routing table already deleted from cloud", "routingTableID", rtStatus.ID)
+				continue
+			}
+			return fmt.Errorf("failed to fetch VPC routing table '%s' during deletion: %w", rtStatus.ID, err)
+		}
+		if rt == nil || rt.ID == nil {
+			continue
+		}
+
+		log.V(3).Info("Deleting VPC routing table", "routingTableID", rtStatus.ID, "routingTableName", rtStatus.Name)
+		if _, err := s.IBMVPCClient.DeleteVPCRoutingTable(&vpcv1.DeleteVPCRoutingTableOptions{
+			VPCID: &vpcID,
+			ID:    &rtStatus.ID,
+		}); err != nil {
+			return fmt.Errorf("failed to delete VPC routing table '%s': %w", rtStatus.ID, err)
+		}
+		log.Info("VPC routing table deleted", "routingTableID", rtStatus.ID, "routingTableName", rtStatus.Name)
+	}
+
+	return nil
+}
+
+// ReconcileVPCPublicGateways evaluates user intent and reconciles all VPC public gateways.
+// It is a no-op when no public gateways are specified in the spec.
+func (s *ClusterScope) ReconcileVPCPublicGateways(ctx context.Context) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if len(s.IBMPowerVSCluster.Spec.VPCPublicGateways) == 0 {
+		return false, nil
+	}
+
+	vpcID := s.IBMPowerVSCluster.Status.VPC.ID
+	if vpcID == "" {
+		log.V(3).Info("VPC ID not yet available in status, requeuing public gateway reconciliation")
+		return true, nil
+	}
+
+	resourceGroupID := s.GetResourceGroupID()
+	if resourceGroupID == "" {
+		return false, fmt.Errorf("resource group ID is empty, cannot reconcile public gateways")
+	}
+
+	requeue := false
+	var updatedStatus []infrav1.VPCPublicGatewayStatus
+
+	for _, pgwSpec := range s.IBMPowerVSCluster.Spec.VPCPublicGateways {
+		status, err := s.reconcileVPCPublicGateway(ctx, vpcID, resourceGroupID, pgwSpec)
+		if err != nil {
+			return false, err
+		}
+		if status != nil {
+			updatedStatus = append(updatedStatus, *status)
+		}
+	}
+
+	s.IBMPowerVSCluster.Status.VPCPublicGateways = updatedStatus
+	return requeue, nil
+}
+
+// reconcileVPCPublicGateway reconciles a single VPC Public Gateway.
+// For Reference type, the existing gateway is looked up and returned.
+// For Provision type, the gateway is looked up by name and created if absent.
+func (s *ClusterScope) reconcileVPCPublicGateway(ctx context.Context, vpcID, resourceGroupID string, pgwSpec infrav1.VPCPublicGateway) (*infrav1.VPCPublicGatewayStatus, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	switch pgwSpec.Type {
+	case infrav1.SourceTypeReference:
+		ref := pgwSpec.Reference
+		if ref.ID != "" {
+			pgw, _, err := s.IBMVPCClient.GetPublicGateway(&vpcv1.GetPublicGatewayOptions{
+				ID: &ref.ID,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error retrieving public gateway by id %s: %w", ref.ID, err)
+			}
+			if pgw == nil || pgw.ID == nil {
+				return nil, fmt.Errorf("public gateway with id %s not found", ref.ID)
+			}
+			return &infrav1.VPCPublicGatewayStatus{
+				ID:   *pgw.ID,
+				Name: ptr.Deref(pgw.Name, ""),
+				Zone: zoneNameFromPGW(pgw),
+			}, nil
+		}
+		// Reference by name.
+		existing, err := s.IBMVPCClient.GetVPCPublicGatewayByName(ref.Name, resourceGroupID)
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving public gateway by name %s: %w", ref.Name, err)
+		}
+		if existing == nil || existing.ID == nil {
+			return nil, fmt.Errorf("referenced public gateway with name %q not found", ref.Name)
+		}
+		return &infrav1.VPCPublicGatewayStatus{
+			ID:   *existing.ID,
+			Name: ptr.Deref(existing.Name, ""),
+			Zone: zoneNameFromPGW(existing),
+		}, nil
+
+	case infrav1.SourceTypeProvision:
+		name := pgwSpec.Provision.Name
+		// Look up by name in the resource group — idempotent if already provisioned.
+		existing, err := s.IBMVPCClient.GetVPCPublicGatewayByName(name, resourceGroupID)
+		if err != nil {
+			return nil, fmt.Errorf("error retrieving public gateway by name %s: %w", name, err)
+		}
+		if existing != nil && existing.ID != nil {
+			return &infrav1.VPCPublicGatewayStatus{
+				ID:   *existing.ID,
+				Name: ptr.Deref(existing.Name, ""),
+				Zone: zoneNameFromPGW(existing),
+			}, nil
+		}
+
+		// Not found — provision it.
+		if pgwSpec.Zone == "" {
+			return nil, fmt.Errorf("zone is required to provision public gateway %q", name)
+		}
+
+		log.V(3).Info("Creating VPC public gateway", "name", name, "zone", pgwSpec.Zone)
+		created, _, err := s.IBMVPCClient.CreatePublicGateway(&vpcv1.CreatePublicGatewayOptions{
+			Name: &name,
+			VPC: &vpcv1.VPCIdentityByID{
+				ID: &vpcID,
+			},
+			Zone: &vpcv1.ZoneIdentityByName{
+				Name: &pgwSpec.Zone,
+			},
+			ResourceGroup: &vpcv1.ResourceGroupIdentityByID{
+				ID: &resourceGroupID,
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error creating VPC public gateway %q: %w", name, err)
+		}
+		if created == nil || created.ID == nil {
+			return nil, fmt.Errorf("nil response creating VPC public gateway %q", name)
+		}
+
+		log.Info("VPC public gateway created", "name", name, "id", *created.ID)
+		return &infrav1.VPCPublicGatewayStatus{
+			ID:   *created.ID,
+			Name: ptr.Deref(created.Name, ""),
+			Zone: zoneNameFromPGW(created),
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown public gateway source type: %s", pgwSpec.Type)
+	}
+}
+
+// zoneNameFromPGW extracts the zone name from a public gateway response, returning empty string if unavailable.
+func zoneNameFromPGW(pgw *vpcv1.PublicGateway) string {
+	if pgw != nil && pgw.Zone != nil && pgw.Zone.Name != nil {
+		return *pgw.Zone.Name
+	}
+	return ""
+}
+
+// resolvePublicGateway resolves a ResourceIdentifier into an ID and Name of a Public Gateway.
+func (s *ClusterScope) resolvePublicGateway(pgwRef infrav1.ResourceIdentifier) (string, string, error) {
+	if pgwRef.ID != "" {
+		return pgwRef.ID, pgwRef.Name, nil
+	}
+	if pgwRef.Name == "" {
+		return "", "", fmt.Errorf("public gateway identifier must specify id or name")
+	}
+
+	// 1. Check cluster status
+	for _, pgw := range s.IBMPowerVSCluster.Status.VPCPublicGateways {
+		if pgw.Name == pgwRef.Name && pgw.ID != "" {
+			return pgw.ID, pgw.Name, nil
+		}
+	}
+
+	// 2. Query VPC by name
+	resourceGroupID := s.GetResourceGroupID()
+	existing, err := s.IBMVPCClient.GetVPCPublicGatewayByName(pgwRef.Name, resourceGroupID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed checking public gateway presence by name %q: %w", pgwRef.Name, err)
+	}
+	if existing != nil && existing.ID != nil {
+		return *existing.ID, ptr.Deref(existing.Name, pgwRef.Name), nil
+	}
+
+	return "", "", fmt.Errorf("public gateway with name %q was not found", pgwRef.Name)
+}
+
+// reconcileSubnetPublicGateway ensures the subnet is attached to the desired public gateway.
+func (s *ClusterScope) reconcileSubnetPublicGateway(ctx context.Context, subnetID string, pgwRef *infrav1.ResourceIdentifier, currentPGW *vpcv1.PublicGatewayReference) (*infrav1.VPCPublicGatewayStatus, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if pgwRef == nil {
+		if currentPGW != nil && currentPGW.ID != nil {
+			return &infrav1.VPCPublicGatewayStatus{
+				ID:   *currentPGW.ID,
+				Name: ptr.Deref(currentPGW.Name, ""),
+			}, nil
+		}
+		return nil, nil
+	}
+
+	targetID, targetName, err := s.resolvePublicGateway(*pgwRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve public gateway for subnet %s: %w", subnetID, err)
+	}
+
+	if currentPGW != nil && currentPGW.ID != nil && *currentPGW.ID == targetID {
+		log.V(3).Info("Subnet already attached to public gateway", "subnetID", subnetID, "publicGatewayID", targetID)
+		return &infrav1.VPCPublicGatewayStatus{
+			ID:   targetID,
+			Name: targetName,
+		}, nil
+	}
+
+	log.Info("Attaching public gateway to VPC subnet", "subnetID", subnetID, "publicGatewayID", targetID)
+	options := &vpcv1.SetSubnetPublicGatewayOptions{}
+	options.SetID(subnetID)
+	options.SetPublicGatewayIdentity(&vpcv1.PublicGatewayIdentity{
+		ID: &targetID,
+	})
+	if _, _, err := s.IBMVPCClient.SetSubnetPublicGateway(options); err != nil {
+		return nil, fmt.Errorf("failed to attach public gateway %s to subnet %s: %w", targetID, subnetID, err)
+	}
+
+	log.Info("Public gateway successfully attached to subnet", "subnetID", subnetID, "publicGatewayID", targetID)
+	return &infrav1.VPCPublicGatewayStatus{
+		ID:   targetID,
+		Name: targetName,
+	}, nil
+}
+
+// DeleteVPCPublicGateways deletes controller-provisioned VPC public gateways tracked in status.
+// For Reference-type subnets that had a public gateway attached via VPCSubnetSource.PublicGateway,
+// the attachment is removed but the gateway itself is not deleted (it is not owned by the controller).
+func (s *ClusterScope) DeleteVPCPublicGateways(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Detach public gateways from Reference-type subnets.
+	// The controller attached these gateways during reconciliation but does not own them,
+	// so only the attachment is removed — the gateway resource itself is left intact.
+	s.detachReferencedSubnetGateways(ctx)
+
+	// Build the set of names the controller provisioned (Provision-type entries only).
+	managed := make(map[string]bool)
+	for _, pgw := range s.IBMPowerVSCluster.Spec.VPCPublicGateways {
+		if pgw.Type == infrav1.SourceTypeProvision && pgw.Provision.Name != "" {
+			managed[pgw.Provision.Name] = true
+		}
+	}
+
+	for _, pgwStatus := range s.IBMPowerVSCluster.Status.VPCPublicGateways {
+		if !managed[pgwStatus.Name] {
+			log.Info("Skipping VPC public gateway deletion — referenced, not managed by controller", "publicGatewayName", pgwStatus.Name)
+			continue
+		}
+
+		pgw, resp, err := s.IBMVPCClient.GetPublicGateway(&vpcv1.GetPublicGatewayOptions{
+			ID: &pgwStatus.ID,
+		})
+		if err != nil {
+			if resp != nil && resp.StatusCode == ResourceNotFoundCode {
+				log.Info("VPC public gateway already deleted from cloud", "publicGatewayID", pgwStatus.ID)
+				continue
+			}
+			return fmt.Errorf("failed to fetch VPC public gateway '%s' during deletion: %w", pgwStatus.ID, err)
+		}
+		if pgw == nil || pgw.ID == nil {
+			continue
+		}
+
+		// Detach from subnets before deletion.
+		s.detachGatewayFromSubnets(ctx, pgwStatus.ID, pgwStatus.Name)
+
+		log.V(3).Info("Deleting VPC public gateway", "publicGatewayID", pgwStatus.ID, "publicGatewayName", pgwStatus.Name)
+		if _, err := s.IBMVPCClient.DeletePublicGateway(&vpcv1.DeletePublicGatewayOptions{
+			ID: &pgwStatus.ID,
+		}); err != nil {
+			return fmt.Errorf("failed to delete VPC public gateway '%s': %w", pgwStatus.ID, err)
+		}
+		log.Info("VPC public gateway deleted", "publicGatewayID", pgwStatus.ID, "publicGatewayName", pgwStatus.Name)
+	}
+
+	return nil
+}
+
+// detachReferencedSubnetGateways detaches public gateways from Reference-type subnets.
+// The controller attached these gateways during reconciliation but does not own them,
+// so only the attachment is removed — the gateway resource itself is left intact.
+func (s *ClusterScope) detachReferencedSubnetGateways(ctx context.Context) {
+	log := ctrl.LoggerFrom(ctx)
+	for _, subnetSpec := range s.IBMPowerVSCluster.Spec.VPCSubnets {
+		if subnetSpec.Type != infrav1.SourceTypeReference {
+			continue
+		}
+		if subnetSpec.PublicGateway.ID == "" && subnetSpec.PublicGateway.Name == "" {
+			continue
+		}
+		for _, subnetStatus := range s.IBMPowerVSCluster.Status.VPCSubnets {
+			if subnetStatus.ID == "" {
+				continue
+			}
+			if subnetStatus.PublicGateway.ID == "" && subnetStatus.PublicGateway.Name == "" {
+				continue
+			}
+			log.Info("Detaching public gateway from referenced subnet", "subnetID", subnetStatus.ID, "publicGatewayID", subnetStatus.PublicGateway.ID)
+			unsetOptions := &vpcv1.UnsetSubnetPublicGatewayOptions{}
+			unsetOptions.SetID(subnetStatus.ID)
+			if _, err := s.IBMVPCClient.UnsetSubnetPublicGateway(unsetOptions); err != nil {
+				log.V(3).Info("UnsetSubnetPublicGateway on referenced subnet returned error (may already be detached)", "subnetID", subnetStatus.ID, "error", err)
+			}
+		}
+	}
+}
+
+// detachGatewayFromSubnets detaches a specific public gateway (by ID and name) from all
+// subnets that reference it, so the gateway can subsequently be deleted.
+func (s *ClusterScope) detachGatewayFromSubnets(ctx context.Context, gatewayID, gatewayName string) {
+	log := ctrl.LoggerFrom(ctx)
+	for _, subnetStatus := range s.IBMPowerVSCluster.Status.VPCSubnets {
+		if subnetStatus.ID == "" {
+			continue
+		}
+		matches := (subnetStatus.PublicGateway.ID == gatewayID || subnetStatus.PublicGateway.Name == gatewayName) &&
+			(subnetStatus.PublicGateway.ID != "" || subnetStatus.PublicGateway.Name != "")
+		if !matches {
+			continue
+		}
+		log.V(3).Info("Detaching public gateway from subnet before gateway deletion", "subnetID", subnetStatus.ID, "publicGatewayID", gatewayID)
+		unsetOptions := &vpcv1.UnsetSubnetPublicGatewayOptions{}
+		unsetOptions.SetID(subnetStatus.ID)
+		if _, err := s.IBMVPCClient.UnsetSubnetPublicGateway(unsetOptions); err != nil {
+			log.V(3).Info("UnsetSubnetPublicGateway returned error during teardown (may already be detached)", "subnetID", subnetStatus.ID, "error", err)
+		}
+	}
 }
 
 // DeleteLoadBalancer deletes provisioned load balancers.
@@ -3207,31 +4097,44 @@ func (s *ClusterScope) deleteTransitGatewayConnections(ctx context.Context, tg *
 	return false, nil
 }
 
-// DeleteDHCPServer deletes the DHCP server if it was provisioned by the controller.
-func (s *ClusterScope) DeleteDHCPServer(ctx context.Context) error {
+// DeleteDHCPNetwork deletes provisioned network resources (DHCP server or DHCP subnet network)
+// based on the cluster configuration.
+func (s *ClusterScope) DeleteDHCPNetwork(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// 1. Check if we provisioned this network
 	if s.IBMPowerVSCluster.Spec.Network.Type != infrav1.SourceTypeProvision {
-		log.Info("Skipping DHCP server deletion as network is in Reference mode")
+		log.Info("Skipping network deletion as network is in Reference mode")
 		return nil
 	}
 
 	// 2. If the controller owns the workspace, deleting the workspace cascades
-	// and destroys the DHCP server internally
+	// and destroys all network resources internally
 	if s.IBMPowerVSCluster.Spec.Workspace.Type == infrav1.SourceTypeProvision {
-		log.Info("Skipping separate DHCP server deletion as PowerVS workspace is being deleted by the controller (cascading delete)")
+		log.Info("Skipping separate network deletion as PowerVS workspace is being deleted by the controller (cascading delete)")
 		return nil
 	}
 
-	// 3. Get DHCP server ID saved in status
+	// 3. Delegate to the specific provisioner deletion handler
+	if s.isDHCPSubnetProvisioned() {
+		return s.deleteNetworkProvisionDHCPSubnet(ctx)
+	}
+
+	return s.deleteNetworkProvisionDHCPServer(ctx)
+}
+
+// deleteNetworkProvisionDHCPServer deletes the standalone DHCP server created by the controller.
+func (s *ClusterScope) deleteNetworkProvisionDHCPServer(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// 1. Get DHCP server ID saved in status
 	dhcpID := s.IBMPowerVSCluster.Status.Network.DHCPServer.ID
 	if dhcpID == "" {
 		log.Info("DHCP server ID not found in status, nothing to delete")
 		return nil
 	}
 
-	// 4. Fetch the server to verify it exists
+	// 2. Fetch the server to verify it exists
 	server, err := s.IBMPowerVSClient.GetDHCPServer(ctx, dhcpID)
 	if err != nil {
 		// If it's a 404, we're already done!
@@ -3242,10 +4145,43 @@ func (s *ClusterScope) DeleteDHCPServer(ctx context.Context) error {
 		return fmt.Errorf("failed to fetch DHCP server: %w", err)
 	}
 
-	// 5. Issue the delete command
+	// 3. Issue the delete command
 	log.Info("Deleting provisioned DHCP server", "dhcpServerID", *server.ID)
 	if err = s.IBMPowerVSClient.DeleteDHCPServer(ctx, *server.ID); err != nil {
 		return fmt.Errorf("failed to delete DHCP server: %w", err)
+	}
+
+	return nil
+}
+
+// deleteNetworkProvisionDHCPSubnet tears down a PowerVS network that was provisioned directly via
+// NetworkCreate (the DHCPSubnet path), using the network ID stored in Status.
+func (s *ClusterScope) deleteNetworkProvisionDHCPSubnet(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	networkID := s.IBMPowerVSCluster.Status.Network.ID
+	if networkID == "" {
+		log.Info("DHCP subnet network ID not found in status, nothing to delete")
+		return nil
+	}
+
+	// Verify existence before attempting delete; treat a 404 as already deleted.
+	network, err := s.IBMPowerVSClient.GetNetworkByID(ctx, networkID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "404") {
+			log.Info("DHCP subnet network no longer exists in IBM Cloud", "networkID", networkID)
+			return nil
+		}
+		return fmt.Errorf("failed to fetch DHCP subnet network %q: %w", networkID, err)
+	}
+	if network == nil {
+		log.Info("DHCP subnet network not found in IBM Cloud", "networkID", networkID)
+		return nil
+	}
+
+	log.Info("Deleting provisioned DHCP subnet network", "networkID", networkID)
+	if err = s.IBMPowerVSClient.DeleteNetwork(ctx, networkID); err != nil {
+		return fmt.Errorf("failed to delete DHCP subnet network %q: %w", networkID, err)
 	}
 
 	return nil

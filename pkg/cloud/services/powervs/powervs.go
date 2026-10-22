@@ -37,6 +37,7 @@ type PowerVS interface {
 	GetImage(ctx context.Context, id string) (*models.Image, error)
 	DeleteImage(ctx context.Context, id string) error
 	ListImages(ctx context.Context) (*models.Images, error)
+	ListStockImages(ctx context.Context) (*models.Images, error)
 	GetJob(ctx context.Context, id string) (*models.Job, error)
 	DeleteJob(ctx context.Context, id string) error
 
@@ -45,9 +46,11 @@ type PowerVS interface {
 	GetCosImages(ctx context.Context, id string) (*models.Job, error)
 
 	// Networks
+	CreateNetwork(ctx context.Context, body *models.NetworkCreate) (*models.Network, error)
 	ListNetworks(ctx context.Context) (*models.Networks, error)
 	GetNetworkByID(ctx context.Context, id string) (*models.Network, error)
 	GetNetworkByName(ctx context.Context, networkName string) (*models.NetworkReference, error)
+	DeleteNetwork(ctx context.Context, id string) error
 
 	// DHCP Servers
 	CreateDHCPServer(ctx context.Context, body *models.DHCPServerCreate) (*models.DHCPServer, error)

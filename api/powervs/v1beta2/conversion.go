@@ -446,6 +446,8 @@ func (src *IBMPowerVSCluster) ConvertTo(dstRaw conversion.Hub) error {
 		dst.Spec.VPC = restored.Spec.VPC
 		dst.Spec.VPCSubnets = restored.Spec.VPCSubnets
 		dst.Spec.LoadBalancers = restored.Spec.LoadBalancers
+		dst.Spec.VPCRoutingTables = restored.Spec.VPCRoutingTables
+		dst.Spec.VPCPublicGateways = restored.Spec.VPCPublicGateways
 		dst.Spec.COSInstance = restored.Spec.COSInstance
 		// If Type was lost (v1beta2 annotation has no Type field), infer it from provision/reference data
 		if dst.Spec.COSInstance.Type == "" {
@@ -459,8 +461,15 @@ func (src *IBMPowerVSCluster) ConvertTo(dstRaw conversion.Hub) error {
 		dst.Status.VPC = restored.Status.VPC
 		dst.Status.VPCSubnets = restored.Status.VPCSubnets
 		dst.Status.LoadBalancers = restored.Status.LoadBalancers
+		dst.Status.VPCRoutingTables = restored.Status.VPCRoutingTables
+		if len(dst.Status.VPCRoutingTables) == 0 {
+			dst.Status.VPCRoutingTables = nil
+		}
+		dst.Status.VPCPublicGateways = restored.Status.VPCPublicGateways
+		if len(dst.Status.VPCPublicGateways) == 0 {
+			dst.Status.VPCPublicGateways = nil
+		}
 		dst.Status.COSInstance = restored.Status.COSInstance
-		dst.Annotations = restored.Annotations
 	}
 
 	// Preserve empty/unknown topology when the legacy annotation is absent.
@@ -488,6 +497,13 @@ func (dst *IBMPowerVSCluster) ConvertFrom(srcRaw conversion.Hub) error {
 	if err := Convert_v1beta3_IBMPowerVSCluster_To_v1beta2_IBMPowerVSCluster(src, dst, nil); err != nil {
 		return err
 	}
+	// Normalize empty slices to nil so JSON round-trip is stable.
+	if len(src.Spec.VPCRoutingTables) == 0 {
+		src.Spec.VPCRoutingTables = nil
+	}
+	if len(src.Status.VPCRoutingTables) == 0 {
+		src.Status.VPCRoutingTables = nil
+	}
 
 	// Map the v1beta3 Topology explicit enum back to the v1beta2 annotation.
 	// Preserve empty/unknown hub topology by not forcing the legacy annotation state.
@@ -503,37 +519,10 @@ func (dst *IBMPowerVSCluster) ConvertFrom(srcRaw conversion.Hub) error {
 		}
 	}
 
-	restored := &IBMPowerVSCluster{
-		Spec: IBMPowerVSClusterSpec{
-			VPC:           dst.Spec.VPC,
-			VPCSubnets:    dst.Spec.VPCSubnets,
-			LoadBalancers: dst.Spec.LoadBalancers,
-			CosInstance:   dst.Spec.CosInstance,
-			Ignition:      dst.Spec.Ignition,
-		},
-		Status: IBMPowerVSClusterStatus{
-			VPC:           dst.Status.VPC,
-			VPCSubnet:     dst.Status.VPCSubnet,
-			LoadBalancers: dst.Status.LoadBalancers,
-			COSInstance:   dst.Status.COSInstance,
-		},
-	}
-	if err := utilconversion.MarshalData(restored, dst); err != nil {
+	// Marshal the full v1beta3 source into the annotation so hub-only fields
+	// (e.g. VPCRoutingTables, VPCPublicGateways, VPCSecurityGroups) survive a hub→spoke→hub round-trip.
+	if err := utilconversion.MarshalData(src, dst); err != nil {
 		return err
-	}
-
-	if ok, err := utilconversion.UnmarshalData(dst, restored); err != nil {
-		return err
-	} else if ok {
-		dst.Spec.VPC = restored.Spec.VPC
-		dst.Spec.VPCSubnets = restored.Spec.VPCSubnets
-		dst.Spec.LoadBalancers = restored.Spec.LoadBalancers
-		dst.Spec.CosInstance = restored.Spec.CosInstance
-		dst.Spec.Ignition = restored.Spec.Ignition
-		dst.Status.VPC = restored.Status.VPC
-		dst.Status.VPCSubnet = restored.Status.VPCSubnet
-		dst.Status.LoadBalancers = restored.Status.LoadBalancers
-		dst.Status.COSInstance = restored.Status.COSInstance
 	}
 
 	// Fix annotation discrepancy during round-trip
@@ -577,33 +566,10 @@ func (dst *IBMPowerVSClusterTemplate) ConvertFrom(srcRaw conversion.Hub) error {
 	if err := Convert_v1beta3_IBMPowerVSClusterTemplate_To_v1beta2_IBMPowerVSClusterTemplate(src, dst, nil); err != nil {
 		return err
 	}
-	restored := &IBMPowerVSClusterTemplate{
-		Spec: IBMPowerVSClusterTemplateSpec{
-			Template: IBMPowerVSClusterTemplateResource{
-				ObjectMeta: dst.Spec.Template.ObjectMeta,
-				Spec: IBMPowerVSClusterSpec{
-					VPC:           dst.Spec.Template.Spec.VPC,
-					VPCSubnets:    dst.Spec.Template.Spec.VPCSubnets,
-					LoadBalancers: dst.Spec.Template.Spec.LoadBalancers,
-					CosInstance:   dst.Spec.Template.Spec.CosInstance,
-					Ignition:      dst.Spec.Template.Spec.Ignition,
-				},
-			},
-		},
-	}
-	if err := utilconversion.MarshalData(restored, dst); err != nil {
+	// Marshal the full v1beta3 source so hub-only fields (e.g. VPCRoutingTables, VPCPublicGateways)
+	// survive a hub→spoke→hub round-trip.
+	if err := utilconversion.MarshalData(src, dst); err != nil {
 		return err
-	}
-
-	if ok, err := utilconversion.UnmarshalData(dst, restored); err != nil {
-		return err
-	} else if ok {
-		dst.Spec.Template.ObjectMeta = restored.Spec.Template.ObjectMeta
-		dst.Spec.Template.Spec.VPC = restored.Spec.Template.Spec.VPC
-		dst.Spec.Template.Spec.VPCSubnets = restored.Spec.Template.Spec.VPCSubnets
-		dst.Spec.Template.Spec.LoadBalancers = restored.Spec.Template.Spec.LoadBalancers
-		dst.Spec.Template.Spec.CosInstance = restored.Spec.Template.Spec.CosInstance
-		dst.Spec.Template.Spec.Ignition = restored.Spec.Template.Spec.Ignition
 	}
 
 	if len(dst.Annotations) == 0 {
@@ -627,6 +593,11 @@ func (src *IBMPowerVSMachine) ConvertTo(dstRaw conversion.Hub) error {
 	ok, err := utilconversion.UnmarshalData(src, restored)
 	if err != nil {
 		return err
+	}
+	if ok {
+		// Restore the full Image spec from the annotation so that v1beta3-only fields
+		// (e.g. StockImage) are not lost across a hub→spoke→hub round-trip.
+		dst.Spec.Image = restored.Spec.Image
 	}
 	initialization := infrav1.IBMPowerVSMachineInitializationStatus{}
 	clusterv1.Convert_bool_To_Pointer_bool(src.Status.Ready, ok, restored.Status.Initialization.Provisioned, &initialization.Provisioned)
@@ -665,6 +636,9 @@ func (src *IBMPowerVSMachineTemplate) ConvertTo(dstRaw conversion.Hub) error {
 	}
 	if ok {
 		dst.Status = restored.Status
+		// Restore the full Image spec from the annotation so that v1beta3-only fields
+		// (e.g. StockImage) are not lost across a hub→spoke→hub round-trip.
+		dst.Spec.Template.Spec.Image = restored.Spec.Template.Spec.Image
 	}
 	return nil
 }
@@ -814,6 +788,7 @@ func convertV1beta2NetworkToV1beta3(in *IBMPowerVSClusterSpec, out *infrav1.IBMP
 	}
 
 	out.Network.Type = infrav1.SourceTypeProvision
+	out.Network.Provision.Type = infrav1.NetworkProvisionTypeDHCPServer
 	return Convert_v1beta2_DHCPServer_To_v1beta3_DHCPServer(in.DHCPServer, &out.Network.Provision.DHCPServer, nil)
 }
 
@@ -889,12 +864,19 @@ func Convert_v1beta3_IBMPowerVSClusterSpec_To_v1beta2_IBMPowerVSClusterSpec(in *
 		}
 		out.DHCPServer = nil
 	case infrav1.SourceTypeProvision:
-		// Convert provision to DHCPServer
-		dhcp := &DHCPServer{}
-		if err := Convert_v1beta3_DHCPServer_To_v1beta2_DHCPServer(&in.Network.Provision.DHCPServer, dhcp, nil); err != nil {
-			return err
+		// Use the explicit ProvisionType discriminant to route to the correct path.
+		// Note: v1beta2 only supports the DHCPServer path; DHCPSubnet is a v1beta3-only feature
+		prov := in.Network.Provision
+		if prov.Type != infrav1.NetworkProvisionTypeDHCPSubnet {
+			dhcp := &DHCPServer{}
+			if err := Convert_v1beta3_DHCPServer_To_v1beta2_DHCPServer(&in.Network.Provision.DHCPServer, dhcp, nil); err != nil {
+				return err
+			}
+			out.DHCPServer = dhcp
+		} else {
+			// DHCPSubnet is v1beta3-only — nothing to store in v1beta2 spoke.
+			out.DHCPServer = nil
 		}
-		out.DHCPServer = dhcp
 		// Clear network reference when provisioning
 		out.Network.ID = nil
 		out.Network.Name = nil
@@ -1020,6 +1002,17 @@ func Convert_v1beta3_IBMPowerVSMachineSpec_To_v1beta2_IBMPowerVSMachineSpec(in *
 		}
 		if in.Image.Reference.Name != "" {
 			out.Image.Name = ptr.To(in.Image.Reference.Name)
+		}
+		out.ImageRef = nil
+	case infrav1.ImageSourceTypeStockImage:
+		// v1beta3 StockImage has no dedicated v1beta2 concept; map the identifier
+		// into the v1beta2 Image field so the controller can still resolve it.
+		out.Image = &IBMPowerVSResourceReference{}
+		if in.Image.StockImage.ID != "" {
+			out.Image.ID = ptr.To(in.Image.StockImage.ID)
+		}
+		if in.Image.StockImage.Name != "" {
+			out.Image.Name = ptr.To(in.Image.StockImage.Name)
 		}
 		out.ImageRef = nil
 	default:

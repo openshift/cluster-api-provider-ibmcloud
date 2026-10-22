@@ -63,6 +63,19 @@ const (
 	DHCPSnatPolicyDisabled DHCPSnatPolicy = "Disabled"
 )
 
+// NetworkProvisionType defines how a new PowerVS Network is provisioned.
+type NetworkProvisionType string
+
+const (
+	// NetworkProvisionTypeDHCPServer creates a dedicated DHCP Server and its managed private network
+	// via the PowerVS DHCP service API.
+	NetworkProvisionTypeDHCPServer NetworkProvisionType = "DHCPServer"
+
+	// NetworkProvisionTypeDHCPSubnet creates a plain PowerVS network with DHCP natively enabled
+	// (NetworkCreate.EnableDHCP). No separate DHCP server resource is created.
+	NetworkProvisionTypeDHCPSubnet NetworkProvisionType = "DHCPSubnet"
+)
+
 // TransitGatewayRouting defines the routing behavior for the Transit Gateway.
 type TransitGatewayRouting string
 
@@ -72,6 +85,65 @@ const (
 
 	// TransitGatewayRoutingGlobal forces global routing.
 	TransitGatewayRoutingGlobal TransitGatewayRouting = "Global"
+)
+
+// RoutingTableIngressPolicy defines whether a routing table ingress source is enabled.
+// +kubebuilder:validation:Enum=Enabled;Disabled
+type RoutingTableIngressPolicy string
+
+const (
+	// RoutingTableIngressPolicyEnabled indicates ingress from this source is enabled.
+	RoutingTableIngressPolicyEnabled RoutingTableIngressPolicy = "Enabled"
+	// RoutingTableIngressPolicyDisabled indicates ingress from this source is disabled.
+	RoutingTableIngressPolicyDisabled RoutingTableIngressPolicy = "Disabled"
+)
+
+// RouteAdvertisePolicy defines whether a route is advertised to connected networks.
+// +kubebuilder:validation:Enum=Enabled;Disabled
+type RouteAdvertisePolicy string
+
+const (
+	// RouteAdvertisePolicyEnabled indicates the route is advertised to connected networks.
+	RouteAdvertisePolicyEnabled RouteAdvertisePolicy = "Enabled"
+	// RouteAdvertisePolicyDisabled indicates the route is not advertised.
+	RouteAdvertisePolicyDisabled RouteAdvertisePolicy = "Disabled"
+)
+
+// VPCRoutingTableRouteAction defines the action to perform with a packet matching a route.
+// +kubebuilder:validation:Enum=delegate;delegate_vpc;deliver;drop
+type VPCRoutingTableRouteAction string
+
+const (
+	// VPCRoutingTableRouteActionDelegate delegates the packet to the system's built-in routing.
+	VPCRoutingTableRouteActionDelegate VPCRoutingTableRouteAction = "delegate"
+	// VPCRoutingTableRouteActionDelegateVPC delegates the packet to the VPC's built-in routing.
+	VPCRoutingTableRouteActionDelegateVPC VPCRoutingTableRouteAction = "delegate_vpc"
+	// VPCRoutingTableRouteActionDeliver delivers the packet to the next hop.
+	VPCRoutingTableRouteActionDeliver VPCRoutingTableRouteAction = "deliver"
+	// VPCRoutingTableRouteActionDrop drops the packet.
+	VPCRoutingTableRouteActionDrop VPCRoutingTableRouteAction = "drop"
+)
+
+// VPCRoutingTableReadyStatus represents the ready state of a VPC Routing Table.
+// +kubebuilder:validation:Enum=Ready;NotReady
+type VPCRoutingTableReadyStatus string
+
+const (
+	// VPCRoutingTableReadyStatusReady indicates the routing table has reached a stable (active) state.
+	VPCRoutingTableReadyStatusReady VPCRoutingTableReadyStatus = "Ready"
+	// VPCRoutingTableReadyStatusNotReady indicates the routing table is not yet in a stable state.
+	VPCRoutingTableReadyStatusNotReady VPCRoutingTableReadyStatus = "NotReady"
+)
+
+// AdvertiseRouteTarget defines the ingress sources to which routes in a routing table will be advertised.
+// +kubebuilder:validation:Enum=transit_gateway;direct_link
+type AdvertiseRouteTarget string
+
+const (
+	// AdvertiseRouteTargetTransitGateway advertises routes to Transit Gateway.
+	AdvertiseRouteTargetTransitGateway AdvertiseRouteTarget = "transit_gateway"
+	// AdvertiseRouteTargetDirectLink advertises routes to Direct Link.
+	AdvertiseRouteTargetDirectLink AdvertiseRouteTarget = "direct_link"
 )
 
 // LoadBalancerType defines the network visibility of the VPC Load Balancer.
@@ -84,6 +156,32 @@ const (
 
 	// LoadBalancerTypePrivate indicates the load balancer is only accessible internally within the VPC.
 	LoadBalancerTypePrivate LoadBalancerType = "Private"
+)
+
+// PowerVSLoadBalancerProfile defines the profile for a VPC Load Balancer used with a PowerVS cluster.
+// +kubebuilder:validation:Enum=application;network-fixed
+type PowerVSLoadBalancerProfile string
+
+const (
+	// PowerVSLoadBalancerProfileApplication is the standard application load balancer profile.
+	PowerVSLoadBalancerProfileApplication PowerVSLoadBalancerProfile = "application"
+
+	// PowerVSLoadBalancerProfileNetworkFixed is the network load balancer (NLB) profile.
+	// The value "network-fixed" matches the IBM Cloud VPC Load Balancer API profile name directly.
+	PowerVSLoadBalancerProfileNetworkFixed PowerVSLoadBalancerProfile = "network-fixed"
+)
+
+// PowerVSLoadBalancerRouteMode defines whether routing mode is enabled on a VPC Load Balancer.
+// +kubebuilder:validation:Enum=Enabled;Disabled
+type PowerVSLoadBalancerRouteMode string
+
+const (
+	// PowerVSLoadBalancerRouteModeEnabled enables routing mode on the load balancer, making it
+	// act as a Layer 3 next-hop router rather than a standard load balancer.
+	PowerVSLoadBalancerRouteModeEnabled PowerVSLoadBalancerRouteMode = "Enabled"
+
+	// PowerVSLoadBalancerRouteModeDisabled disables routing mode on the load balancer.
+	PowerVSLoadBalancerRouteModeDisabled PowerVSLoadBalancerRouteMode = "Disabled"
 )
 
 func init() {
@@ -166,6 +264,20 @@ type IBMPowerVSClusterSpec struct {
 	// +kubebuilder:validation:MaxItems=50
 	LoadBalancers []LoadBalancerSource `json:"loadBalancers,omitempty"`
 
+	// vpcRoutingTables defines the VPC Routing Tables that should exist or be created for the cluster's VPC.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=10
+	VPCRoutingTables []VPCRoutingTableSource `json:"vpcRoutingTables,omitempty"`
+
+	// vpcPublicGateways defines the VPC Public Gateways that should exist or be created for the cluster's VPC.
+	// A public gateway provides outbound internet access to resources in a subnet. One gateway is required
+	// per zone in which subnets need outbound access.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=10
+	VPCPublicGateways []VPCPublicGateway `json:"vpcPublicGateways,omitempty"`
+
 	// vpcSecurityGroups defines the VPC Security Groups that should exist or be created.
 	// +optional
 	// +listType=atomic
@@ -230,6 +342,20 @@ type IBMPowerVSClusterStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=50
 	LoadBalancers []LoadBalancerStatus `json:"loadBalancers,omitempty"`
+
+	// vpcRoutingTables tracks the observed state of VPC Routing Tables for the cluster.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=10
+	VPCRoutingTables []VPCRoutingTableStatus `json:"vpcRoutingTables,omitempty"`
+
+	// vpcPublicGateways tracks the observed state of VPC Public Gateways for the cluster.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=10
+	VPCPublicGateways []VPCPublicGatewayStatus `json:"vpcPublicGateways,omitempty"`
 
 	// vpcSecurityGroups tracks the live observed states of all managed or referenced VPC Security Groups.
 	// +optional
@@ -535,17 +661,35 @@ type NetworkSource struct {
 	// +optional
 	Reference ResourceIdentifier `json:"reference,omitempty,omitzero"`
 
-	// provision provides the configuration for the controller to CREATE a new Network and DHCP Server.
+	// provision provides the configuration for the controller to CREATE a new Network.
+	// Exactly one of dhcpServer or dhcpSubnet must be set when type is Provision.
 	// +optional
 	Provision NetworkProvisionConfig `json:"provision,omitempty,omitzero"`
 }
 
 // NetworkProvisionConfig defines the parameters for creating a new PowerVS Network.
-// +kubebuilder:validation:MinProperties=1
+// +kubebuilder:validation:XValidation:rule="self.type == 'DHCPServer' ? has(self.dhcpServer) : !has(self.dhcpServer)",message="dhcpServer configuration is required when type is DHCPServer, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'DHCPSubnet' ? has(self.dhcpSubnet) : !has(self.dhcpSubnet)",message="dhcpSubnet configuration is required when type is DHCPSubnet, and forbidden otherwise"
 type NetworkProvisionConfig struct {
-	// dhcpServer contains the configuration for the DHCP server that will be created.
+	// type defines how the network is provisioned.
+	// DHCPServer creates a dedicated DHCP Server and its managed private network.
+	// DHCPSubnet creates a plain PowerVS network with DHCP natively enabled (no separate DHCP server resource).
+	// +required
+	// +kubebuilder:validation:Enum=DHCPServer;DHCPSubnet
+	Type NetworkProvisionType `json:"type,omitempty"`
+
+	// dhcpServer contains the configuration for creating a new DHCP server (and its associated
+	// private network) via the PowerVS DHCP service API.
+	// Required when type is DHCPServer; forbidden otherwise.
 	// +optional
 	DHCPServer DHCPServer `json:"dhcpServer,omitempty,omitzero"`
+
+	// dhcpSubnet contains the configuration for creating a plain PowerVS network with DHCP
+	// natively enabled (NetworkCreate.EnableDHCP). This avoids creating a separate DHCP server
+	// resource and is the preferred approach for new clusters.
+	// Required when type is DHCPSubnet; forbidden otherwise.
+	// +optional
+	DHCPSubnet DHCPSubnet `json:"dhcpSubnet,omitempty,omitzero"`
 }
 
 // DHCPServer contains the configuration for a NEW DHCP server.
@@ -577,6 +721,36 @@ type DHCPServer struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Enabled;Disabled
 	Snat DHCPSnatPolicy `json:"snat,omitempty"`
+}
+
+// DHCPSubnet contains the configuration for creating a PowerVS network with DHCP natively
+// enabled via NetworkCreate.EnableDHCP. Unlike DHCPServer, this path does not create a
+// separate DHCP server resource.
+// +kubebuilder:validation:MinProperties=1
+type DHCPSubnet struct {
+	// name is the name of the PowerVS network to be created.
+	// If omitted, the name will default to <CLUSTER_NAME>-dhcpsubnet.
+	// Only alphanumeric characters, dashes, and underscores are allowed.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9-_][a-zA-Z0-9-_]*$`
+	Name string `json:"name,omitempty"`
+
+	// cidr is the network CIDR in notation (e.g. 192.168.0.0/24).
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=49
+	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){3}[0-9]{1,3}($|/[0-9]{1,2})$`
+	CIDR string `json:"cidr,omitempty"`
+
+	// dnsServers is the list of DNS servers for the network.
+	// If omitted, defaults to 127.0.0.1 for private (vlan) networks.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=2
+	// +kubebuilder:validation:items:MaxLength=45
+	DNSServers []string `json:"dnsServers,omitempty"`
 }
 
 // NetworkStatus defines the observed state of the PowerVS network and its associated components.
@@ -696,6 +870,11 @@ type VPCSubnetSource struct {
 	// provision contains the configuration for provisioning a new VPC Subnet.
 	// +optional
 	Provision VPCSubnetProvision `json:"provision,omitempty,omitzero"`
+
+	// publicGateway specifies the VPC Public Gateway to attach to this subnet.
+	// Can be identified by name or id.
+	// +optional
+	PublicGateway ResourceIdentifier `json:"publicGateway,omitempty,omitzero"`
 }
 
 // VPCSubnetProvision holds the configuration for a new VPC Subnet.
@@ -729,6 +908,10 @@ type VPCSubnetStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	Zone string `json:"zone,omitempty"`
+
+	// publicGateway is the observed Public Gateway attached to this subnet.
+	// +optional
+	PublicGateway VPCPublicGatewayStatus `json:"publicGateway,omitempty,omitzero"`
 }
 
 // LoadBalancerSource defines how the IBM Cloud VPC Load Balancer is sourced.
@@ -751,6 +934,7 @@ type LoadBalancerSource struct {
 
 // LoadBalancerProvision holds the configuration for a new VPC Load Balancer.
 // +kubebuilder:validation:MinProperties=1
+// +kubebuilder:validation:XValidation:rule="!has(self.routeMode) || self.routeMode != 'Enabled' || (has(self.profile) && self.profile == 'network-fixed')",message="routeMode can only be enabled when profile is network-fixed"
 type LoadBalancerProvision struct {
 	// name sets the name of the VPC load balancer.
 	// If omitted, the system will dynamically create it.
@@ -790,6 +974,18 @@ type LoadBalancerProvision struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=15
 	Subnets []ResourceIdentifier `json:"subnets,omitempty"`
+
+	// profile defines the profile to use for this load balancer.
+	// Supported values are "application" and "network-fixed".
+	// When omitted, the IBM Cloud default (application) is used.
+	// +optional
+	Profile PowerVSLoadBalancerProfile `json:"profile,omitempty"`
+
+	// routeMode enables routing mode on the load balancer, making it act as a Layer 3
+	// next-hop router rather than a load balancer. Only valid when profile is "network-fixed".
+	// Required when using the load balancer as a VNF next-hop for a VPC routing table route.
+	// +optional
+	RouteMode PowerVSLoadBalancerRouteMode `json:"routeMode,omitempty"`
 }
 
 // AdditionalListener defines the desired state of an
@@ -839,6 +1035,12 @@ type LoadBalancerBackendPool struct {
 	// protocol defines the protocol to use for the Backend Pool.
 	// +required
 	Protocol LoadBalancerBackendPoolProtocol `json:"protocol,omitempty"`
+
+	// failsafePolicy defines the action to take when all members of the pool are unhealthy.
+	// For route-mode network load balancers, use "bypass" to send traffic directly to member IPs.
+	// When omitted, the IBM Cloud default for the load balancer profile is used.
+	// +optional
+	FailsafePolicy LoadBalancerBackendPoolFailsafePolicy `json:"failsafePolicy,omitempty"`
 }
 
 // LoadBalancerHealthMonitor defines the desired state of a Health Monitor resource for a VPC Load Balancer Backend Pool.
@@ -905,6 +1107,16 @@ type LoadBalancerStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	Hostname string `json:"hostname,omitempty"`
+
+	// privateIPs contains the private IP addresses assigned to this load balancer.
+	// The first entry is used as the next-hop IP for VPC routing table routes when
+	// no explicit nextHop is provided in the route spec.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=39
+	PrivateIPs []string `json:"privateIPs,omitempty"`
 }
 
 // COSInstanceSource defines how the IBM Cloud COS instance is sourced.
@@ -1256,6 +1468,185 @@ type VPCSecurityGroupRuleStatus struct {
 	// +kubebuilder:validation:MaxLength=64
 	// +kubebuilder:validation:Pattern=^[-0-9a-z_]+$
 	ID string `json:"id,omitempty"`
+}
+
+// VPCRoutingTableRoute defines a route within a VPC Routing Table.
+// If action is deliver and nextHop is omitted, the controller will resolve it automatically
+// from the first private IP of a provisioned load balancer in the cluster status.
+// +kubebuilder:validation:XValidation:rule="self.action != 'deliver' ? !has(self.nextHop) : true",message="nextHop must not be set unless action is deliver"
+type VPCRoutingTableRoute struct {
+	// action defines the action to perform with a packet matching this route.
+	// +required
+	Action VPCRoutingTableRouteAction `json:"action,omitempty"`
+
+	// destination is the destination CIDR for the route.
+	// The host identifier in the CIDR must be zero.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	// +required
+	Destination string `json:"destination,omitempty"`
+
+	// name is an optional name for the route.
+	// If unspecified, IBM Cloud will generate a name.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^([a-z]|[a-z][-a-z0-9]*[a-z0-9])$`
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// nextHop is the next-hop IP address for routes with action deliver.
+	// Must be a unicast IP address within a subnet in the routing table's VPC.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=39
+	// +optional
+	NextHop string `json:"nextHop,omitempty"`
+
+	// zone is the name of the availability zone to apply the route to.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +required
+	Zone string `json:"zone,omitempty"`
+
+	// advertise controls whether this route is advertised to the ingress sources
+	// configured on the routing table (e.g. Transit Gateway).
+	// When omitted, the IBM Cloud API defaults to Disabled.
+	// +optional
+	Advertise RouteAdvertisePolicy `json:"advertise,omitempty"`
+}
+
+// VPCRoutingTableSource defines a VPC Routing Table that should exist or be created for the cluster's VPC.
+// +kubebuilder:validation:XValidation:rule="self.type == 'Reference' ? has(self.reference) : !has(self.reference)",message="reference configuration is required when type is Reference, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'Provision' ? has(self.provision) : !has(self.provision)",message="provision configuration is required when type is Provision, and forbidden otherwise"
+type VPCRoutingTableSource struct {
+	// type defines whether to use an existing Routing Table or provision a new one.
+	// +required
+	// +kubebuilder:validation:Enum=Reference;Provision
+	Type SourceType `json:"type,omitempty"`
+
+	// reference contains the information to identify an existing Routing Table.
+	// The controller will look up the routing table but will not manage its routes.
+	// +optional
+	Reference ResourceIdentifier `json:"reference,omitempty,omitzero"`
+
+	// provision contains the configuration for provisioning a new Routing Table.
+	// +optional
+	Provision VPCRoutingTableProvision `json:"provision,omitempty,omitzero"`
+}
+
+// VPCRoutingTableProvision holds the configuration for creating a new VPC Routing Table.
+// +kubebuilder:validation:MinProperties=1
+type VPCRoutingTableProvision struct {
+	// name of the Routing Table to be created.
+	// If omitted, IBM Cloud will generate a name.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^([a-z]|[a-z][-a-z0-9]*[a-z0-9])$`
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// routes defines the set of routes to create in the routing table.
+	// +optional
+	// +kubebuilder:validation:MaxItems=200
+	// +listType=atomic
+	Routes []VPCRoutingTableRoute `json:"routes,omitempty"`
+
+	// routeDirectLinkIngress defines whether this routing table routes traffic from Direct Link.
+	// Only one routing table per VPC may have this set to Enabled.
+	// +optional
+	RouteDirectLinkIngress RoutingTableIngressPolicy `json:"routeDirectLinkIngress,omitempty"`
+
+	// routeTransitGatewayIngress defines whether this routing table routes traffic from Transit Gateway.
+	// Only one routing table per VPC may have this set to Enabled.
+	// +optional
+	RouteTransitGatewayIngress RoutingTableIngressPolicy `json:"routeTransitGatewayIngress,omitempty"`
+
+	// routeVPCZoneIngress defines whether this routing table routes traffic from subnets in other zones.
+	// Only one routing table per VPC may have this set to Enabled.
+	// +optional
+	RouteVPCZoneIngress RoutingTableIngressPolicy `json:"routeVPCZoneIngress,omitempty"`
+
+	// advertiseRoutesTo defines the ingress sources to which routes in this routing table will be advertised.
+	// +optional
+	// +kubebuilder:validation:MaxItems=2
+	// +listType=set
+	AdvertiseRoutesTo []AdvertiseRouteTarget `json:"advertiseRoutesTo,omitempty"`
+}
+
+// VPCRoutingTableStatus tracks the observed state of a VPC Routing Table.
+type VPCRoutingTableStatus struct {
+	// id is the unique cloud identifier for this routing table.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	ID string `json:"id,omitempty"`
+
+	// name is the name of the routing table.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name,omitempty"`
+
+	// ready indicates whether the routing table has reached a stable (active) state.
+	// +optional
+	Ready VPCRoutingTableReadyStatus `json:"ready,omitempty"`
+}
+
+// VPCPublicGateway defines a VPC Public Gateway to create or reference for the cluster's VPC.
+// A public gateway provides outbound internet access for resources in a subnet; one is needed per zone.
+// +kubebuilder:validation:XValidation:rule="self.type == 'Reference' ? has(self.reference) : !has(self.reference)",message="reference configuration is required when type is Reference, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'Provision' ? has(self.provision) : !has(self.provision)",message="provision configuration is required when type is Provision, and forbidden otherwise"
+type VPCPublicGateway struct {
+	// type defines whether to use an existing VPC Public Gateway or provision a new one.
+	// +required
+	// +kubebuilder:validation:Enum=Reference;Provision
+	Type SourceType `json:"type,omitempty"`
+
+	// zone is the IBM Cloud VPC zone in which the public gateway resides or should be created.
+	// Required when type is Provision.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Zone string `json:"zone,omitempty"`
+
+	// reference contains the information to identify an existing VPC Public Gateway.
+	// +optional
+	Reference ResourceIdentifier `json:"reference,omitempty,omitzero"`
+
+	// provision contains the configuration for provisioning a new VPC Public Gateway.
+	// +optional
+	Provision VPCPublicGatewayProvision `json:"provision,omitempty,omitzero"`
+}
+
+// VPCPublicGatewayProvision holds the configuration for creating a new VPC Public Gateway.
+// +kubebuilder:validation:MinProperties=1
+type VPCPublicGatewayProvision struct {
+	// name of the VPC Public Gateway to be created.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^([a-z]|[a-z][-a-z0-9]*[a-z0-9])$`
+	// +optional
+	Name string `json:"name,omitempty"`
+}
+
+// VPCPublicGatewayStatus tracks the observed state of a VPC Public Gateway.
+type VPCPublicGatewayStatus struct {
+	// id is the unique cloud identifier for this public gateway.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	ID string `json:"id,omitempty"`
+
+	// name is the name of the public gateway.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name,omitempty"`
+
+	// zone is the IBM Cloud VPC zone where the gateway resides.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Zone string `json:"zone,omitempty"`
 }
 
 // GetConditions returns the observations of the operational state of the IBMPowerVSCluster resource.

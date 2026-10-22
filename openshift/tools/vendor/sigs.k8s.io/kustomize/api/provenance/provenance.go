@@ -74,10 +74,17 @@ func GetProvenance() Provenance {
 			break
 		}
 	}
+	p.Version = FindVersion(info, p.Version)
 
+	return p
+}
+
+// FindVersion searches for a version in the depth of dependencies including replacements,
+// otherwise, it tries to get version from debug.BuildInfo Main.
+func FindVersion(info *debug.BuildInfo, version string) string {
 	for _, dep := range info.Deps {
-		if dep != nil && dep.Path == "sigs.k8s.io/kustomize/kustomize/v5" {
-			if dep.Version != "devel" {
+		if dep != nil && dep.Path == ModulePath {
+			if dep.Version == developmentVersion {
 				continue
 			}
 			v, err := GetMostRecentTag(*dep)
@@ -85,11 +92,16 @@ func GetProvenance() Provenance {
 				fmt.Printf("failed to get most recent tag for %s: %v\n", dep.Path, err)
 				continue
 			}
-			p.Version = v
+
+			return v
 		}
 	}
 
-	return p
+	if version == developmentVersion && info.Main.Version != "" {
+		return info.Main.Version
+	}
+
+	return version
 }
 
 func GetMostRecentTag(m debug.Module) (string, error) {

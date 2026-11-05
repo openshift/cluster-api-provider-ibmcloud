@@ -113,6 +113,11 @@ func hubIBMPowerVSClusterStatus(in *infrav1.IBMPowerVSClusterStatus, c randfill.
 	if len(in.LoadBalancers) == 0 {
 		in.LoadBalancers = nil
 	}
+	// VPCPublicGateways is a v1beta3-only status field; v1beta2 has no equivalent.
+	// It does not survive a hub→spoke→hub round-trip, so normalise to nil.
+	if len(in.VPCPublicGateways) == 0 {
+		in.VPCPublicGateways = nil
+	}
 	for i := range in.VPCSubnets {
 		if in.VPCSubnets[i].ID == "" || in.VPCSubnets[i].Name == "" {
 			in.VPCSubnets = nil
@@ -219,12 +224,37 @@ func hubIBMPowerVSClusterSpec(in *infrav1.IBMPowerVSClusterSpec, c randfill.Cont
 		in.Network.Provision = infrav1.NetworkProvisionConfig{}
 	case infrav1.SourceTypeProvision:
 		in.Network.Reference = infrav1.ResourceIdentifier{}
+		// Ensure the ProvisionType discriminant is valid.
+		switch in.Network.Provision.Type {
+		case infrav1.NetworkProvisionTypeDHCPServer:
+			in.Network.Provision.DHCPSubnet = infrav1.DHCPSubnet{}
+			// Normalize empty DNSServers to nil
+			if in.Network.Provision.DHCPServer.CIDR == "" {
+				in.Network.Provision.DHCPServer.CIDR = ""
+			}
+		case infrav1.NetworkProvisionTypeDHCPSubnet:
+			in.Network.Provision.DHCPServer = infrav1.DHCPServer{}
+			// Normalize empty DNSServers slice to nil
+			if len(in.Network.Provision.DHCPSubnet.DNSServers) == 0 {
+				in.Network.Provision.DHCPSubnet.DNSServers = nil
+			}
+			// DHCPSubnet does not survive v1beta2 round-trip; restrict to DHCPServer
+			// for the hub fuzz test so round-trips are valid.
+			in.Network.Provision.Type = infrav1.NetworkProvisionTypeDHCPServer
+			in.Network.Provision.DHCPSubnet = infrav1.DHCPSubnet{}
+		default:
+			// Normalise any unknown type to DHCPServer so the discriminant is valid.
+			in.Network.Provision.Type = infrav1.NetworkProvisionTypeDHCPServer
+			in.Network.Provision.DHCPSubnet = infrav1.DHCPSubnet{}
+		}
 	default:
 		in.Network.Type = ""
 		in.Network.Reference = infrav1.ResourceIdentifier{}
 		in.Network.Provision = infrav1.NetworkProvisionConfig{}
 	}
 
+	// DHCPServer.Name is not preserved through v1beta2 (the v1beta2 DHCPServer.Name is
+	// regenerated from the cluster name on reconcile and is not stored in the spec).
 	in.Network.Provision.DHCPServer.Name = ""
 
 	switch in.TransitGateway.Type {
@@ -398,6 +428,13 @@ func hubIBMPowerVSClusterSpec(in *infrav1.IBMPowerVSClusterSpec, c randfill.Cont
 					in.LoadBalancers[i].Provision.Type != infrav1.LoadBalancerTypePrivate {
 					in.LoadBalancers[i].Provision.Type = infrav1.LoadBalancerTypePrivate
 				}
+				// Profile, RouteMode, and FailsafePolicy are v1beta3-only fields; v1beta2 has no concept of them.
+				// They do not survive the round-trip so clear them here.
+				in.LoadBalancers[i].Provision.Profile = ""
+				in.LoadBalancers[i].Provision.RouteMode = ""
+				for j := range in.LoadBalancers[i].Provision.BackendPools {
+					in.LoadBalancers[i].Provision.BackendPools[j].FailsafePolicy = ""
+				}
 				if len(in.LoadBalancers[i].Provision.AdditionalListeners) == 0 {
 					in.LoadBalancers[i].Provision.AdditionalListeners = nil
 				}
@@ -428,8 +465,18 @@ func hubIBMPowerVSClusterSpec(in *infrav1.IBMPowerVSClusterSpec, c randfill.Cont
 						in.LoadBalancers[i].Provision.Type != infrav1.LoadBalancerTypePrivate {
 						in.LoadBalancers[i].Provision.Type = infrav1.LoadBalancerTypePrivate
 					}
+					// Profile, RouteMode, and FailsafePolicy are v1beta3-only fields; v1beta2 has no concept of them.
+					// They do not survive the round-trip so clear them here.
+					in.LoadBalancers[i].Provision.Profile = ""
+					in.LoadBalancers[i].Provision.RouteMode = ""
+					for j := range in.LoadBalancers[i].Provision.BackendPools {
+						in.LoadBalancers[i].Provision.BackendPools[j].FailsafePolicy = ""
+					}
 					if len(in.LoadBalancers[i].Provision.AdditionalListeners) == 0 {
 						in.LoadBalancers[i].Provision.AdditionalListeners = nil
+					}
+					if len(in.LoadBalancers[i].Provision.BackendPools) == 0 {
+						in.LoadBalancers[i].Provision.BackendPools = nil
 					}
 					if in.LoadBalancers[i].Provision.Name == "" {
 						in.LoadBalancers[i].Type = ""
@@ -438,6 +485,24 @@ func hubIBMPowerVSClusterSpec(in *infrav1.IBMPowerVSClusterSpec, c randfill.Cont
 				}
 			}
 		}
+	}
+
+	if len(in.VPCRoutingTables) == 0 {
+		in.VPCRoutingTables = nil
+	} else {
+		for i := range in.VPCRoutingTables {
+			if len(in.VPCRoutingTables[i].Provision.Routes) == 0 {
+				in.VPCRoutingTables[i].Provision.Routes = nil
+			}
+			if len(in.VPCRoutingTables[i].Provision.AdvertiseRoutesTo) == 0 {
+				in.VPCRoutingTables[i].Provision.AdvertiseRoutesTo = nil
+			}
+		}
+	}
+	// VPCPublicGateways is a v1beta3-only field; v1beta2 has no concept of it.
+	// Normalize empty slices to nil so the fuzz round-trip remains stable.
+	if len(in.VPCPublicGateways) == 0 {
+		in.VPCPublicGateways = nil
 	}
 }
 
@@ -998,29 +1063,45 @@ func hubIBMPowerVSMachineSpec(in *infrav1.IBMPowerVSMachineSpec, c randfill.Cont
 	c.FillNoCustom(in)
 
 	// Constrain Image.Type to valid values and enforce xvalidation rules:
-	// - Reference: must have Reference set, Import must be empty
-	// - Import: must have Import set, Reference must be empty
+	// - Reference:   must have Reference set;  Import and StockImage must be empty
+	// - Import:      must have Import set;      Reference and StockImage must be empty
+	// - StockImage:  must have StockImage set;  Reference and Import must be empty
 	switch in.Image.Type {
 	case infrav1.ImageSourceTypeReference:
 		in.Image.Import = infrav1.ImageReference{}
+		in.Image.StockImage = infrav1.ResourceIdentifier{}
 		// Ensure Reference has at least one identifier
 		if in.Image.Reference.ID == "" && in.Image.Reference.Name == "" {
 			in.Image.Reference.ID = "fuzzed-image-id"
 		}
 	case infrav1.ImageSourceTypeImport:
 		in.Image.Reference = infrav1.ResourceIdentifier{}
+		in.Image.StockImage = infrav1.ResourceIdentifier{}
 		// Ensure Import has a name
 		if in.Image.Import.Name == "" {
 			in.Image.Import.Name = "fuzzed-image-ref"
 		}
+	case infrav1.ImageSourceTypeStockImage:
+		in.Image.Reference = infrav1.ResourceIdentifier{}
+		in.Image.Import = infrav1.ImageReference{}
+		// Ensure StockImage has at least one identifier
+		if in.Image.StockImage.ID == "" && in.Image.StockImage.Name == "" {
+			in.Image.StockImage.ID = "fuzzed-stock-image-id"
+		}
 	default:
-		// Unknown type: pick Reference if there is reference data, Import if there is import data
+		// Unknown type: pick the first type whose field has data, else fall back to Reference
 		if in.Image.Import.Name != "" {
 			in.Image.Type = infrav1.ImageSourceTypeImport
 			in.Image.Reference = infrav1.ResourceIdentifier{}
+			in.Image.StockImage = infrav1.ResourceIdentifier{}
+		} else if in.Image.StockImage.ID != "" || in.Image.StockImage.Name != "" {
+			in.Image.Type = infrav1.ImageSourceTypeStockImage
+			in.Image.Reference = infrav1.ResourceIdentifier{}
+			in.Image.Import = infrav1.ImageReference{}
 		} else if in.Image.Reference.ID != "" || in.Image.Reference.Name != "" {
 			in.Image.Type = infrav1.ImageSourceTypeReference
 			in.Image.Import = infrav1.ImageReference{}
+			in.Image.StockImage = infrav1.ResourceIdentifier{}
 		} else {
 			// Fall back to a minimal Reference image
 			in.Image = infrav1.IBMPowerVSMachineImage{

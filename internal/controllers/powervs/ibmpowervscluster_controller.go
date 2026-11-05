@@ -338,6 +338,25 @@ func (r *IBMPowerVSClusterReconciler) reconcileVPCResources(ctx context.Context,
 	res.conditions = append(res.conditions, condition)
 	res.legacy = append(res.legacy, legacyCondition)
 
+	// reconcile VPC public gateways (only when public gateways are configured)
+	if len(clusterScope.IBMPowerVSCluster.Spec.VPCPublicGateways) > 0 {
+		log.Info("Reconciling VPC public gateways")
+		if requeue, err := clusterScope.ReconcileVPCPublicGateways(ctx); err != nil {
+			condition, legacyCondition := r.buildConditions(infrav1.VPCPublicGatewayReadyCondition, infrav1.VPCPublicGatewayReadyV1Beta2Condition, metav1.ConditionFalse, infrav1.VPCPublicGatewayReconciliationFailedReason, infrav1.VPCPublicGatewayReconciliationFailedV1Beta2Reason, err.Error())
+			res.conditions = append(res.conditions, condition)
+			res.legacy = append(res.legacy, legacyCondition)
+			res.err = fmt.Errorf("failed to reconcile VPC public gateways: %w", err)
+			return res
+		} else if requeue {
+			log.Info("VPC public gateway creation is pending")
+			res.requeue = true
+			return res
+		}
+		condition, legacyCondition = r.buildConditions(infrav1.VPCPublicGatewayReadyCondition, infrav1.VPCPublicGatewayReadyV1Beta2Condition, metav1.ConditionTrue, infrav1.VPCPublicGatewayReadyReason, "", "")
+		res.conditions = append(res.conditions, condition)
+		res.legacy = append(res.legacy, legacyCondition)
+	}
+
 	// reconcile VPC Subnet
 	log.Info("Reconciling VPC subnets")
 	if requeue, err := clusterScope.ReconcileVPCSubnets(ctx); err != nil {
@@ -385,6 +404,26 @@ func (r *IBMPowerVSClusterReconciler) reconcileVPCResources(ctx context.Context,
 		res.legacy = append(res.legacy, legacyCondition)
 	}
 
+	// reconcile VPC routing tables after load balancers — routing table routes may reference
+	// load balancer private IPs as their next hop, so LBs must be reconciled first.
+	if len(clusterScope.IBMPowerVSCluster.Spec.VPCRoutingTables) > 0 {
+		log.Info("Reconciling VPC routing tables")
+		if requeue, err := clusterScope.ReconcileVPCRoutingTables(ctx); err != nil {
+			condition, legacyCondition := r.buildConditions(infrav1.VPCRoutingTableReadyCondition, infrav1.VPCRoutingTableReadyV1Beta2Condition, metav1.ConditionFalse, infrav1.VPCRoutingTableReconciliationFailedReason, infrav1.VPCRoutingTableReconciliationFailedV1Beta2Reason, err.Error())
+			res.conditions = append(res.conditions, condition)
+			res.legacy = append(res.legacy, legacyCondition)
+			res.err = fmt.Errorf("failed to reconcile VPC routing tables: %w", err)
+			return res
+		} else if requeue {
+			log.Info("VPC routing table creation is pending")
+			res.requeue = true
+			return res
+		}
+		condition, legacyCondition = r.buildConditions(infrav1.VPCRoutingTableReadyCondition, infrav1.VPCRoutingTableReadyV1Beta2Condition, metav1.ConditionTrue, infrav1.VPCRoutingTableReadyReason, "", "")
+		res.conditions = append(res.conditions, condition)
+		res.legacy = append(res.legacy, legacyCondition)
+	}
+
 	return res
 }
 
@@ -407,6 +446,18 @@ func (r *IBMPowerVSClusterReconciler) reconcileDelete(ctx context.Context, clust
 		return ctrl.Result{}, nil
 	}
 
+	if result, err := r.deleteClusterResources(ctx, clusterScope); err != nil || !result.IsZero() {
+		return result, err
+	}
+
+	log.Info("IBMPowerVSCluster deletion completed")
+	controllerutil.RemoveFinalizer(cluster, infrav1.IBMPowerVSClusterFinalizer)
+	return ctrl.Result{}, nil
+}
+
+// deleteClusterResources deletes all VPC and PowerVS infrastructure resources in dependency order.
+func (r *IBMPowerVSClusterReconciler) deleteClusterResources(ctx context.Context, clusterScope *powervsscope.ClusterScope) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
 	var allErrs []error
 
 	log.Info("Deleting transit gateway")
@@ -445,6 +496,26 @@ func (r *IBMPowerVSClusterReconciler) reconcileDelete(ctx context.Context, clust
 		allErrs = append(allErrs, fmt.Errorf("failed to delete VPC security group: %w", err))
 	}
 
+	log.Info("Deleting VPC routing tables")
+	conditions.Set(clusterScope.IBMPowerVSCluster, metav1.Condition{
+		Type:   infrav1.VPCRoutingTableReadyCondition,
+		Status: metav1.ConditionFalse,
+		Reason: infrav1.VPCRoutingTableDeletingReason,
+	})
+	if err := clusterScope.DeleteVPCRoutingTables(ctx); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("failed to delete VPC routing tables: %w", err))
+	}
+
+	log.Info("Deleting VPC public gateways")
+	conditions.Set(clusterScope.IBMPowerVSCluster, metav1.Condition{
+		Type:   infrav1.VPCPublicGatewayReadyCondition,
+		Status: metav1.ConditionFalse,
+		Reason: infrav1.VPCPublicGatewayDeletingReason,
+	})
+	if err := clusterScope.DeleteVPCPublicGateways(ctx); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("failed to delete VPC public gateways: %w", err))
+	}
+
 	log.Info("Deleting VPC subnet")
 	conditions.Set(clusterScope.IBMPowerVSCluster, metav1.Condition{
 		Type:   infrav1.VPCSubnetReadyCondition,
@@ -471,14 +542,14 @@ func (r *IBMPowerVSClusterReconciler) reconcileDelete(ctx context.Context, clust
 		return reconcile.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
-	log.Info("Deleting DHCP server")
+	log.Info("Deleting provisioned DHCP network")
 	conditions.Set(clusterScope.IBMPowerVSCluster, metav1.Condition{
 		Type:   infrav1.NetworkReadyCondition,
 		Status: metav1.ConditionFalse,
 		Reason: infrav1.NetworkDeletingReason,
 	})
-	if err := clusterScope.DeleteDHCPServer(ctx); err != nil {
-		allErrs = append(allErrs, fmt.Errorf("failed to delete DHCP server: %w", err))
+	if err := clusterScope.DeleteDHCPNetwork(ctx); err != nil {
+		allErrs = append(allErrs, fmt.Errorf("failed to delete provisioned DHCP network: %w", err))
 	}
 
 	log.Info("Deleting PowerVS workspace")
@@ -509,9 +580,6 @@ func (r *IBMPowerVSClusterReconciler) reconcileDelete(ctx context.Context, clust
 	if len(allErrs) > 0 {
 		return ctrl.Result{}, kerrors.NewAggregate(allErrs)
 	}
-
-	log.Info("IBMPowerVSCluster deletion completed")
-	controllerutil.RemoveFinalizer(cluster, infrav1.IBMPowerVSClusterFinalizer)
 	return ctrl.Result{}, nil
 }
 

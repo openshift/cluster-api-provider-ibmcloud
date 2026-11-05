@@ -6,8 +6,6 @@ import (
 	"go/token"
 	"go/types"
 	"reflect"
-
-	"golang.org/x/exp/typeparams"
 )
 
 var tokensByString = map[string]Token{
@@ -73,7 +71,7 @@ func maybeToken(node Node) (Node, bool) {
 	return node, false
 }
 
-func isNil(v interface{}) bool {
+func isNil(v any) bool {
 	if v == nil {
 		return true
 	}
@@ -84,45 +82,66 @@ func isNil(v interface{}) bool {
 }
 
 type matcher interface {
-	Match(*Matcher, interface{}) (interface{}, bool)
+	Match(*Matcher, any) (any, bool)
 }
 
-type State = map[string]interface{}
+type State = map[string]any
 
 type Matcher struct {
 	TypesInfo *types.Info
 	State     State
+
+	bindingsMapping []string
+
+	setBindings []uint64
 }
 
-func (m *Matcher) fork() *Matcher {
-	state := make(State, len(m.State))
-	for k, v := range m.State {
-		state[k] = v
+func (m *Matcher) set(b Binding, value any) {
+	m.State[b.Name] = value
+	m.setBindings[len(m.setBindings)-1] |= 1 << b.idx
+}
+
+func (m *Matcher) push() {
+	m.setBindings = append(m.setBindings, 0)
+}
+
+func (m *Matcher) pop() {
+	set := m.setBindings[len(m.setBindings)-1]
+	if set != 0 {
+		for i := 0; i < len(m.bindingsMapping); i++ {
+			if (set & (1 << i)) != 0 {
+				key := m.bindingsMapping[i]
+				delete(m.State, key)
+			}
+		}
 	}
-	return &Matcher{
-		TypesInfo: m.TypesInfo,
-		State:     state,
-	}
+	m.setBindings = m.setBindings[:len(m.setBindings)-1]
 }
 
-func (m *Matcher) merge(mc *Matcher) {
-	m.State = mc.State
+func (m *Matcher) merge() {
+	m.setBindings = m.setBindings[:len(m.setBindings)-1]
 }
 
-func (m *Matcher) Match(a Node, b ast.Node) bool {
+func (m *Matcher) Match(a Pattern, b ast.Node) bool {
+	m.bindingsMapping = a.Bindings
 	m.State = State{}
-	_, ok := match(m, a, b)
+	m.push()
+	_, ok := match(m, a.Root, b)
+	m.merge()
+	if len(m.setBindings) != 0 {
+		panic(fmt.Sprintf("%d entries left on the stack, expected none", len(m.setBindings)))
+	}
 	return ok
 }
 
-func Match(a Node, b ast.Node) (*Matcher, bool) {
+func Match(a Pattern, b ast.Node) (*Matcher, bool) {
 	m := &Matcher{}
 	ret := m.Match(a, b)
 	return m, ret
 }
 
 // Match two items, which may be (Node, AST) or (AST, AST)
-func match(m *Matcher, l, r interface{}) (interface{}, bool) {
+func match(m *Matcher, l, r any) (any, bool) {
 	if _, ok := r.(Node); ok {
 		panic("Node mustn't be on right side of match")
 	}
@@ -139,7 +158,11 @@ func match(m *Matcher, l, r interface{}) (interface{}, bool) {
 	case *ast.BlockStmt:
 		return match(m, l.List, r)
 	case *ast.FieldList:
-		return match(m, l.List, r)
+		if l == nil {
+			return match(m, nil, r)
+		} else {
+			return match(m, l.List, r)
+		}
 	}
 
 	switch r := r.(type) {
@@ -202,14 +225,24 @@ func match(m *Matcher, l, r interface{}) (interface{}, bool) {
 		}
 	}
 
+	// TODO(dh): the three blocks handling slices can be combined into a single block if we use reflection
+
 	{
 		ln, ok1 := l.([]ast.Expr)
 		rn, ok2 := r.([]ast.Expr)
 		if ok1 || ok2 {
 			if ok1 && !ok2 {
-				rn = []ast.Expr{r.(ast.Expr)}
+				cast, ok := r.(ast.Expr)
+				if !ok {
+					return nil, false
+				}
+				rn = []ast.Expr{cast}
 			} else if !ok1 && ok2 {
-				ln = []ast.Expr{l.(ast.Expr)}
+				cast, ok := l.(ast.Expr)
+				if !ok {
+					return nil, false
+				}
+				ln = []ast.Expr{cast}
 			}
 
 			if len(ln) != len(rn) {
@@ -229,9 +262,17 @@ func match(m *Matcher, l, r interface{}) (interface{}, bool) {
 		rn, ok2 := r.([]ast.Stmt)
 		if ok1 || ok2 {
 			if ok1 && !ok2 {
-				rn = []ast.Stmt{r.(ast.Stmt)}
+				cast, ok := r.(ast.Stmt)
+				if !ok {
+					return nil, false
+				}
+				rn = []ast.Stmt{cast}
 			} else if !ok1 && ok2 {
-				ln = []ast.Stmt{l.(ast.Stmt)}
+				cast, ok := l.(ast.Stmt)
+				if !ok {
+					return nil, false
+				}
+				ln = []ast.Stmt{cast}
 			}
 
 			if len(ln) != len(rn) {
@@ -251,9 +292,17 @@ func match(m *Matcher, l, r interface{}) (interface{}, bool) {
 		rn, ok2 := r.([]*ast.Field)
 		if ok1 || ok2 {
 			if ok1 && !ok2 {
-				rn = []*ast.Field{r.(*ast.Field)}
+				cast, ok := r.(*ast.Field)
+				if !ok {
+					return nil, false
+				}
+				rn = []*ast.Field{cast}
 			} else if !ok1 && ok2 {
-				ln = []*ast.Field{l.(*ast.Field)}
+				cast, ok := l.(*ast.Field)
+				if !ok {
+					return nil, false
+				}
+				ln = []*ast.Field{cast}
 			}
 
 			if len(ln) != len(rn) {
@@ -268,11 +317,11 @@ func match(m *Matcher, l, r interface{}) (interface{}, bool) {
 		}
 	}
 
-	panic(fmt.Sprintf("unsupported comparison: %T and %T", l, r))
+	return nil, false
 }
 
 // Match a Node with an AST node
-func matchNodeAST(m *Matcher, a Node, b interface{}) (interface{}, bool) {
+func matchNodeAST(m *Matcher, a Node, b any) (any, bool) {
 	switch b := b.(type) {
 	case []ast.Stmt:
 		// 'a' is not a List or we'd be using its Match
@@ -286,6 +335,13 @@ func matchNodeAST(m *Matcher, a Node, b interface{}) (interface{}, bool) {
 		// 'a' is not a List or we'd be using its Match
 		// implementation.
 
+		if len(b) != 1 {
+			return nil, false
+		}
+		return match(m, a, b[0])
+	case []*ast.Field:
+		// 'a' is not a List or we'd be using its Match
+		// implementation
 		if len(b) != 1 {
 			return nil, false
 		}
@@ -317,13 +373,16 @@ func matchNodeAST(m *Matcher, a Node, b interface{}) (interface{}, bool) {
 		return b, true
 	case nil:
 		return nil, a == Nil{}
+	case string, token.Token:
+		// 'a' can't be a String, Token, or Binding or we'd be using their Match implementations.
+		return nil, false
 	default:
 		panic(fmt.Sprintf("unhandled type %T", b))
 	}
 }
 
 // Match two AST nodes
-func matchAST(m *Matcher, a, b ast.Node) (interface{}, bool) {
+func matchAST(m *Matcher, a, b ast.Node) (any, bool) {
 	ra := reflect.ValueOf(a)
 	rb := reflect.ValueOf(b)
 
@@ -365,7 +424,7 @@ func matchAST(m *Matcher, a, b ast.Node) (interface{}, bool) {
 			if af.Bool() != bf.Bool() {
 				return nil, false
 			}
-		case reflect.Ptr, reflect.Interface:
+		case reflect.Pointer, reflect.Interface:
 			if _, ok := match(m, af.Interface(), bf.Interface()); !ok {
 				return nil, false
 			}
@@ -376,7 +435,7 @@ func matchAST(m *Matcher, a, b ast.Node) (interface{}, bool) {
 	return b, true
 }
 
-func (b Binding) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (b Binding) Match(m *Matcher, node any) (any, bool) {
 	if isNil(b.Node) {
 		v, ok := m.State[b.Name]
 		if ok {
@@ -393,16 +452,16 @@ func (b Binding) Match(m *Matcher, node interface{}) (interface{}, bool) {
 	}
 	new, ret := match(m, b.Node, node)
 	if ret {
-		m.State[b.Name] = new
+		m.set(b, new)
 	}
 	return new, ret
 }
 
-func (Any) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (Any) Match(m *Matcher, node any) (any, bool) {
 	return node, true
 }
 
-func (l List) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (l List) Match(m *Matcher, node any) (any, bool) {
 	v := reflect.ValueOf(node)
 	if v.Kind() == reflect.Slice {
 		if isNil(l.Head) {
@@ -421,7 +480,7 @@ func (l List) Match(m *Matcher, node interface{}) (interface{}, bool) {
 	return nil, false
 }
 
-func (s String) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (s String) Match(m *Matcher, node any) (any, bool) {
 	switch o := node.(type) {
 	case token.Token:
 		if tok, ok := maybeToken(s); ok {
@@ -437,7 +496,7 @@ func (s String) Match(m *Matcher, node interface{}) (interface{}, bool) {
 	}
 }
 
-func (tok Token) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (tok Token) Match(m *Matcher, node any) (any, bool) {
 	o, ok := node.(token.Token)
 	if !ok {
 		return nil, false
@@ -445,11 +504,20 @@ func (tok Token) Match(m *Matcher, node interface{}) (interface{}, bool) {
 	return o, token.Token(tok) == o
 }
 
-func (Nil) Match(m *Matcher, node interface{}) (interface{}, bool) {
-	return nil, isNil(node) || reflect.ValueOf(node).IsNil()
+func (Nil) Match(m *Matcher, node any) (any, bool) {
+	if isNil(node) {
+		return nil, true
+	}
+	v := reflect.ValueOf(node)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return nil, v.IsNil()
+	default:
+		return nil, false
+	}
 }
 
-func (builtin Builtin) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (builtin Builtin) Match(m *Matcher, node any) (any, bool) {
 	r, ok := match(m, Ident(builtin), node)
 	if !ok {
 		return nil, false
@@ -462,7 +530,7 @@ func (builtin Builtin) Match(m *Matcher, node interface{}) (interface{}, bool) {
 	return ident, true
 }
 
-func (obj Object) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (obj Object) Match(m *Matcher, node any) (any, bool) {
 	r, ok := match(m, Ident(obj), node)
 	if !ok {
 		return nil, false
@@ -474,7 +542,7 @@ func (obj Object) Match(m *Matcher, node interface{}) (interface{}, bool) {
 	return id, ok
 }
 
-func (fn Symbol) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (fn Symbol) Match(m *Matcher, node any) (any, bool) {
 	var name string
 	var obj types.Object
 
@@ -492,15 +560,15 @@ func (fn Symbol) Match(m *Matcher, node interface{}) (interface{}, bool) {
 		return nil, false
 	}
 
-	fun := r
+	fun := r.(ast.Expr)
 	switch idx := fun.(type) {
 	case *ast.IndexExpr:
 		fun = idx.X
-	case *typeparams.IndexListExpr:
+	case *ast.IndexListExpr:
 		fun = idx.X
 	}
 
-	switch fun := fun.(type) {
+	switch fun := ast.Unparen(fun).(type) {
 	case *ast.Ident:
 		obj = m.TypesInfo.ObjectOf(fun)
 	case *ast.SelectorExpr:
@@ -515,13 +583,28 @@ func (fn Symbol) Match(m *Matcher, node interface{}) (interface{}, bool) {
 	case *types.Builtin:
 		name = obj.Name()
 	case *types.TypeName:
-		if obj.Pkg() == nil {
-			return nil, false
+		origObj := obj
+		for {
+			if obj.Parent() != obj.Pkg().Scope() {
+				return nil, false
+			}
+			name = types.TypeString(obj.Type(), nil)
+			_, ok = match(m, fn.Name, name)
+			if ok || !obj.IsAlias() {
+				return origObj, ok
+			} else {
+				// FIXME(dh): we should peel away one layer of alias at a time; this is blocked on
+				// github.com/golang/go/issues/66559
+				switch typ := types.Unalias(obj.Type()).(type) {
+				case interface{ Obj() *types.TypeName }:
+					obj = typ.Obj()
+				case *types.Basic:
+					return match(m, fn.Name, typ.Name())
+				default:
+					return nil, false
+				}
+			}
 		}
-		if obj.Parent() != obj.Pkg().Scope() {
-			return nil, false
-		}
-		name = types.TypeString(obj.Type(), nil)
 	case *types.Const, *types.Var:
 		if obj.Pkg() == nil {
 			return nil, false
@@ -538,18 +621,20 @@ func (fn Symbol) Match(m *Matcher, node interface{}) (interface{}, bool) {
 	return obj, ok
 }
 
-func (or Or) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (or Or) Match(m *Matcher, node any) (any, bool) {
 	for _, opt := range or.Nodes {
-		mc := m.fork()
-		if ret, ok := match(mc, opt, node); ok {
-			m.merge(mc)
+		m.push()
+		if ret, ok := match(m, opt, node); ok {
+			m.merge()
 			return ret, true
+		} else {
+			m.pop()
 		}
 	}
 	return nil, false
 }
 
-func (not Not) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (not Not) Match(m *Matcher, node any) (any, bool) {
 	_, ok := match(m, not.Node, node)
 	if ok {
 		return nil, false
@@ -559,7 +644,7 @@ func (not Not) Match(m *Matcher, node interface{}) (interface{}, bool) {
 
 var integerLiteralQ = MustParse(`(Or (BasicLit "INT" _) (UnaryExpr (Or "+" "-") (IntegerLiteral _)))`)
 
-func (lit IntegerLiteral) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (lit IntegerLiteral) Match(m *Matcher, node any) (any, bool) {
 	matched, ok := match(m, integerLiteralQ.Root, node)
 	if !ok {
 		return nil, false
@@ -575,7 +660,7 @@ func (lit IntegerLiteral) Match(m *Matcher, node interface{}) (interface{}, bool
 	return matched, ok
 }
 
-func (texpr TrulyConstantExpression) Match(m *Matcher, node interface{}) (interface{}, bool) {
+func (texpr TrulyConstantExpression) Match(m *Matcher, node any) (any, bool) {
 	expr, ok := node.(ast.Expr)
 	if !ok {
 		return nil, false
@@ -604,9 +689,10 @@ func (texpr TrulyConstantExpression) Match(m *Matcher, node interface{}) (interf
 
 var (
 	// Types of fields in go/ast structs that we want to skip
-	rtTokPos       = reflect.TypeOf(token.Pos(0))
-	rtObject       = reflect.TypeOf((*ast.Object)(nil))
-	rtCommentGroup = reflect.TypeOf((*ast.CommentGroup)(nil))
+	rtTokPos = reflect.TypeFor[token.Pos]()
+	//lint:ignore SA1019 It's deprecated, but we still want to skip the field.
+	rtObject       = reflect.TypeFor[*ast.Object]()
+	rtCommentGroup = reflect.TypeFor[*ast.CommentGroup]()
 )
 
 var (

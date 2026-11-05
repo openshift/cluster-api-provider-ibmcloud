@@ -28,7 +28,6 @@ Historical context is available here:
 Semantic versioning is used in this repository. It contains several Go modules
 with different levels of stability:
 - `k8s.io/klog/v2` - stable API, `vX.Y.Z` tags
-- `k8s.io/hack/tools` - no stable API yet (may change eventually or get moved to separate repo), `hack/tools/v0.Y.Z` tags
 - `examples` - no stable API, no tags, no intention to ever stabilize
 
 Exempt from the API stability guarantee are items (packages, functions, etc.)
@@ -48,8 +47,6 @@ How to use klog
 - If you want to redirect everything logged using klog somewhere else (say syslog!), you can use `klog.SetOutput()` method and supply a `io.Writer`. (See `examples/set_output/usage_set_output.go`)
 - For more logging conventions (See [Logging Conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md))
 - See our documentation on [pkg.go.dev/k8s.io](https://pkg.go.dev/k8s.io/klog).
-
-**NOTE**: please use the newer go versions that support semantic import versioning in modules, ideally go 1.11.4 or greater.
 
 ### Coexisting with klog/v2
 

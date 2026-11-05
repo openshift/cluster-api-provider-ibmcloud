@@ -26,6 +26,7 @@ of a particular name.`
 var Analyzer = &analysis.Analyzer{
 	Name:             "findcall",
 	Doc:              Doc,
+	URL:              "https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/findcall",
 	Run:              run,
 	RunDespiteErrors: true,
 	FactTypes:        []analysis.Fact{new(foundFact)},
@@ -37,7 +38,7 @@ func init() {
 	Analyzer.Flags.StringVar(&name, "name", name, "name of the function to find")
 }
 
-func run(pass *analysis.Pass) (interface{}, error) {
+func run(pass *analysis.Pass) (any, error) {
 	for _, f := range pass.Files {
 		ast.Inspect(f, func(n ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok {

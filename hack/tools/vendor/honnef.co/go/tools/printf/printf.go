@@ -2,25 +2,26 @@
 // strings.
 //
 // It parses verbs according to the following syntax:
-//     Numeric -> '0'-'9'
-//     Letter -> 'a'-'z' | 'A'-'Z'
-//     Index -> '[' Numeric+ ']'
-//     Star -> '*'
-//     Star -> Index '*'
 //
-//     Precision -> Numeric+ | Star
-//     Width -> Numeric+ | Star
+//	Numeric -> '0'-'9'
+//	Letter -> 'a'-'z' | 'A'-'Z'
+//	Index -> '[' Numeric+ ']'
+//	Star -> '*'
+//	Star -> Index '*'
 //
-//     WidthAndPrecision -> Width '.' Precision
-//     WidthAndPrecision -> Width '.'
-//     WidthAndPrecision -> Width
-//     WidthAndPrecision -> '.' Precision
-//     WidthAndPrecision -> '.'
+//	Precision -> Numeric+ | Star
+//	Width -> Numeric+ | Star
 //
-//     Flag -> '+' | '-' | '#' | ' ' | '0'
-//     Verb -> Letter | '%'
+//	WidthAndPrecision -> Width '.' Precision
+//	WidthAndPrecision -> Width '.'
+//	WidthAndPrecision -> Width
+//	WidthAndPrecision -> '.' Precision
+//	WidthAndPrecision -> '.'
 //
-//     Input -> '%' [ Flag+ ] [ WidthAndPrecision ] [ Index ] Verb
+//	Flag -> '+' | '-' | '#' | ' ' | '0'
+//	Verb -> Letter | '%'
+//
+//	Input -> '%' [ Flag+ ] [ WidthAndPrecision ] [ Index ] Verb
 package printf
 
 import (
@@ -73,8 +74,8 @@ func (Literal) isArgument() {}
 
 // Parse parses f and returns a list of actions.
 // An action may either be a literal string, or a Verb.
-func Parse(f string) ([]interface{}, error) {
-	var out []interface{}
+func Parse(f string) ([]any, error) {
+	var out []any
 	for len(f) > 0 {
 		if f[0] == '%' {
 			v, n, err := ParseVerb(f)

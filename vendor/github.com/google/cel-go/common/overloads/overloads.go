@@ -148,12 +148,22 @@ const (
 	StartsWith = "startsWith"
 )
 
+// Extension function overloads with complex behaviors that need to be referenced in runtime and static analysis cost computations.
+const (
+	ExtQuoteString = "strings_quote"
+)
+
 // String function overload names.
 const (
 	ContainsString   = "contains_string"
 	EndsWithString   = "ends_with_string"
 	MatchesString    = "matches_string"
 	StartsWithString = "starts_with_string"
+)
+
+// Extension function overloads with complex behaviors that need to be referenced in runtime and static analysis cost computations.
+const (
+	ExtFormatString = "string_format"
 )
 
 // Time-based functions.
@@ -281,7 +291,6 @@ const (
 const (
 	DurationToDuration = "duration_to_duration"
 	StringToDuration   = "string_to_duration"
-	IntToDuration      = "int64_to_duration"
 )
 
 // Convert to dyn

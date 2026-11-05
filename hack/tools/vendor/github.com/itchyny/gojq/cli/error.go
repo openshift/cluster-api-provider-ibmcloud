@@ -2,13 +2,17 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/itchyny/go-yaml"
 	"github.com/mattn/go-runewidth"
+
+	"github.com/itchyny/gojq"
 )
 
 type emptyError struct {
@@ -19,9 +23,7 @@ func (*emptyError) Error() string {
 	return ""
 }
 
-func (*emptyError) IsEmptyError() bool {
-	return true
-}
+func (*emptyError) isEmptyError() {}
 
 func (err *emptyError) ExitCode() int {
 	if err, ok := err.err.(interface{ ExitCode() int }); ok {
@@ -38,9 +40,7 @@ func (err *exitCodeError) Error() string {
 	return "exit code: " + strconv.Itoa(err.code)
 }
 
-func (err *exitCodeError) IsEmptyError() bool {
-	return true
-}
+func (*exitCodeError) isEmptyError() {}
 
 func (err *exitCodeError) ExitCode() int {
 	return err.code
@@ -54,7 +54,7 @@ func (err *flagParseError) Error() string {
 	return err.err.Error()
 }
 
-func (err *flagParseError) ExitCode() int {
+func (*flagParseError) ExitCode() int {
 	return exitCodeFlagParseErr
 }
 
@@ -66,7 +66,7 @@ func (err *compileError) Error() string {
 	return "compile error: " + err.err.Error()
 }
 
-func (err *compileError) ExitCode() int {
+func (*compileError) ExitCode() int {
 	return exitCodeCompileErr
 }
 
@@ -77,21 +77,20 @@ type queryParseError struct {
 
 func (err *queryParseError) Error() string {
 	var offset int
-	if e, ok := err.err.(interface{ Token() (string, int) }); ok {
-		var token string
-		token, offset = e.Token()
-		offset -= len(token) - 1
+	var e *gojq.ParseError
+	if errors.As(err.err, &e) {
+		offset = e.Offset - len(e.Token) + 1
 	}
 	linestr, line, column := getLineByOffset(err.contents, offset)
 	if err.fname != "<arg>" || containsNewline(err.contents) {
 		return fmt.Sprintf("invalid query: %s:%d\n%s  %s",
 			err.fname, line, formatLineInfo(linestr, line, column), err.err)
 	}
-	return fmt.Sprintf("invalid query: %s\n    %s\n%s    ^  %s",
-		err.contents, linestr, strings.Repeat(" ", column), err.err)
+	return fmt.Sprintf("invalid query: %s\n    %s\n    %*c  %s",
+		err.contents, linestr, column+1, '^', err.err)
 }
 
-func (err *queryParseError) ExitCode() int {
+func (*queryParseError) ExitCode() int {
 	return exitCodeCompileErr
 }
 
@@ -113,8 +112,8 @@ func (err *jsonParseError) Error() string {
 		return fmt.Sprintf("invalid json: %s:%d\n%s  %s",
 			err.fname, line, formatLineInfo(linestr, line, column), err.err)
 	}
-	return fmt.Sprintf("invalid json: %s\n    %s\n%s    ^  %s",
-		err.fname, linestr, strings.Repeat(" ", column), err.err)
+	return fmt.Sprintf("invalid json: %s\n    %s\n    %*c  %s",
+		err.fname, linestr, column+1, '^', err.err)
 }
 
 type yamlParseError struct {
@@ -123,20 +122,24 @@ type yamlParseError struct {
 }
 
 func (err *yamlParseError) Error() string {
-	var line int
-	msg := strings.TrimPrefix(
-		strings.TrimPrefix(err.err.Error(), "yaml: "),
-		"unmarshal errors:\n  ")
-	if fmt.Sscanf(msg, "line %d: ", &line); line == 0 {
-		return "invalid yaml: " + err.fname
+	var index int
+	var message string
+	var pe *yaml.ParserError
+	var te *yaml.TypeError
+	if errors.As(err.err, &pe) {
+		index, message = pe.Index, pe.Message
+	} else if errors.As(err.err, &te) {
+		var ue *yaml.UnmarshalError
+		for _, e := range te.Errors {
+			if errors.As(e, &ue) {
+				index, message = ue.Index, ue.Err.Error()
+				break
+			}
+		}
 	}
-	msg = msg[strings.Index(msg, ": ")+2:]
-	if i := strings.IndexByte(msg, '\n'); i >= 0 {
-		msg = msg[:i]
-	}
-	linestr := getLineByLine(err.contents, line)
+	linestr, line, column := getLineByOffset(err.contents, index+1)
 	return fmt.Sprintf("invalid yaml: %s:%d\n%s  %s",
-		err.fname, line, formatLineInfo(linestr, line, 0), msg)
+		err.fname, line, formatLineInfo(linestr, line, column), message)
 }
 
 func getLineByOffset(str string, offset int) (linestr string, line, column int) {
@@ -154,46 +157,19 @@ func getLineByOffset(str string, offset int) (linestr string, line, column int) 
 			break
 		}
 	}
-	if offset > len(linestr) {
-		offset = len(linestr)
-	} else if offset > 0 {
-		offset--
-	} else {
-		offset = 0
-	}
+	offset = min(max(offset-1, 0), len(linestr))
 	if offset > 48 {
 		skip := len(trimLastInvalidRune(linestr[:offset-48]))
 		linestr = linestr[skip:]
 		offset -= skip
 	}
-	if len(linestr) > 64 {
-		linestr = linestr[:64]
-	}
-	linestr = trimLastInvalidRune(linestr)
-	if offset >= len(linestr) {
-		offset = len(linestr)
-	} else {
+	linestr = trimLastInvalidRune(linestr[:min(64, len(linestr))])
+	if offset < len(linestr) {
 		offset = len(trimLastInvalidRune(linestr[:offset]))
+	} else {
+		offset = len(linestr)
 	}
 	column = runewidth.StringWidth(linestr[:offset])
-	return
-}
-
-func getLineByLine(str string, line int) (linestr string) {
-	ss := &stringScanner{str, 0}
-	for {
-		str, _, ok := ss.next()
-		if !ok {
-			break
-		}
-		if line--; line == 0 {
-			linestr = str
-			break
-		}
-	}
-	if len(linestr) > 64 {
-		linestr = trimLastInvalidRune(linestr[:64])
-	}
 	return
 }
 
@@ -213,8 +189,7 @@ func trimLastInvalidRune(s string) string {
 
 func formatLineInfo(linestr string, line, column int) string {
 	l := strconv.Itoa(line)
-	return "    " + l + " | " + linestr + "\n" +
-		strings.Repeat(" ", len(l)+column) + "       ^"
+	return fmt.Sprintf("    %s | %s\n    %*c", l, linestr, column+len(l)+4, '^')
 }
 
 type stringScanner struct {

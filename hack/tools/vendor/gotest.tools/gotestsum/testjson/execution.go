@@ -19,7 +19,6 @@ import (
 // Action of TestEvent
 type Action string
 
-// nolint: unused
 const (
 	ActionRun    Action = "run"
 	ActionPause  Action = "pause"
@@ -29,6 +28,8 @@ const (
 	ActionFail   Action = "fail"
 	ActionOutput Action = "output"
 	ActionSkip   Action = "skip"
+	ActionBuild  Action = "build-output"
+	ActionAttr   Action = "attr"
 )
 
 // IsTerminal returns true if the Action is one of: pass, fail, skip.
@@ -44,10 +45,11 @@ func (a Action) IsTerminal() bool {
 // TestEvent is a structure output by go tool test2json and go test -json.
 type TestEvent struct {
 	// Time encoded as an RFC3339-format string
-	Time    time.Time
-	Action  Action
-	Package string
-	Test    string
+	Time       time.Time
+	Action     Action
+	Package    string
+	Test       string
+	ImportPath string
 	// Elapsed time in seconds
 	Elapsed float64
 	// Output of test or benchmark
@@ -56,16 +58,15 @@ type TestEvent struct {
 	raw []byte
 	// RunID from the ScanConfig which produced this test event.
 	RunID int
+	// Key for the attribute key
+	Key string
+	// Value for the attribute value
+	Value string
 }
 
 // PackageEvent returns true if the event is a package start or end event
 func (e TestEvent) PackageEvent() bool {
 	return e.Test == ""
-}
-
-// ElapsedFormatted returns Elapsed formatted in the go test format, ex (0.00s).
-func (e TestEvent) ElapsedFormatted() string {
-	return fmt.Sprintf("(%.2fs)", e.Elapsed)
 }
 
 // Bytes returns the serialized JSON bytes that were parsed to create the event.
@@ -80,6 +81,9 @@ type Package struct {
 	Failed  []TestCase
 	Skipped []TestCase
 	Passed  []TestCase
+
+	// Start is the earliest timestamp reported by any event for this package.
+	Start time.Time
 
 	// elapsed time reported by the pass or fail event for the package.
 	elapsed time.Duration
@@ -106,9 +110,17 @@ type Package struct {
 	// github.com/golang/go/issues/45508. This field may be removed in the future
 	// if the issue is fixed in Go.
 	panicked bool
+	// hasDataRace is true if the package, or one of the tests in the package,
+	// contained output that looked like a data race.
+	hasDataRace bool
 	// shuffleSeed is the seed used to shuffle the tests. The value is set when
 	// tests are run with -shuffle
 	shuffleSeed string
+
+	// testTimeoutPanicInTest stores the name of a test that received the panic
+	// output caused by a test timeout. This is necessary to work around a race
+	// condition in test2json. See https://github.com/golang/go/issues/57305.
+	testTimeoutPanicInTest string
 }
 
 // Result returns if the package passed, failed, or was skipped because there
@@ -146,11 +158,22 @@ func (p *Package) LastFailedByName(name string) TestCase {
 	return TestCase{}
 }
 
-// Output returns the full test output for a test.
+// Output returns the full test output for a test. Unlike OutputLines() it does
+// not return lines from subtests in some cases.
 //
-// Unlike OutputLines() it does not return lines from subtests in some cases.
+// Deprecated: use WriteOutputTo to avoid lots of allocation
 func (p *Package) Output(id int) string {
 	return strings.Join(p.output[id], "")
+}
+
+// WriteOutputTo writes the output for TestCase with id to out.
+func (p *Package) WriteOutputTo(out io.StringWriter, id int) error {
+	for _, v := range p.output[id] {
+		if _, err := out.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // OutputLines returns the full test output for a test as a slice of strings.
@@ -183,7 +206,9 @@ func (p *Package) addOutput(id int, output string) {
 	if strings.HasPrefix(output, "panic: ") {
 		p.panicked = true
 	}
-	// TODO: limit size of buffered test output
+	if strings.HasPrefix(output, "WARNING: DATA RACE") {
+		p.hasDataRace = true
+	}
 	p.output[id] = append(p.output[id], output)
 }
 
@@ -207,6 +232,14 @@ func (n TestName) Name() string {
 	return string(n)
 }
 
+func (n TestName) Parent() string {
+	idx := strings.LastIndex(string(n), "/")
+	if idx < 0 {
+		return ""
+	}
+	return string(n)[:idx]
+}
+
 func (p *Package) removeOutput(id int) {
 	delete(p.output, id)
 
@@ -226,10 +259,20 @@ func tcIDSet(skipped []TestCase) map[int]struct{} {
 	return result
 }
 
-// TestMainFailed returns true if the package failed, but there were no tests.
-// This may occur if the package init() or TestMain exited non-zero.
+// TestMainFailed returns true if the package has output related to a failure. This
+// may happen if a TestMain or init function panic, or if test timeout
+// is reached and output is associated with the package instead of the running
+// test.
 func (p *Package) TestMainFailed() bool {
+	if p.testTimeoutPanicInTest != "" {
+		return true
+	}
 	return p.action == ActionFail && len(p.Failed) == 0
+}
+
+// IsEmpty returns true if this package contains no tests.
+func (p *Package) IsEmpty() bool {
+	return p.Total == 0 && !p.TestMainFailed()
 }
 
 const neverFinished time.Duration = -1
@@ -305,6 +348,18 @@ type TestCase struct {
 	hasSubTestFailed bool
 	// Time when the test was run.
 	Time time.Time
+	// Attributes are the attributes emitted from T.Attr.
+	Attributes map[string]string
+}
+
+// addAttribute adds an attribute with both key and value
+// and returns the updated TestCase with it.
+func (c TestCase) addAttribute(key string, value string) TestCase {
+	if c.Attributes == nil {
+		c.Attributes = make(map[string]string)
+	}
+	c.Attributes[key] = value
+	return c
 }
 
 func newPackage() *Package {
@@ -317,7 +372,9 @@ func newPackage() *Package {
 
 // Execution of one or more test packages
 type Execution struct {
-	started    time.Time
+	procStart  time.Time
+	testStart  time.Time
+	testEnd    time.Time
 	packages   map[string]*Package
 	errorsLock sync.RWMutex
 	errors     []string
@@ -331,6 +388,24 @@ func (e *Execution) add(event TestEvent) {
 		pkg = newPackage()
 		e.packages[event.Package] = pkg
 	}
+
+	if !event.Time.IsZero() {
+		if e.testStart.IsZero() || event.Time.Before(e.testStart) {
+			e.testStart = event.Time
+		}
+		if event.Time.After(e.testEnd) {
+			e.testEnd = event.Time
+		}
+		if pkg.Start.IsZero() || event.Time.Before(pkg.Start) {
+			pkg.Start = event.Time
+		}
+	}
+
+	if event.Action == ActionBuild {
+		e.addError(event.Output)
+		return
+	}
+
 	if event.PackageEvent() {
 		pkg.addEvent(event)
 		return
@@ -344,8 +419,8 @@ func (p *Package) addEvent(event TestEvent) {
 		p.action = event.Action
 		p.elapsed = elapsedDuration(event.Elapsed)
 	case ActionOutput:
-		if isCoverageOutput(event.Output) {
-			p.coverage = strings.TrimRight(event.Output, "\n")
+		if coverage, ok := isCoverageOutput(event.Output); ok {
+			p.coverage = coverage
 		}
 		if strings.Contains(event.Output, "\t(cached)") {
 			p.cached = true
@@ -393,8 +468,19 @@ func (p *Package) addTestEvent(event TestEvent) {
 
 	switch event.Action {
 	case ActionOutput, ActionBench:
+		if strings.HasPrefix(event.Output, "panic: test timed out") {
+			p.testTimeoutPanicInTest = event.Test
+		}
+		if p.testTimeoutPanicInTest == event.Test {
+			p.addOutput(0, event.Output)
+			return
+		}
+
 		tc := p.running[event.Test]
 		p.addOutput(tc.ID, event.Output)
+		return
+	case ActionAttr:
+		p.running[event.Test] = tc.addAttribute(event.Key, event.Value)
 		return
 	case ActionPause, ActionCont:
 		return
@@ -437,10 +523,22 @@ func elapsedDuration(elapsed float64) time.Duration {
 	return time.Duration(elapsed*1000) * time.Millisecond
 }
 
-func isCoverageOutput(output string) bool {
-	return all(
-		strings.HasPrefix(output, "coverage:"),
-		strings.Contains(output, "% of statements"))
+func isCoverageOutput(output string) (string, bool) {
+	start := strings.Index(output, "coverage:")
+	if start < 0 {
+		return "", false
+	}
+
+	if !strings.Contains(output[start:], "% of statements") {
+		return "", false
+	}
+
+	return strings.TrimRight(output[start:], "\n"), true
+}
+
+func isCoverageOutputPreGo119(output string) bool {
+	return strings.HasPrefix(output, "coverage:") &&
+		strings.HasSuffix(output, "% of statements\n")
 }
 
 func isShuffleSeedOutput(output string) bool {
@@ -474,7 +572,10 @@ var timeNow = time.Now
 
 // Elapsed returns the time elapsed since the execution started.
 func (e *Execution) Elapsed() time.Duration {
-	return timeNow().Sub(e.started)
+	if !e.testEnd.IsZero() {
+		return e.testEnd.Sub(e.Started())
+	}
+	return timeNow().Sub(e.Started())
 }
 
 // Failed returns a list of all the failed test cases.
@@ -482,11 +583,13 @@ func (e *Execution) Failed() []TestCase {
 	if e == nil {
 		return nil
 	}
-	var failed []TestCase //nolint:prealloc
+	var failed []TestCase
 	for _, name := range sortedKeys(e.packages) {
 		pkg := e.packages[name]
 
-		// Add package-level failure output if there were no failed tests.
+		// Add package-level failure output if there were no failed tests, or
+		// if the test timeout was reached (because we now have to store that
+		// output on the package).
 		if pkg.TestMainFailed() {
 			failed = append(failed, TestCase{Package: name})
 		}
@@ -495,15 +598,42 @@ func (e *Execution) Failed() []TestCase {
 	return failed
 }
 
-// FilterFailedUnique filters a slice of failed TestCases by removing root test
-// case that have failed subtests.
+// FilterFailedUnique filters a slice of failed TestCases to remove any parent
+// tests that have failed subtests. The parent test will always be run when
+// running any of its subtests.
 func FilterFailedUnique(tcs []TestCase) []TestCase {
-	var result []TestCase
-	for _, tc := range tcs {
-		if !tc.hasSubTestFailed {
-			result = append(result, tc)
+	sort.Slice(tcs, func(i, j int) bool {
+		a, b := tcs[i], tcs[j]
+		if a.Package != b.Package {
+			return a.Package < b.Package
 		}
+		return len(a.Test.Name()) > len(b.Test.Name())
+	})
+
+	var result []TestCase //nolint:prealloc
+	var parents = make(map[string]map[string]bool)
+	for _, tc := range tcs {
+		if _, exists := parents[tc.Package]; !exists {
+			parents[tc.Package] = make(map[string]bool)
+		}
+
+		for p := tc.Test.Parent(); p != ""; p = TestName(p).Parent() {
+			parents[tc.Package][p] = true
+		}
+		if _, exists := parents[tc.Package][tc.Test.Name()]; exists {
+			continue // tc is a parent of a failing subtest
+		}
+		result = append(result, tc)
 	}
+
+	// Restore the original order of test cases
+	sort.Slice(result, func(i, j int) bool {
+		a, b := result[i], result[j]
+		if a.Package != b.Package {
+			return a.Package < b.Package
+		}
+		return a.ID < b.ID
+	})
 	return result
 }
 
@@ -562,9 +692,18 @@ func (e *Execution) HasPanic() bool {
 	return false
 }
 
+func (e *Execution) HasDataRace() bool {
+	for _, pkg := range e.packages {
+		if pkg.hasDataRace {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *Execution) end() []TestEvent {
 	e.done = true
-	var result []TestEvent // nolint: prealloc
+	var result []TestEvent
 	for _, pkg := range e.packages {
 		result = append(result, pkg.end()...)
 	}
@@ -572,15 +711,18 @@ func (e *Execution) end() []TestEvent {
 }
 
 func (e *Execution) Started() time.Time {
-	return e.started
+	if e.testStart.IsZero() {
+		return e.procStart
+	}
+	return e.testStart
 }
 
 // newExecution returns a new Execution and records the current time as the
 // time the test execution started.
 func newExecution() *Execution {
 	return &Execution{
-		started:  timeNow(),
-		packages: make(map[string]*Package),
+		procStart: time.Now(),
+		packages:  make(map[string]*Package),
 	}
 }
 
@@ -672,12 +814,12 @@ func readStdout(config ScanConfig, execution *Execution) error {
 		event, err := parseEvent(raw)
 		switch {
 		case err == errBadEvent:
-			// nolint: errcheck
+			//nolint:errcheck
 			config.Handler.Err(errBadEvent.Error() + ": " + scanner.Text())
 			continue
 		case err != nil:
 			if config.IgnoreNonJSONOutputLines {
-				// nolint: errcheck
+				//nolint:errcheck
 				config.Handler.Err(string(raw))
 				continue
 			}
@@ -703,7 +845,7 @@ func readStderr(config ScanConfig, execution *Execution) error {
 		if err := config.Handler.Err(line); err != nil {
 			return fmt.Errorf("failed to handle stderr: %v", err)
 		}
-		if isGoModuleOutput(line) {
+		if isGoModuleOutput(line) || isGoDebugOutput(line) {
 			continue
 		}
 		if strings.HasPrefix(line, "warning:") {
@@ -711,6 +853,7 @@ func readStderr(config ScanConfig, execution *Execution) error {
 		}
 		execution.addError(line)
 	}
+
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("failed to scan stderr: %v", err)
 	}
@@ -724,6 +867,20 @@ func isGoModuleOutput(scannerText string) bool {
 		"go: downloading",
 		"go: extracting",
 		"go: finding",
+	}
+
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(scannerText, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isGoDebugOutput(scannerText string) bool {
+	prefixes := []string{
+		"HASH",       // Printed when tests are running with `GODEBUG=gocachehash=1`.
+		"testcache:", // Printed when tests are running with `GODEBUG=gocachetest=1`.
 	}
 
 	for _, prefix := range prefixes {

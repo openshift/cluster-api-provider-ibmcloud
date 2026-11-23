@@ -6,21 +6,26 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"go/version"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"honnef.co/go/tools/analysis/code"
 	"honnef.co/go/tools/analysis/facts/generated"
-	"honnef.co/go/tools/go/ast/astutil"
 
 	"golang.org/x/tools/go/analysis"
 )
 
 type Options struct {
-	ShortRange      bool
-	FilterGenerated bool
-	Fixes           []analysis.SuggestedFix
-	Related         []analysis.RelatedInformation
+	ShortRange             bool
+	FilterGenerated        bool
+	Fixes                  []analysis.SuggestedFix
+	Related                []analysis.RelatedInformation
+	MinimumLanguageVersion string
+	MaximumLanguageVersion string
+	MinimumStdlibVersion   string
+	MaximumStdlibVersion   string
 }
 
 type Option func(*Options)
@@ -56,6 +61,19 @@ func Related(node Positioner, message string) Option {
 		}
 		opts.Related = append(opts.Related, r)
 	}
+}
+
+func MinimumLanguageVersion(vers string) Option {
+	return func(opts *Options) { opts.MinimumLanguageVersion = vers }
+}
+func MaximumLanguageVersion(vers string) Option {
+	return func(opts *Options) { opts.MinimumLanguageVersion = vers }
+}
+func MinimumStdlibVersion(vers string) Option {
+	return func(opts *Options) { opts.MinimumStdlibVersion = vers }
+}
+func MaximumStdlibVersion(vers string) Option {
+	return func(opts *Options) { opts.MaximumStdlibVersion = vers }
 }
 
 type Positioner interface {
@@ -103,7 +121,7 @@ func shortRange(node ast.Node) (pos, end token.Pos) {
 	case *ast.FuncLit:
 		return node.Pos(), node.Type.End()
 	case *ast.GoStmt:
-		if _, ok := astutil.Unparen(node.Call.Fun).(*ast.FuncLit); ok {
+		if _, ok := ast.Unparen(node.Call.Fun).(*ast.FuncLit); ok {
 			return node.Pos(), node.Go + token.Pos(len("go"))
 		} else {
 			return node.Pos(), node.End()
@@ -170,6 +188,21 @@ func Report(pass *analysis.Pass, node Positioner, message string, opts ...Option
 		opt(cfg)
 	}
 
+	langVersion := code.LanguageVersion(pass, node)
+	stdlibVersion := code.StdlibVersion(pass, node)
+	if n := cfg.MaximumLanguageVersion; n != "" && version.Compare(n, langVersion) == -1 {
+		return
+	}
+	if n := cfg.MaximumStdlibVersion; n != "" && version.Compare(n, stdlibVersion) == -1 {
+		return
+	}
+	if n := cfg.MinimumLanguageVersion; n != "" && version.Compare(n, langVersion) == 1 {
+		return
+	}
+	if n := cfg.MinimumStdlibVersion; n != "" && version.Compare(n, stdlibVersion) == 1 {
+		return
+	}
+
 	file := DisplayPosition(pass.Fset, node.Pos()).Filename
 	if cfg.FilterGenerated {
 		m := pass.ResultOf[generated.Analyzer].(map[string]generated.Generator)
@@ -192,7 +225,7 @@ func Report(pass *analysis.Pass, node Positioner, message string, opts ...Option
 	pass.Report(d)
 }
 
-func Render(pass *analysis.Pass, x interface{}) string {
+func Render(pass *analysis.Pass, x any) string {
 	var buf bytes.Buffer
 	if err := format.Node(&buf, pass.Fset, x); err != nil {
 		panic(err)

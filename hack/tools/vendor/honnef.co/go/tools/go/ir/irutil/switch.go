@@ -55,7 +55,6 @@ type TypeCase struct {
 // A type switch may contain duplicate types, or types assignable
 // to an interface type also in the list.
 // TODO(adonovan): eliminate such duplicates.
-//
 type Switch struct {
 	Start      *ir.BasicBlock // block containing start of if/else chain
 	X          ir.Value       // the switch operand
@@ -103,7 +102,6 @@ func (sw *Switch) String() string {
 // Switches may even be inferred from if/else- or goto-based control flow.
 // (In general, the control flow constructs of the source program
 // cannot be faithfully reproduced from the IR.)
-//
 func Switches(fn *ir.Function) []Switch {
 	// Traverse the CFG in dominance order, so we don't
 	// enter an if/else-chain in the middle.
@@ -131,20 +129,10 @@ func Switches(fn *ir.Function) []Switch {
 	return switches
 }
 
-func isSameX(x1 ir.Value, x2 ir.Value) bool {
-	if x1 == x2 {
-		return true
-	}
-	if x2, ok := x2.(*ir.Sigma); ok {
-		return isSameX(x1, x2.X)
-	}
-	return false
-}
-
 func valueSwitch(sw *Switch, k *ir.Const, seen map[*ir.BasicBlock]bool) {
 	b := sw.Start
 	x := sw.X
-	for isSameX(sw.X, x) {
+	for sw.X == x {
 		if seen[b] {
 			break
 		}
@@ -161,13 +149,13 @@ func valueSwitch(sw *Switch, k *ir.Const, seen map[*ir.BasicBlock]bool) {
 			switch instr.(type) {
 			case *ir.If, *ir.BinOp:
 				n++
-			case *ir.Sigma, *ir.Phi, *ir.DebugRef:
+			case *ir.Phi:
 			default:
 				n += 1000
 			}
 		}
 		if n != 2 {
-			// Block b contains not just 'if x == k' and σ/ϕ nodes,
+			// Block b contains not just 'if x == k' and ϕ nodes,
 			// so it may have side effects that
 			// make it unsafe to elide.
 			break
@@ -185,7 +173,7 @@ func valueSwitch(sw *Switch, k *ir.Const, seen map[*ir.BasicBlock]bool) {
 func typeSwitch(sw *Switch, y ir.Value, T types.Type, seen map[*ir.BasicBlock]bool) {
 	b := sw.Start
 	x := sw.X
-	for isSameX(sw.X, x) {
+	for sw.X == x {
 		if seen[b] {
 			break
 		}
@@ -203,7 +191,7 @@ func typeSwitch(sw *Switch, y ir.Value, T types.Type, seen map[*ir.BasicBlock]bo
 			switch instr.(type) {
 			case *ir.TypeAssert, *ir.Extract, *ir.If:
 				n++
-			case *ir.Sigma, *ir.Phi:
+			case *ir.Phi:
 			default:
 				n += 1000
 			}
@@ -227,7 +215,6 @@ func typeSwitch(sw *Switch, y ir.Value, T types.Type, seen map[*ir.BasicBlock]bo
 
 // isComparisonBlock returns the operands (v, k) if a block ends with
 // a comparison v==k, where k is a compile-time constant.
-//
 func isComparisonBlock(b *ir.BasicBlock) (v ir.Value, k *ir.Const) {
 	if n := len(b.Instrs); n >= 2 {
 		if i, ok := b.Instrs[n-1].(*ir.If); ok {
@@ -246,7 +233,6 @@ func isComparisonBlock(b *ir.BasicBlock) (v ir.Value, k *ir.Const) {
 
 // isTypeAssertBlock returns the operands (y, x, T) if a block ends with
 // a type assertion "if y, ok := x.(T); ok {".
-//
 func isTypeAssertBlock(b *ir.BasicBlock) (y, x ir.Value, T types.Type) {
 	if n := len(b.Instrs); n >= 4 {
 		if i, ok := b.Instrs[n-1].(*ir.If); ok {

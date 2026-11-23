@@ -21,28 +21,34 @@ package container
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	dockercontainer "github.com/docker/docker/api/types/container"
-	dockerfilters "github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/docker/go-connections/nat"
-	"github.com/pkg/errors"
+	dockerstdcopy "github.com/moby/moby/api/pkg/stdcopy"
+	dockercontainer "github.com/moby/moby/api/types/container"
+	dockernetwork "github.com/moby/moby/api/types/network"
+	dockersystem "github.com/moby/moby/api/types/system"
+	"github.com/moby/moby/client"
+	pkgerrors "github.com/pkg/errors"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/utils/ptr"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/test/infrastructure/kind"
 )
 
 const (
 	httpProxy  = "HTTP_PROXY"
 	httpsProxy = "HTTPS_PROXY"
 	noProxy    = "NO_PROXY"
+
+	btrfsStorage = "btrfs"
+	zfsStorage   = "zfs"
 )
 
 type dockerRuntime struct {
@@ -53,8 +59,9 @@ type dockerRuntime struct {
 func NewDockerClient() (Runtime, error) {
 	dockerClient, err := getDockerClient()
 	if err != nil {
-		return nil, fmt.Errorf("failed to created docker runtime client")
+		return nil, pkgerrors.Wrapf(err, "failed to created docker runtime client")
 	}
+
 	return &dockerRuntime{
 		dockerClient: dockerClient,
 	}, nil
@@ -62,7 +69,7 @@ func NewDockerClient() (Runtime, error) {
 
 // getDockerClient returns a new client connection for interacting with the Docker engine.
 func getDockerClient() (*client.Client, error) {
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("create Docker client: %v", err)
 	}
@@ -98,7 +105,7 @@ func (d *dockerRuntime) SaveContainerImage(ctx context.Context, image, dest stri
 func (d *dockerRuntime) PullContainerImageIfNotExists(ctx context.Context, image string) error {
 	imageExistsLocally, err := d.ImageExistsLocally(ctx, image)
 	if err != nil {
-		return errors.Wrapf(err, "failure determining if the image exists in local cache: %s", image)
+		return pkgerrors.Wrapf(err, "failure determining if the image exists in local cache: %s", image)
 	}
 	if imageExistsLocally {
 		return nil
@@ -109,7 +116,7 @@ func (d *dockerRuntime) PullContainerImageIfNotExists(ctx context.Context, image
 
 // PullContainerImage triggers the Docker engine to pull an image.
 func (d *dockerRuntime) PullContainerImage(ctx context.Context, image string) error {
-	pullResp, err := d.dockerClient.ImagePull(ctx, image, types.ImagePullOptions{})
+	pullResp, err := d.dockerClient.ImagePull(ctx, image, client.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("failure pulling container image: %v", err)
 	}
@@ -126,15 +133,15 @@ func (d *dockerRuntime) PullContainerImage(ctx context.Context, image string) er
 
 // ImageExistsLocally returns if the specified image exists in local container image cache.
 func (d *dockerRuntime) ImageExistsLocally(ctx context.Context, image string) (bool, error) {
-	filters := dockerfilters.NewArgs()
+	filters := make(client.Filters)
 	filters.Add("reference", image)
-	images, err := d.dockerClient.ImageList(ctx, types.ImageListOptions{
+	images, err := d.dockerClient.ImageList(ctx, client.ImageListOptions{
 		Filters: filters,
 	})
 	if err != nil {
-		return false, errors.Wrapf(err, "failure listing container image: %s", image)
+		return false, pkgerrors.Wrapf(err, "failure listing container image: %s", image)
 	}
-	if len(images) > 0 {
+	if len(images.Items) > 0 {
 		return true, nil
 	}
 	return false, nil
@@ -143,14 +150,14 @@ func (d *dockerRuntime) ImageExistsLocally(ctx context.Context, image string) (b
 // GetHostPort looks up the host port bound for the port and protocol (e.g. "6443/tcp").
 func (d *dockerRuntime) GetHostPort(ctx context.Context, containerName, portAndProtocol string) (string, error) {
 	// Get details about the container
-	containerInfo, err := d.dockerClient.ContainerInspect(ctx, containerName)
+	containerInfo, err := d.dockerClient.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 	if err != nil {
 		return "", fmt.Errorf("error getting container information for %q: %v", containerName, err)
 	}
 
 	// Loop through the container port bindings and return the first HostPort
-	for port, bindings := range containerInfo.NetworkSettings.Ports {
-		if string(port) == portAndProtocol {
+	for port, bindings := range containerInfo.Container.NetworkSettings.Ports {
+		if port.String() == portAndProtocol {
 			for _, binding := range bindings {
 				return binding.HostPort, nil
 			}
@@ -161,9 +168,8 @@ func (d *dockerRuntime) GetHostPort(ctx context.Context, containerName, portAndP
 }
 
 // ExecContainer executes a command in a running container and writes any output to the provided writer.
-func (d *dockerRuntime) ExecContainer(ctxd context.Context, containerName string, config *ExecContainerInput, command string, args ...string) error {
-	ctx := context.Background() // Let the command finish, even if it takes longer than the default timeout
-	execConfig := types.ExecConfig{
+func (d *dockerRuntime) ExecContainer(ctx context.Context, containerName string, config *ExecContainerInput, command string, args ...string) error {
+	execConfig := client.ExecCreateOptions{
 		// Run with privileges so we can remount etc..
 		// This might not make sense in the most general sense, but it is
 		// important to many kind commands.
@@ -175,19 +181,19 @@ func (d *dockerRuntime) ExecContainer(ctxd context.Context, containerName string
 		Env:          config.EnvironmentVars,
 	}
 
-	response, err := d.dockerClient.ContainerExecCreate(ctx, containerName, execConfig)
+	response, err := d.dockerClient.ExecCreate(ctx, containerName, execConfig)
 	if err != nil {
-		return errors.Wrap(err, "error creating container exec")
+		return pkgerrors.Wrap(err, "error creating container exec")
 	}
 
 	execID := response.ID
 	if execID == "" {
-		return errors.Wrap(err, "exec ID empty")
+		return pkgerrors.Wrap(err, "exec ID empty")
 	}
 
-	resp, err := d.dockerClient.ContainerExecAttach(ctx, execID, types.ExecStartCheck{})
+	resp, err := d.dockerClient.ExecAttach(ctx, execID, client.ExecAttachOptions{})
 	if err != nil {
-		return errors.Wrap(err, "error attaching to container exec")
+		return pkgerrors.Wrap(err, "error attaching to container exec")
 	}
 	defer resp.Close()
 
@@ -211,7 +217,7 @@ func (d *dockerRuntime) ExecContainer(ctxd context.Context, containerName string
 		// Send the output to the output writer
 		var err error
 		if config.ErrorBuffer != nil {
-			_, err = stdcopy.StdCopy(config.OutputBuffer, config.ErrorBuffer, resp.Reader)
+			_, err = dockerstdcopy.StdCopy(config.OutputBuffer, config.ErrorBuffer, resp.Reader)
 		} else {
 			_, err = io.Copy(config.OutputBuffer, resp.Reader)
 		}
@@ -222,28 +228,28 @@ func (d *dockerRuntime) ExecContainer(ctxd context.Context, containerName string
 	select {
 	case err := <-inputErrors:
 		if err != nil {
-			return errors.Wrap(err, "error providing execution input")
+			return pkgerrors.Wrap(err, "error providing execution input")
 		}
 
 	case err := <-outputErrors:
 		if err != nil {
-			return errors.Wrap(err, "error getting execution output")
+			return pkgerrors.Wrap(err, "error getting execution output")
 		}
 
 	case <-ctx.Done():
-		return errors.Wrap(ctx.Err(), "operation cancelled")
+		return pkgerrors.Wrap(ctx.Err(), "operation cancelled")
 	}
 
 	retry := 0
 	for retry < 600 {
-		inspect, err := d.dockerClient.ContainerExecInspect(ctx, execID)
+		inspect, err := d.dockerClient.ExecInspect(ctx, execID, client.ExecInspectOptions{})
 		if err != nil {
-			return errors.Wrap(err, "failed to get exec status")
+			return pkgerrors.Wrap(err, "failed to get exec status")
 		}
 
 		if !inspect.Running {
 			if status := inspect.ExitCode; status != 0 {
-				return errors.Errorf("exited with status: %d, %s", status, config.OutputBuffer)
+				return pkgerrors.Errorf("exited with status: %d, %s", status, config.OutputBuffer)
 			}
 			break
 		}
@@ -257,10 +263,10 @@ func (d *dockerRuntime) ExecContainer(ctxd context.Context, containerName string
 
 // ListContainers returns a list of all containers.
 func (d *dockerRuntime) ListContainers(ctx context.Context, filters FilterBuilder) ([]Container, error) {
-	listOptions := types.ContainerListOptions{
+	listOptions := client.ContainerListOptions{
 		All:     true,
 		Limit:   -1,
-		Filters: dockerfilters.NewArgs(),
+		Filters: make(client.Filters),
 	}
 
 	// Construct our filtering options
@@ -278,12 +284,12 @@ func (d *dockerRuntime) ListContainers(ctx context.Context, filters FilterBuilde
 
 	dockerContainers, err := d.dockerClient.ContainerList(ctx, listOptions)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to list containers")
+		return nil, pkgerrors.Wrap(err, "failed to list containers")
 	}
 
 	containers := []Container{}
-	for i := range dockerContainers {
-		container := dockerContainerToContainer(&dockerContainers[i])
+	for i := range dockerContainers.Items {
+		container := dockerContainerToContainer(&dockerContainers.Items[i])
 		containers = append(containers, container)
 	}
 
@@ -292,64 +298,98 @@ func (d *dockerRuntime) ListContainers(ctx context.Context, filters FilterBuilde
 
 // DeleteContainer will remove a container, forcing removal if still running.
 func (d *dockerRuntime) DeleteContainer(ctx context.Context, containerName string) error {
-	return d.dockerClient.ContainerRemove(ctx, containerName, types.ContainerRemoveOptions{
-		Force:         true, // force the container to be delete now
+	_, err := d.dockerClient.ContainerRemove(ctx, containerName, client.ContainerRemoveOptions{
+		Force:         true, // force the container to be deleted now
 		RemoveVolumes: true, // delete volumes
-	})
+	}) // Note: first return value is an empty struct. Ignored.
+	if err != nil {
+		return pkgerrors.Wrap(err, "error deleting container")
+	}
+	return nil
 }
 
 // KillContainer will kill a running container with the specified signal.
 func (d *dockerRuntime) KillContainer(ctx context.Context, containerName, signal string) error {
-	return d.dockerClient.ContainerKill(ctx, containerName, signal)
+	_, err := d.dockerClient.ContainerKill(ctx, containerName, client.ContainerKillOptions{
+		Signal: signal,
+	}) // Note: first return value is an empty struct. Ignored.
+	if err != nil {
+		return pkgerrors.Wrap(err, "error killing a container")
+	}
+	return nil
 }
 
 // GetContainerIPs inspects a container to get its IPv4 and IPv6 IP addresses.
 // Will not error if there is no IP address assigned. Calling code will need to
 // determine whether that is an issue or not.
 func (d *dockerRuntime) GetContainerIPs(ctx context.Context, containerName string) (string, string, error) {
-	containerInfo, err := d.dockerClient.ContainerInspect(ctx, containerName)
+	containerInfo, err := d.dockerClient.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 	if err != nil {
-		return "", "", errors.Wrap(err, "failed to get container details")
+		return "", "", pkgerrors.Wrap(err, "failed to get container details")
 	}
 
-	for _, net := range containerInfo.NetworkSettings.Networks {
-		return net.IPAddress, net.GlobalIPv6Address, nil
+	for _, net := range containerInfo.Container.NetworkSettings.Networks {
+		return net.IPAddress.String(), net.GlobalIPv6Address.String(), nil
 	}
 
 	return "", "", nil
 }
 
+// GetContainerLogs gets container logs.
+func (d *dockerRuntime) GetContainerLogs(ctx context.Context, containerName string) (string, error) {
+	logsReader, err := d.dockerClient.ContainerLogs(ctx, containerName, client.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+	})
+	if err != nil {
+		return "", pkgerrors.Wrap(err, "failed to get container logs")
+	}
+	defer logsReader.Close()
+
+	logs, err := io.ReadAll(logsReader)
+	if err != nil {
+		return "", pkgerrors.Wrap(err, "failed to read container logs")
+	}
+
+	return string(logs), nil
+}
+
 // ContainerDebugInfo gets the container metadata and logs from the runtime (docker inspect, docker logs).
 func (d *dockerRuntime) ContainerDebugInfo(ctx context.Context, containerName string, w io.Writer) error {
-	containerInfo, err := d.dockerClient.ContainerInspect(ctx, containerName)
+	containerInfo, err := d.dockerClient.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 	if err != nil {
-		return errors.Wrapf(err, "failed to inspect container %q", containerName)
+		return pkgerrors.Wrapf(err, "failed to inspect container %q", containerName)
+	}
+
+	rawJSON, err := json.Marshal(containerInfo)
+	if err != nil {
+		return pkgerrors.Wrapf(err, "failed to marshal container info to json")
 	}
 
 	fmt.Fprintln(w, "Inspected the container:")
-	fmt.Fprintf(w, "%+v\n", containerInfo)
+	fmt.Fprintf(w, "%s\n", rawJSON)
 
-	options := types.ContainerLogsOptions{
+	options := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 	}
-	responseBody, err := d.dockerClient.ContainerLogs(ctx, containerInfo.ID, options)
+	responseBody, err := d.dockerClient.ContainerLogs(ctx, containerInfo.Container.ID, options)
 	if err != nil {
-		return errors.Wrapf(err, "error getting container logs for %q", containerName)
+		return pkgerrors.Wrapf(err, "error getting container logs for %q", containerName)
 	}
 	defer responseBody.Close()
 
 	fmt.Fprintln(w, "Got logs from the container:")
 	_, err = io.Copy(w, responseBody)
 	if err != nil {
-		return errors.Wrapf(err, "error reading logs from container %q", containerName)
+		return pkgerrors.Wrapf(err, "error reading logs from container %q", containerName)
 	}
 	return nil
 }
 
 // dockerContainerToContainer converts a Docker API container instance to our local
 // generic container type.
-func dockerContainerToContainer(container *types.Container) Container {
+func dockerContainerToContainer(container *dockercontainer.Summary) Container {
 	return Container{
 		Name:   strings.Trim(container.Names[0], "/"),
 		Image:  container.Image,
@@ -372,6 +412,15 @@ func (d *dockerRuntime) RunContainer(ctx context.Context, runConfig *RunContaine
 		Volumes:      map[string]struct{}{},
 	}
 
+	restartPolicy := runConfig.RestartPolicy
+	restartMaximumRetryCount := 0
+	if restartPolicy == "" {
+		restartPolicy = "on-failure"
+		restartMaximumRetryCount = 1
+	}
+
+	// TODO: check if we can simplify the following code for the CAPD load balancer, which now always has runConfig.KindMode == kind.ModeNone
+
 	hostConfig := dockercontainer.HostConfig{
 		// Running containers in a container requires privileges.
 		// NOTE: we could try to replicate this with --cap-add, and use less
@@ -379,38 +428,44 @@ func (d *dockerRuntime) RunContainer(ctx context.Context, runConfig *RunContaine
 		// including some ones docker would otherwise do by default.
 		// for now this is what we want. in the future we may revisit this.
 		Privileged:    true,
-		SecurityOpt:   []string{"seccomp=unconfined"}, // ignore seccomp
+		SecurityOpt:   []string{"seccomp=unconfined", "apparmor=unconfined"}, // ignore seccomp
 		NetworkMode:   dockercontainer.NetworkMode(runConfig.Network),
 		Tmpfs:         runConfig.Tmpfs,
-		PortBindings:  nat.PortMap{},
-		RestartPolicy: dockercontainer.RestartPolicy{Name: "unless-stopped"},
+		PortBindings:  dockernetwork.PortMap{},
+		RestartPolicy: dockercontainer.RestartPolicy{Name: restartPolicy, MaximumRetryCount: restartMaximumRetryCount},
+		Init:          ptr.To(false),
 	}
-	networkConfig := network.NetworkingConfig{}
+	networkConfig := dockernetwork.NetworkingConfig{}
 
-	if runConfig.IPFamily == clusterv1.IPv6IPFamily {
+	// NOTE: starting from Kind 0.20 kind requires CgroupnsMode to be set to private.
+	if runConfig.KindMode != kind.ModeNone && runConfig.KindMode != kind.Mode0_19 {
+		hostConfig.CgroupnsMode = "private"
+	}
+
+	if runConfig.IPFamily == IPv6IPFamily || runConfig.IPFamily == DualStackIPFamily {
 		hostConfig.Sysctls = map[string]string{
 			"net.ipv6.conf.all.disable_ipv6": "0",
 			"net.ipv6.conf.all.forwarding":   "1",
 		}
 	}
 
-	// mount /dev/mapper if docker storage driver if Btrfs or ZFS
-	// https://github.com/kubernetes-sigs/kind/pull/1464
-	needed, err := d.needsDevMapper(ctx)
+	info, err := d.dockerClient.Info(ctx, client.InfoOptions{})
 	if err != nil {
-		return errors.Wrapf(err, "unable to get Docker engine info, failed to create container %q", runConfig.Name)
+		return pkgerrors.Wrapf(err, "unable to get Docker engine info, failed to create container %q", runConfig.Name)
 	}
 
-	if needed {
+	// mount /dev/mapper if docker storage driver if Btrfs or ZFS
+	// https://github.com/kubernetes-sigs/kind/pull/1464
+	if d.needsDevMapper(info.Info) {
 		hostConfig.Binds = append(hostConfig.Binds, "/dev/mapper:/dev/mapper:ro")
 	}
 
 	envVars := environmentVariables(runConfig)
 
 	// pass proxy environment variables to be used by node's docker daemon
-	proxyDetails, err := d.getProxyDetails(ctx, runConfig.Network)
+	proxyDetails, err := d.getProxyDetails(ctx, runConfig.Network, runConfig.Name)
 	if err != nil {
-		return errors.Wrapf(err, "error getting subnets for %q", runConfig.Network)
+		return pkgerrors.Wrapf(err, "error getting subnets for %q", runConfig.Network)
 	}
 	for key, val := range proxyDetails.Envs {
 		envVars = append(envVars, fmt.Sprintf("%s=%s", key, val))
@@ -418,36 +473,45 @@ func (d *dockerRuntime) RunContainer(ctx context.Context, runConfig *RunContaine
 	containerConfig.Env = envVars
 
 	configureVolumes(runConfig, &containerConfig, &hostConfig)
-	configurePortMappings(runConfig.PortMappings, &containerConfig, &hostConfig)
+	if err := configurePortMappings(runConfig.PortMappings, &containerConfig, &hostConfig); err != nil {
+		return err
+	}
 
-	if d.usernsRemap(ctx) {
+	if d.usernsRemap(info.Info) {
 		// We need this argument in order to make this command work
 		// in systems that have userns-remap enabled on the docker daemon
 		hostConfig.UsernsMode = "host"
 	}
 
+	// enable /dev/fuse explicitly for fuse-overlayfs
+	// (Rootless Docker does not automatically mount /dev/fuse with --privileged)
+	if d.mountFuse(info.Info) {
+		hostConfig.Devices = append(hostConfig.Devices, dockercontainer.DeviceMapping{PathOnHost: "/dev/fuse", PathInContainer: "/dev/fuse", CgroupPermissions: "rw"})
+	}
+
 	// Make sure we have the image
 	if err := d.PullContainerImageIfNotExists(ctx, runConfig.Image); err != nil {
-		return errors.Wrapf(err, "error pulling container image %s", runConfig.Image)
+		return pkgerrors.Wrapf(err, "error pulling container image %s", runConfig.Image)
 	}
 
 	// Create the container using our settings
 	resp, err := d.dockerClient.ContainerCreate(
 		ctx,
-		&containerConfig,
-		&hostConfig,
-		&networkConfig,
-		nil,
-		runConfig.Name,
+		client.ContainerCreateOptions{
+			Name:             runConfig.Name,
+			Config:           &containerConfig,
+			HostConfig:       &hostConfig,
+			NetworkingConfig: &networkConfig,
+		},
 	)
 	if err != nil {
-		return errors.Wrapf(err, "error creating container %q", runConfig.Name)
+		return pkgerrors.Wrapf(err, "error creating container %q", runConfig.Name)
 	}
 
-	var containerOutput types.HijackedResponse
+	var containerOutput client.ContainerAttachResult
 	if output != nil {
 		// Read out any output from the container
-		attachOpts := types.ContainerAttachOptions{
+		attachOpts := client.ContainerAttachOptions{
 			Stream: true,
 			Stdin:  false,
 			Stdout: true,
@@ -457,13 +521,19 @@ func (d *dockerRuntime) RunContainer(ctx context.Context, runConfig *RunContaine
 		// Attach to the container so we can capture the output
 		containerOutput, err = d.dockerClient.ContainerAttach(ctx, resp.ID, attachOpts)
 		if err != nil {
-			return errors.Wrapf(err, "failed to attach to container %q", runConfig.Name)
+			return pkgerrors.Wrapf(err, "failed to attach to container %q", runConfig.Name)
 		}
 	}
 
 	// Actually start the container
-	if err := d.dockerClient.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		return errors.Wrapf(err, "error starting container %q", runConfig.Name)
+	if _, err := d.dockerClient.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
+		err := pkgerrors.Wrapf(err, "error starting container %q", runConfig.Name)
+		// Delete the container and retry later on. This helps getting around the race
+		// condition where of hitting "port is already allocated" issues.
+		if _, reterr := d.dockerClient.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); reterr != nil {
+			return kerrors.NewAggregate([]error{err, pkgerrors.Wrapf(reterr, "error deleting container")})
+		}
+		return err
 	}
 
 	if output != nil {
@@ -476,44 +546,51 @@ func (d *dockerRuntime) RunContainer(ctx context.Context, runConfig *RunContaine
 		defer containerOutput.Close()
 
 		// Wait for the run to complete
-		statusCh, errCh := d.dockerClient.ContainerWait(ctx, resp.ID, dockercontainer.WaitConditionNotRunning)
+		r := d.dockerClient.ContainerWait(ctx, resp.ID, client.ContainerWaitOptions{
+			Condition: dockercontainer.WaitConditionNotRunning,
+		})
+
 		select {
-		case err := <-errCh:
+		case err := <-r.Error:
 			if err != nil {
-				return errors.Wrap(err, "error waiting for container run")
+				return pkgerrors.Wrap(err, "error waiting for container run")
 			}
 		case err := <-outputErrors:
 			if err != nil {
-				return errors.Wrap(err, "error reading output from container run")
+				return pkgerrors.Wrap(err, "error reading output from container run")
 			}
-		case <-statusCh:
+		case <-r.Result:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 
-	containerJSON, err := d.dockerClient.ContainerInspect(ctx, resp.ID)
+	containerJSON, err := d.dockerClient.ContainerInspect(ctx, resp.ID, client.ContainerInspectOptions{})
 	if err != nil {
 		return fmt.Errorf("error inspecting container %s: %v", resp.ID, err)
 	}
 
-	if containerJSON.ContainerJSONBase.State.ExitCode != 0 {
-		return fmt.Errorf("error container run failed with exit code %d", containerJSON.ContainerJSONBase.State.ExitCode)
+	if containerJSON.Container.State.ExitCode != 0 {
+		return fmt.Errorf("error container run failed with exit code %d", containerJSON.Container.State.ExitCode)
 	}
 
 	return nil
 }
 
+// GetSystemInfo will return the docker system info.
+func (d *dockerRuntime) GetSystemInfo(ctx context.Context) (dockersystem.Info, error) {
+	r, err := d.dockerClient.Info(ctx, client.InfoOptions{})
+	if err != nil {
+		return dockersystem.Info{}, fmt.Errorf("error getting docker system info: %v", err)
+	}
+	return r.Info, nil
+}
+
 // needsDevMapper checks whether we need to mount /dev/mapper.
 // This is required when the docker storage driver is Btrfs or ZFS.
 // https://github.com/kubernetes-sigs/kind/pull/1464
-func (d *dockerRuntime) needsDevMapper(ctx context.Context) (bool, error) {
-	info, err := d.dockerClient.Info(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	return info.Driver == "btrfs" || info.Driver == "zfs", nil
+func (d *dockerRuntime) needsDevMapper(info dockersystem.Info) bool {
+	return info.Driver == btrfsStorage || info.Driver == zfsStorage
 }
 
 // ownerAndGroup gets the user configuration for the container (user:group).
@@ -531,7 +608,7 @@ func ownerAndGroup(crc *RunContainerInput) string {
 
 // environmentVariables gets the collection of environment variables for the container.
 func environmentVariables(crc *RunContainerInput) []string {
-	envVars := []string{}
+	envVars := make([]string, 0, len(crc.EnvironmentVars))
 	for key, val := range crc.EnvironmentVars {
 		envVars = append(envVars, fmt.Sprintf("%s=%s", key, val))
 	}
@@ -578,13 +655,13 @@ func configureVolumes(crc *RunContainerInput, config *dockercontainer.Config, ho
 // getSubnets returns a slice of subnets for a specified network.
 func (d *dockerRuntime) getSubnets(ctx context.Context, networkName string) ([]string, error) {
 	subnets := []string{}
-	networkInfo, err := d.dockerClient.NetworkInspect(ctx, networkName, types.NetworkInspectOptions{})
+	networkInfo, err := d.dockerClient.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{})
 	if err != nil {
-		return subnets, errors.Wrapf(err, "failed to inspect network %q", networkName)
+		return subnets, pkgerrors.Wrapf(err, "failed to inspect network %q", networkName)
 	}
 
-	for _, network := range networkInfo.IPAM.Config {
-		subnets = append(subnets, network.Subnet)
+	for _, config := range networkInfo.Network.IPAM.Config {
+		subnets = append(subnets, config.Subnet.String())
 	}
 
 	return subnets, nil
@@ -597,7 +674,7 @@ type proxyDetails struct {
 
 // getProxyDetails returns a struct with the host environment proxy settings
 // that should be passed to the nodes.
-func (d *dockerRuntime) getProxyDetails(ctx context.Context, network string) (*proxyDetails, error) {
+func (d *dockerRuntime) getProxyDetails(ctx context.Context, network string, nodeNames ...string) (*proxyDetails, error) {
 	var val string
 	details := proxyDetails{Envs: make(map[string]string)}
 	proxyEnvs := []string{httpProxy, httpsProxy, noProxy}
@@ -622,24 +699,48 @@ func (d *dockerRuntime) getProxyDetails(ctx context.Context, network string) (*p
 		if err != nil {
 			return &details, err
 		}
-		noProxyList := strings.Join(append(subnets, details.Envs[noProxy]), ",")
-		details.Envs[noProxy] = noProxyList
-		details.Envs[strings.ToLower(noProxy)] = noProxyList
+		noProxyList := append(subnets, details.Envs[noProxy])
+		noProxyList = append(noProxyList, nodeNames...)
+		// Add pod and service dns names to no_proxy to allow in cluster
+		// Note: this is best effort based on the default CoreDNS spec
+		// https://github.com/kubernetes/dns/blob/master/docs/specification.md
+		// Any user created pod/service hostnames, namespaces, custom DNS services
+		// are expected to be no-proxied by the user explicitly.
+		noProxyList = append(noProxyList, ".svc", ".svc.cluster", ".svc.cluster.local")
+		noProxyJoined := strings.Join(noProxyList, ",")
+		details.Envs[noProxy] = noProxyJoined
+		details.Envs[strings.ToLower(noProxy)] = noProxyJoined
 	}
 
 	return &details, nil
 }
 
 // usernsRemap checks if userns-remap is enabled in dockerd.
-func (d *dockerRuntime) usernsRemap(ctx context.Context) bool {
-	info, err := d.dockerClient.Info(ctx)
-	if err != nil {
-		return false
-	}
-
+func (d *dockerRuntime) usernsRemap(info dockersystem.Info) bool {
 	for _, secOpt := range info.SecurityOptions {
 		if strings.Contains(secOpt, "name=userns") {
 			return true
+		}
+	}
+	return false
+}
+
+// rootless: use fuse-overlayfs by default
+// https://github.com/kubernetes-sigs/kind/issues/2275
+func (d *dockerRuntime) mountFuse(info dockersystem.Info) bool {
+	for _, o := range info.SecurityOptions {
+		// o is like "name=seccomp,profile=default", or "name=rootless",
+		csvReader := csv.NewReader(strings.NewReader(o))
+		sliceSlice, err := csvReader.ReadAll()
+		if err != nil {
+			return false
+		}
+		for _, f := range sliceSlice {
+			for _, ff := range f {
+				if ff == "name=rootless" {
+					return true
+				}
+			}
 		}
 	}
 	return false
@@ -653,22 +754,30 @@ func isSELinuxEnforcing() bool {
 	return string(dat) == "1"
 }
 
-func configurePortMappings(portMappings []PortMapping, config *dockercontainer.Config, hostConfig *dockercontainer.HostConfig) {
-	exposedPorts := nat.PortSet{}
+func configurePortMappings(portMappings []PortMapping, config *dockercontainer.Config, hostConfig *dockercontainer.HostConfig) error {
+	exposedPorts := dockernetwork.PortSet{}
 	for _, pm := range portMappings {
 		protocol := pm.Protocol
 		if protocol == "" {
 			protocol = "tcp"
 		}
-		port := nat.Port(fmt.Sprintf("%d/%s", pm.ContainerPort, protocol))
-		mapping := nat.PortBinding{
-			HostIP:   pm.ListenAddress,
+		port, err := dockernetwork.ParsePort(fmt.Sprintf("%d/%s", pm.ContainerPort, protocol))
+		if err != nil {
+			return pkgerrors.Wrapf(err, "error parsing port %d", pm.ContainerPort)
+		}
+		addr, err := netip.ParseAddr(pm.ListenAddress)
+		if err != nil {
+			return pkgerrors.Wrapf(err, "error parsing address %s", pm.ListenAddress)
+		}
+
+		mapping := dockernetwork.PortBinding{
+			HostIP:   addr,
 			HostPort: fmt.Sprintf("%d", pm.HostPort),
 		}
 		hostConfig.PortBindings[port] = append(hostConfig.PortBindings[port], mapping)
 		exposedPorts[port] = struct{}{}
-		exposedPorts[nat.Port(fmt.Sprintf("%d/tcp", pm.HostPort))] = struct{}{}
 	}
 
 	config.ExposedPorts = exposedPorts
+	return nil
 }

@@ -17,7 +17,6 @@ limitations under the License.
 package cluster
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,13 +27,17 @@ import (
 	"sigs.k8s.io/kind/pkg/cluster/nodes"
 	"sigs.k8s.io/kind/pkg/cluster/nodeutils"
 	"sigs.k8s.io/kind/pkg/errors"
+	"sigs.k8s.io/kind/pkg/exec"
 	"sigs.k8s.io/kind/pkg/log"
 
 	internalcreate "sigs.k8s.io/kind/pkg/cluster/internal/create"
 	internaldelete "sigs.k8s.io/kind/pkg/cluster/internal/delete"
 	"sigs.k8s.io/kind/pkg/cluster/internal/kubeconfig"
+	internallogs "sigs.k8s.io/kind/pkg/cluster/internal/logs"
 	internalproviders "sigs.k8s.io/kind/pkg/cluster/internal/providers"
+	"sigs.k8s.io/kind/pkg/cluster/internal/providers/common"
 	"sigs.k8s.io/kind/pkg/cluster/internal/providers/docker"
+	"sigs.k8s.io/kind/pkg/cluster/internal/providers/nerdctl"
 	"sigs.k8s.io/kind/pkg/cluster/internal/providers/podman"
 )
 
@@ -103,8 +106,8 @@ var NoNodeProviderDetectedError = errors.NewWithoutStack("failed to detect any s
 // Pass the returned ProviderOption to NewProvider to pass the auto-detect Docker
 // or Podman option explicitly (in the future there will be more options)
 //
-// NOTE: The kind *cli* also checks `KIND_EXPERIMENTAL_PROVIDER` for "podman" or
-// "docker" currently and does not auto-detect / respects this if set.
+// NOTE: The kind *cli* also checks `KIND_EXPERIMENTAL_PROVIDER` for "podman",
+// "nerctl" or "docker" currently and does not auto-detect / respects this if set.
 //
 // This will be replaced with some other mechanism in the future (likely when
 // podman support is GA), in the meantime though your tool may wish to match this.
@@ -115,6 +118,9 @@ func DetectNodeProvider() (ProviderOption, error) {
 	// auto-detect based on each node provider's IsAvailable() function
 	if docker.IsAvailable() {
 		return ProviderWithDocker(), nil
+	}
+	if nerdctl.IsAvailable() {
+		return ProviderWithNerdctl(""), nil
 	}
 	if podman.IsAvailable() {
 		return ProviderWithPodman(), nil
@@ -144,7 +150,7 @@ func ProviderWithLogger(logger log.Logger) ProviderOption {
 	})
 }
 
-// providerLoggerOption is a trivial ProviderOption adapter
+// providerRuntimeOption is a trivial ProviderOption adapter
 // we use a type specific to logging options so we can handle them first
 type providerRuntimeOption func(p *Provider)
 
@@ -165,6 +171,13 @@ func ProviderWithDocker() ProviderOption {
 func ProviderWithPodman() ProviderOption {
 	return providerRuntimeOption(func(p *Provider) {
 		p.provider = podman.NewProvider(p.logger)
+	})
+}
+
+// ProviderWithNerdctl configures the provider to use the nerdctl runtime
+func ProviderWithNerdctl(binaryName string) ProviderOption {
+	return providerRuntimeOption(func(p *Provider) {
+		p.provider = nerdctl.NewProvider(p.logger, binaryName)
 	})
 }
 
@@ -226,22 +239,89 @@ func (p *Provider) ListInternalNodes(name string) ([]nodes.Node, error) {
 func (p *Provider) CollectLogs(name, dir string) error {
 	// TODO: should use ListNodes and Collect should handle nodes differently
 	// based on role ...
-	n, err := p.ListInternalNodes(name)
+	internalNodes, err := p.ListInternalNodes(name)
 	if err != nil {
 		return err
 	}
+
 	// ensure directory
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrap(err, "failed to create logs directory")
 	}
+
 	// write kind version
-	if err := ioutil.WriteFile(
+	if err := os.WriteFile(
 		filepath.Join(dir, "kind-version.txt"),
 		[]byte(version.DisplayVersion()),
 		0666, // match os.Create
 	); err != nil {
 		return errors.Wrap(err, "failed to write kind-version.txt")
 	}
-	// collect and write cluster logs
-	return p.provider.CollectLogs(dir, n)
+
+	// common portable log collection for the nodes
+	fns := []func() error{}
+	var errs []error
+	for _, n := range internalNodes {
+		node := n // https://golang.org/doc/faq#closures_and_goroutines
+		name := node.String()
+		path := filepath.Join(dir, name)
+		fns = append(fns,
+			func() error { return collectNodeLogs(p.logger, node, path) },
+		)
+	}
+	errs = append(errs, errors.AggregateConcurrent(fns))
+
+	// additional, provider specific log collection
+	errs = append(errs, p.provider.CollectLogs(dir, internalNodes))
+
+	// flatten
+	return errors.NewAggregate(errs)
+}
+
+func collectNodeLogs(logger log.Logger, n nodes.Node, dir string) error {
+	execToPathFn := func(cmd exec.Cmd, path string) func() error {
+		return func() error {
+			f, err := common.FileOnHost(filepath.Join(dir, path))
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			return cmd.SetStdout(f).SetStderr(f).Run()
+		}
+	}
+
+	return errors.AggregateConcurrent([]func() error{
+		func() error {
+			f, err := common.FileOnHost(filepath.Join(dir, "serial.log"))
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			return n.SerialLogs(f)
+		},
+		func() error {
+			return internallogs.DumpDir(logger, n, "/var/log", dir)
+		},
+		// record info about the node container
+		execToPathFn(
+			n.Command("cat", "/kind/version"),
+			"kubernetes-version.txt",
+		),
+		execToPathFn(
+			n.Command("journalctl", "--no-pager"),
+			"journal.log",
+		),
+		execToPathFn(
+			n.Command("journalctl", "--no-pager", "-u", "kubelet.service"),
+			"kubelet.log",
+		),
+		execToPathFn(
+			n.Command("journalctl", "--no-pager", "-u", "containerd.service"),
+			"containerd.log",
+		),
+		execToPathFn(
+			n.Command("crictl", "images"),
+			"images.log",
+		),
+	})
 }

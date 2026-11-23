@@ -24,7 +24,7 @@ import (
 	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api/test/framework/internal/log"
@@ -42,6 +43,12 @@ import (
 type CreateNamespaceInput struct {
 	Creator Creator
 	Name    string
+	Labels  map[string]string
+
+	// IgnoreAlreadyExists if set to true will ignore the "AlreadyExists" error if the function
+	// is trying to create a namespace that already exists.
+	// If false, it will error and cause test failure.
+	IgnoreAlreadyExists bool
 }
 
 // CreateNamespace is used to create a namespace object.
@@ -52,16 +59,22 @@ func CreateNamespace(ctx context.Context, input CreateNamespaceInput, intervals 
 	if input.Name == "" {
 		input.Name = fmt.Sprintf("test-%s", util.RandomString(6))
 	}
-
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: input.Name,
+			Name:   input.Name,
+			Labels: input.Labels,
 		},
 	}
 	log.Logf("Creating namespace %s", input.Name)
 	Eventually(func() error {
-		return input.Creator.Create(ctx, ns)
-	}, intervals...).Should(Succeed())
+		if err := input.Creator.Create(ctx, ns); err != nil {
+			if input.IgnoreAlreadyExists && apierrors.IsAlreadyExists(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}, intervals...).Should(Succeed(), "Failed to create namespace %s", input.Name)
 
 	return ns
 }
@@ -79,9 +92,7 @@ func EnsureNamespace(ctx context.Context, mgmt client.Client, namespace string) 
 		}
 		Eventually(func() error {
 			return mgmt.Create(ctx, ns)
-		}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed())
-	} else {
-		Fail(err.Error())
+		}, retryableOperationTimeout, retryableOperationInterval).Should(Succeed(), "Failed to create namespace %q", namespace)
 	}
 }
 
@@ -104,7 +115,7 @@ func DeleteNamespace(ctx context.Context, input DeleteNamespaceInput, intervals 
 	log.Logf("Deleting namespace %s", input.Name)
 	Eventually(func() error {
 		return input.Deleter.Delete(ctx, ns)
-	}, intervals...).Should(Succeed())
+	}, intervals...).Should(Succeed(), "Failed to delete namespace %s", input.Name)
 }
 
 // WatchNamespaceEventsInput is the input type for WatchNamespaceEvents.
@@ -116,16 +127,17 @@ type WatchNamespaceEventsInput struct {
 
 // WatchNamespaceEvents creates a watcher that streams namespace events into a file.
 // Example usage:
-//    ctx, cancelWatches := context.WithCancel(context.Background())
-//    go func() {
-//    	defer GinkgoRecover()
-//    	framework.WatchNamespaceEvents(ctx, framework.WatchNamespaceEventsInput{
-//    		ClientSet: clientSet,
-//    		Name: namespace.Name,
-//    		LogFolder:   logFolder,
-//    	})
-//    }()
-//    defer cancelWatches()
+//
+//	ctx, cancelWatches := context.WithCancel(context.Background())
+//	go func() {
+//		defer GinkgoRecover()
+//		framework.WatchNamespaceEvents(ctx, framework.WatchNamespaceEventsInput{
+//			ClientSet: clientSet,
+//			Name: namespace.Name,
+//			LogFolder:   logFolder,
+//		})
+//	}()
+//	defer cancelWatches()
 func WatchNamespaceEvents(ctx context.Context, input WatchNamespaceEventsInput) {
 	Expect(ctx).NotTo(BeNil(), "ctx is required for WatchNamespaceEvents")
 	Expect(input.ClientSet).NotTo(BeNil(), "input.ClientSet is required for WatchNamespaceEvents")
@@ -135,7 +147,7 @@ func WatchNamespaceEvents(ctx context.Context, input WatchNamespaceEventsInput) 
 	Expect(os.MkdirAll(filepath.Dir(logFile), 0750)).To(Succeed())
 
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	Expect(err).NotTo(HaveOccurred())
+	Expect(err).ToNot(HaveOccurred())
 	defer f.Close()
 
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(
@@ -144,19 +156,20 @@ func WatchNamespaceEvents(ctx context.Context, input WatchNamespaceEventsInput) 
 		informers.WithNamespace(input.Name),
 	)
 	eventInformer := informerFactory.Core().V1().Events().Informer()
-	eventInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err = eventInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			e := obj.(*corev1.Event)
-			_, _ = f.WriteString(fmt.Sprintf("[New Event] %s/%s\n\tresource: %s/%s/%s\n\treason: %s\n\tmessage: %s\n\tfull: %#v\n",
-				e.Namespace, e.Name, e.InvolvedObject.APIVersion, e.InvolvedObject.Kind, e.InvolvedObject.Name, e.Reason, e.Message, e))
+			_, _ = fmt.Fprintf(f, "[New Event] %s\n\tresource: %s/%s/%s\n\treason: %s\n\tmessage: %s\n\tfull: %#v\n",
+				klog.KObj(e), e.InvolvedObject.APIVersion, e.InvolvedObject.Kind, e.InvolvedObject.Name, e.Reason, e.Message, e)
 		},
 		UpdateFunc: func(_, obj interface{}) {
 			e := obj.(*corev1.Event)
-			_, _ = f.WriteString(fmt.Sprintf("[Updated Event] %s/%s\n\tresource: %s/%s/%s\n\treason: %s\n\tmessage: %s\n\tfull: %#v\n",
-				e.Namespace, e.Name, e.InvolvedObject.APIVersion, e.InvolvedObject.Kind, e.InvolvedObject.Name, e.Reason, e.Message, e))
+			_, _ = fmt.Fprintf(f, "[Updated Event] %s\n\tresource: %s/%s/%s\n\treason: %s\n\tmessage: %s\n\tfull: %#v\n",
+				klog.KObj(e), e.InvolvedObject.APIVersion, e.InvolvedObject.Kind, e.InvolvedObject.Name, e.Reason, e.Message, e)
 		},
-		DeleteFunc: func(obj interface{}) {},
+		DeleteFunc: func(interface{}) {},
 	})
+	Expect(err).ToNot(HaveOccurred())
 
 	stopInformer := make(chan struct{})
 	defer close(stopInformer)
@@ -171,6 +184,12 @@ type CreateNamespaceAndWatchEventsInput struct {
 	ClientSet *kubernetes.Clientset
 	Name      string
 	LogFolder string
+	Labels    map[string]string
+
+	// IgnoreAlreadyExists if set to true will ignore the "AlreadyExists" error if the function
+	// is trying to create a namespace that already exists.
+	// If false, it will error and cause test failure.
+	IgnoreAlreadyExists bool
 }
 
 // CreateNamespaceAndWatchEvents creates a namespace and setups a watch for the namespace events.
@@ -181,7 +200,7 @@ func CreateNamespaceAndWatchEvents(ctx context.Context, input CreateNamespaceAnd
 	Expect(input.Name).ToNot(BeEmpty(), "Invalid argument. input.Name can't be empty when calling ClientSet")
 	Expect(os.MkdirAll(input.LogFolder, 0750)).To(Succeed(), "Invalid argument. input.LogFolder can't be created in CreateNamespaceAndWatchEvents")
 
-	namespace := CreateNamespace(ctx, CreateNamespaceInput{Creator: input.Creator, Name: input.Name}, "40s", "10s")
+	namespace := CreateNamespace(ctx, CreateNamespaceInput{Creator: input.Creator, Name: input.Name, IgnoreAlreadyExists: input.IgnoreAlreadyExists, Labels: input.Labels}, "40s", "10s")
 	Expect(namespace).ToNot(BeNil(), "Failed to create namespace %q", input.Name)
 
 	log.Logf("Creating event watcher for namespace %q", input.Name)

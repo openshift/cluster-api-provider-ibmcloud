@@ -353,12 +353,19 @@ func (s *MachineScope) CreateMachine(ctx context.Context) (*models.PVMInstanceRe
 
 	// 6. Resolve Image ID
 	var imageID string
-	if machineSpec.Image.Type == infrav1.ImageSourceTypeImport {
+	switch machineSpec.Image.Type {
+	case infrav1.ImageSourceTypeImport:
 		if s.IBMPowerVSImage == nil || s.IBMPowerVSImage.Status.ImageID == "" {
 			return nil, fmt.Errorf("imported image is not ready yet")
 		}
 		imageID = s.IBMPowerVSImage.Status.ImageID
-	} else {
+	case infrav1.ImageSourceTypeStockImage:
+		imageID, err = s.getStockImageID(ctx, machineSpec.Image.StockImage)
+		if err != nil {
+			s.Recorder.Eventf(s.IBMPowerVSMachine, corev1.EventTypeWarning, "FailedRetrieveImage", "Failed stock image retrieval: %v", err)
+			return nil, fmt.Errorf("error getting image ID from stock image: %w", err)
+		}
+	default:
 		imageID, err = s.getImageID(ctx, machineSpec.Image.Reference)
 		if err != nil {
 			s.Recorder.Eventf(s.IBMPowerVSMachine, corev1.EventTypeWarning, "FailedRetrieveImage", "Failed image retrieval: %v", err)
@@ -487,16 +494,22 @@ func (s *MachineScope) CreateVPCLoadBalancerPoolMember(ctx context.Context) (boo
 		})
 	}
 	for index, loadBalancer := range s.IBMPowerVSCluster.Spec.LoadBalancers {
-		if loadBalancer.Type == infrav1.SourceTypeProvision && loadBalancer.Provision.Name == "" {
-			lbType := ResourceTypeLBPublic
-			if loadBalancer.Provision.Type == infrav1.LoadBalancerTypePrivate {
-				lbType = ResourceTypeLBPrivate
+		if loadBalancer.Type == infrav1.SourceTypeProvision {
+			if loadBalancer.Provision.RouteMode == infrav1.PowerVSLoadBalancerRouteModeEnabled {
+				log.V(3).Info("Skipping provisioned route-mode load balancer for machine pool registration", "loadBalancerName", loadBalancer.Provision.Name)
+				continue
 			}
-			qualifier := ""
-			if index > 0 {
-				qualifier = strconv.Itoa(index)
+			if loadBalancer.Provision.Name == "" {
+				lbType := ResourceTypeLBPublic
+				if loadBalancer.Provision.Type == infrav1.LoadBalancerTypePrivate {
+					lbType = ResourceTypeLBPrivate
+				}
+				qualifier := ""
+				if index > 0 {
+					qualifier = strconv.Itoa(index)
+				}
+				loadBalancer.Provision.Name = ResourceName(s.IBMPowerVSCluster.Name, lbType, qualifier)
 			}
-			loadBalancer.Provision.Name = ResourceName(s.IBMPowerVSCluster.Name, lbType, qualifier)
 		}
 		loadBalancers = append(loadBalancers, loadBalancer)
 	}
@@ -534,6 +547,13 @@ func (s *MachineScope) CreateVPCLoadBalancerPoolMember(ctx context.Context) (boo
 		loadBalancerDetails, _, err := s.IBMVPCClient.GetLoadBalancer(&vpcv1.GetLoadBalancerOptions{ID: &lbID})
 		if err != nil {
 			return false, fmt.Errorf("failed to find VPC load balancer details: %w", err)
+		}
+
+		// Skip route-mode load balancers (VNFs / Layer 3 routers). They do not distribute traffic to Kubernetes VMs.
+		// The cloud value is authoritative and also covers Reference-type load balancers, where the spec carries no RouteMode.
+		if ptr.Deref(loadBalancerDetails.RouteMode, false) {
+			log.V(3).Info("Skipping route-mode load balancer for machine pool registration", "loadBalancerName", lbName)
+			continue
 		}
 
 		// Only transient states are safe to skip and retry. A non-transient non-active state
@@ -630,6 +650,13 @@ func (s *MachineScope) CreateVPCLoadBalancerPoolMember(ctx context.Context) (boo
 					log.V(3).Info("Skip adding listener, machine label doesn't match with the listener label selector", "pool", *pool.Name, "IP", internalIP)
 					continue
 				}
+			} else if len(loadBalancerListeners) > 0 {
+				// The LB has Kubernetes-managed listeners but this pool backs none of them
+				// (e.g. a user-created pool on a Reference LB); don't register the machine in it.
+				// When no managed listener was resolved (len == 0), keep the previous behavior
+				// of attempting registration instead of silently skipping every pool.
+				log.V(3).Info("Skipping pool with no associated Kubernetes listener", "pool", *pool.Name, "loadBalancerName", *loadBalancerDetails.Name)
+				continue
 			}
 
 			// If we already wrote to this load balancer this pass, it is now update_pending;
@@ -1007,28 +1034,46 @@ func (s *MachineScope) getRawBootstrapData() ([]byte, error) {
 	return value, nil
 }
 
-// getImageID resolves an image ResourceIdentifier to a concrete image ID string.
+// getImageID resolves a Reference image ResourceIdentifier to a concrete image ID string
+// by searching the workspace's own image catalog.
 func (s *MachineScope) getImageID(ctx context.Context, image infrav1.ResourceIdentifier) (string, error) {
 	if image.ID != "" {
 		return image.ID, nil
 	}
-
-	if image.Name != "" {
-		images, err := s.getImages(ctx)
-		if err != nil {
-			return "", fmt.Errorf("failed to get images from IBM Cloud: %w", err)
-		}
-
-		for _, img := range images.Images {
-			if image.Name == *img.Name {
-				return *img.ImageID, nil
-			}
-		}
-
-		return "", fmt.Errorf("image with name %q not found", image.Name)
+	if image.Name == "" {
+		return "", fmt.Errorf("image reference must contain either an ID or a Name")
 	}
+	images, err := s.IBMPowerVSClient.ListImages(ctx)
+	if images == nil || err != nil {
+		return "", fmt.Errorf("failed to get images from IBM Cloud: %w", err)
+	}
+	for _, img := range images.Images {
+		if img.Name != nil && img.ImageID != nil && image.Name == *img.Name {
+			return *img.ImageID, nil
+		}
+	}
+	return "", fmt.Errorf("image with name %q not found", image.Name)
+}
 
-	return "", fmt.Errorf("image reference must contain either an ID or a Name")
+// getStockImageID resolves a StockImage ResourceIdentifier to a concrete image ID string
+// by searching the IBM-provided stock catalog images.
+func (s *MachineScope) getStockImageID(ctx context.Context, image infrav1.ResourceIdentifier) (string, error) {
+	if image.ID != "" {
+		return image.ID, nil
+	}
+	if image.Name == "" {
+		return "", fmt.Errorf("stock image reference must contain either an ID or a Name")
+	}
+	stockImages, err := s.IBMPowerVSClient.ListStockImages(ctx)
+	if stockImages == nil || err != nil {
+		return "", fmt.Errorf("failed to get stock images from IBM Cloud: %w", err)
+	}
+	for _, img := range stockImages.Images {
+		if img.Name != nil && img.ImageID != nil && image.Name == *img.Name {
+			return *img.ImageID, nil
+		}
+	}
+	return "", fmt.Errorf("stock image with name %q not found", image.Name)
 }
 
 // getNetworkID resolves a network ResourceIdentifier to a concrete network ID pointer.
@@ -1138,11 +1183,6 @@ func (s *MachineScope) role() string {
 // name returns the IBMPowerVSMachine name.
 func (s *MachineScope) name() string {
 	return s.IBMPowerVSMachine.Name
-}
-
-// getImages will get list of images for the powervs service instance.
-func (s *MachineScope) getImages(ctx context.Context) (*models.Images, error) {
-	return s.IBMPowerVSClient.ListImages(ctx)
 }
 
 // extractIPsFromInstance parses the raw instance data for assigned IP addresses.

@@ -142,7 +142,16 @@ func keyEq(a, b ssh.PublicKey) bool {
 	return bytes.Equal(a.Marshal(), b.Marshal())
 }
 
-// IsAuthorityForHost can be used as a callback in ssh.CertChecker
+// plainKeyBlob returns the serialized public portion of key: for a
+// certificate this is the certified key, otherwise the key itself.
+func plainKeyBlob(key ssh.PublicKey) string {
+	if cert, ok := key.(*ssh.Certificate); ok {
+		return string(cert.Key.Marshal())
+	}
+	return string(key.Marshal())
+}
+
+// IsHostAuthority can be used as a callback in ssh.CertChecker
 func (db *hostKeyDB) IsHostAuthority(remote ssh.PublicKey, address string) bool {
 	h, p, err := net.SplitHostPort(address)
 	if err != nil {
@@ -160,8 +169,13 @@ func (db *hostKeyDB) IsHostAuthority(remote ssh.PublicKey, address string) bool 
 
 // IsRevoked can be used as a callback in ssh.CertChecker
 func (db *hostKeyDB) IsRevoked(key *ssh.Certificate) bool {
-	_, ok := db.revoked[string(key.Marshal())]
-	return ok
+	if _, ok := db.revoked[plainKeyBlob(key)]; ok {
+		return true
+	}
+	if _, ok := db.revoked[plainKeyBlob(key.SignatureKey)]; ok {
+		return true
+	}
+	return false
 }
 
 const markerCert = "@cert-authority"
@@ -173,7 +187,7 @@ func nextWord(line []byte) (string, []byte) {
 		return string(line), nil
 	}
 
-	return string(line[:i]), bytes.TrimSpace(line[i:])
+	return string(line[:i]), trimSpace(line[i:])
 }
 
 func parseLine(line []byte) (marker, host string, key ssh.PublicKey, err error) {
@@ -183,12 +197,17 @@ func parseLine(line []byte) (marker, host string, key ssh.PublicKey, err error) 
 	}
 
 	host, line = nextWord(line)
+	// If the extracted 'host' starts with '@', it means we either encountered
+	// a second marker (e.g., "@cert-authority @revoked") or an unknown marker
+	// (e.g., "@unknown"). Both are invalid.
+	if len(host) > 0 && host[0] == '@' {
+		return "", "", nil, fmt.Errorf("knownhosts: unexpected marker: %q", host)
+	}
 	if len(line) == 0 {
 		return "", "", nil, errors.New("knownhosts: missing host pattern")
 	}
 
-	// ignore the keytype as it's in the key blob anyway.
-	_, line = nextWord(line)
+	wantType, line := nextWord(line)
 	if len(line) == 0 {
 		return "", "", nil, errors.New("knownhosts: missing key type pattern")
 	}
@@ -204,6 +223,10 @@ func parseLine(line []byte) (marker, host string, key ssh.PublicKey, err error) 
 		return "", "", nil, err
 	}
 
+	if key.Type() != wantType {
+		return "", "", nil, fmt.Errorf("knownhosts: key type mismatch: found %q, want %q", key.Type(), wantType)
+	}
+
 	return marker, host, key, nil
 }
 
@@ -214,7 +237,7 @@ func (db *hostKeyDB) parseLine(line []byte, filename string, linenum int) error 
 	}
 
 	if marker == markerRevoked {
-		db.revoked[string(key.Marshal())] = &KnownKey{
+		db.revoked[plainKeyBlob(key)] = &KnownKey{
 			Key:      key,
 			Filename: filename,
 			Line:     linenum,
@@ -302,8 +325,8 @@ func (k *KnownKey) String() string {
 // applications can offer an interactive prompt to the user.
 type KeyError struct {
 	// Want holds the accepted host keys. For each key algorithm,
-	// there can be one hostkey.  If Want is empty, the host is
-	// unknown. If Want is non-empty, there was a mismatch, which
+	// there can be multiple hostkeys.  If Want is empty, the host
+	// is unknown. If Want is non-empty, there was a mismatch, which
 	// can signify a MITM attack.
 	Want []KnownKey
 }
@@ -327,7 +350,7 @@ func (r *RevokedError) Error() string {
 // check checks a key against the host database. This should not be
 // used for verifying certificates.
 func (db *hostKeyDB) check(address string, remote net.Addr, remoteKey ssh.PublicKey) error {
-	if revoked := db.revoked[string(remoteKey.Marshal())]; revoked != nil {
+	if revoked := db.revoked[plainKeyBlob(remoteKey)]; revoked != nil {
 		return &RevokedError{Revoked: *revoked}
 	}
 
@@ -358,34 +381,20 @@ func (db *hostKeyDB) checkAddr(a addr, remoteKey ssh.PublicKey) error {
 	// is just a key for the IP address, but not for the
 	// hostname?
 
-	// Algorithm => key.
-	knownKeys := map[string]KnownKey{}
+	keyErr := &KeyError{}
+
 	for _, l := range db.lines {
-		if l.match(a) {
-			typ := l.knownKey.Key.Type()
-			if _, ok := knownKeys[typ]; !ok {
-				knownKeys[typ] = l.knownKey
-			}
+		if !l.match(a) {
+			continue
+		}
+
+		keyErr.Want = append(keyErr.Want, l.knownKey)
+		if keyEq(l.knownKey.Key, remoteKey) {
+			return nil
 		}
 	}
 
-	keyErr := &KeyError{}
-	for _, v := range knownKeys {
-		keyErr.Want = append(keyErr.Want, v)
-	}
-
-	// Unknown remote host.
-	if len(knownKeys) == 0 {
-		return keyErr
-	}
-
-	// If the remote host starts using a different, unknown key type, we
-	// also interpret that as a mismatch.
-	if known, ok := knownKeys[remoteKey.Type()]; !ok || !keyEq(known.Key, remoteKey) {
-		return keyErr
-	}
-
-	return nil
+	return keyErr
 }
 
 // The Read function parses file contents.
@@ -396,7 +405,7 @@ func (db *hostKeyDB) Read(r io.Reader, filename string) error {
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Bytes()
-		line = bytes.TrimSpace(line)
+		line = trimSpace(line)
 		if len(line) == 0 || line[0] == '#' {
 			continue
 		}
@@ -435,20 +444,26 @@ func New(files ...string) (ssh.HostKeyCallback, error) {
 	return certChecker.CheckHostKey, nil
 }
 
-// Normalize normalizes an address into the form used in known_hosts
+// Normalize normalizes an address into the form used in known_hosts. Supports
+// IPv4, hostnames, bracketed IPv6. Any other non-standard formats are returned
+// with minimal transformation.
 func Normalize(address string) string {
+	const defaultSSHPort = "22"
+
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		host = address
-		port = "22"
+		port = defaultSSHPort
 	}
-	entry := host
-	if port != "22" {
-		entry = "[" + entry + "]:" + port
-	} else if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
-		entry = "[" + entry + "]"
+
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
 	}
-	return entry
+
+	if port == defaultSSHPort {
+		return host
+	}
+	return "[" + host + "]:" + port
 }
 
 // Line returns a line to add append to the known_hosts files.
@@ -537,4 +552,9 @@ func newHashedHost(encoded string) (*hashedHost, error) {
 
 func (h *hashedHost) match(a addr) bool {
 	return bytes.Equal(hashHost(Normalize(a.String()), h.salt), h.hash)
+}
+
+// trimSpace removes leading and trailing ASCII space and tab.
+func trimSpace(in []byte) []byte {
+	return bytes.Trim(in, " \t")
 }

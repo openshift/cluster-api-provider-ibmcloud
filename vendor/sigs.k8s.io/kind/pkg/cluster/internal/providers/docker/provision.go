@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -167,6 +168,11 @@ func commonArgs(cluster string, cfg *config.Cluster, networkName string, nodeNam
 		// this can be enabled by default in docker daemon.json, so we explicitly
 		// disable it, we want our entrypoint to be PID1, not docker-init / tini
 		"--init=false",
+		// note: requires API v1.41+ from Dec 2020 in Docker 20.10.0
+		// this is the default with cgroups v2 but not with cgroups v1, unless
+		// overridden in the daemon --default-cgroupns-mode
+		// https://github.com/docker/cli/pull/3699#issuecomment-1191675788
+		"--cgroupns=private",
 	}
 
 	// enable IPv6 if necessary
@@ -199,6 +205,11 @@ func commonArgs(cluster string, cfg *config.Cluster, networkName string, nodeNam
 	if mountFuse() {
 		args = append(args, "--device", "/dev/fuse")
 	}
+
+	if cfg.Networking.DNSSearch != nil {
+		args = append(args, "-e", "KIND_DNS_SEARCH="+strings.Join(*cfg.Networking.DNSSearch, " "))
+	}
+
 	return args, nil
 }
 
@@ -272,11 +283,18 @@ func runArgsForLoadBalancer(cfg *config.Cluster, name string, args []string) ([]
 	args = append(args, mappingArgs...)
 
 	// finally, specify the image to run
-	return append(args, loadbalancer.Image), nil
+	args = append(args, loadbalancer.Image)
+
+	args = append(args, loadbalancer.GenerateBootstrapCommand(cfg.Name, name)...)
+
+	return args, nil
 }
 
 func getProxyEnv(cfg *config.Cluster, networkName string, nodeNames []string) (map[string]string, error) {
 	envs := common.GetProxyEnvs(cfg)
+	if !kindProxyEnvOverridesDockerConfig(os.Getenv) {
+		envs = mergeProxyEnvWithDockerConfig(cfg, envs, dockerConfigProxyEnvs(os.Getenv, os.ReadFile, inspectDockerContextHost))
+	}
 	// Specifically add the docker network subnets to NO_PROXY if we are using a proxy
 	if len(envs) > 0 {
 		subnets, err := getSubnets(networkName)
@@ -297,6 +315,28 @@ func getProxyEnv(cfg *config.Cluster, networkName string, nodeNames []string) (m
 		envs[strings.ToLower(common.NOProxy)] = noProxyJoined
 	}
 	return envs, nil
+}
+
+func mergeProxyEnvWithDockerConfig(cfg *config.Cluster, envs, dockerEnv map[string]string) map[string]string {
+	if len(envs) == 0 && len(dockerEnv) > 0 {
+		envs = dockerEnv
+		noProxy := envs[common.NOProxy]
+		if noProxy != "" {
+			noProxy += ","
+		}
+		noProxy += cfg.Networking.ServiceSubnet + "," + cfg.Networking.PodSubnet
+		envs[common.NOProxy] = noProxy
+		envs[strings.ToLower(common.NOProxy)] = noProxy
+		return envs
+	}
+
+	for _, name := range []string{common.HTTPProxy, common.HTTPSProxy, common.NOProxy} {
+		if envs[name] == "" && dockerEnv[name] != "" {
+			envs[name] = dockerEnv[name]
+			envs[strings.ToLower(name)] = dockerEnv[name]
+		}
+	}
+	return envs
 }
 
 func getSubnets(networkName string) ([]string, error) {
@@ -376,9 +416,12 @@ func generatePortMappings(clusterIPFamily config.ClusterIPFamily, portMappings .
 		}
 
 		// get a random port if necessary (port = 0)
-		hostPort, err := common.PortOrGetFreePort(pm.HostPort, pm.ListenAddress)
+		hostPort, releaseHostPortFn, err := common.PortOrGetFreePort(pm.HostPort, pm.ListenAddress)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get random host port for port mapping")
+		}
+		if releaseHostPortFn != nil {
+			defer releaseHostPortFn()
 		}
 
 		// generate the actual mapping arg
@@ -390,10 +433,7 @@ func generatePortMappings(clusterIPFamily config.ClusterIPFamily, portMappings .
 }
 
 func createContainer(name string, args []string) error {
-	if err := exec.Command("docker", append([]string{"run", "--name", name}, args...)...).Run(); err != nil {
-		return err
-	}
-	return nil
+	return exec.Command("docker", append([]string{"run", "--name", name}, args...)...).Run()
 }
 
 func createContainerWithWaitUntilSystemdReachesMultiUserSystem(name string, args []string) error {

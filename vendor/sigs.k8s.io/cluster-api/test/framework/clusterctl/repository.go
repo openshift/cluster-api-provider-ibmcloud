@@ -27,13 +27,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
-	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/test/framework/exec"
+	. "sigs.k8s.io/cluster-api/test/framework/ginkgoextensions"
 )
 
 const (
@@ -58,7 +61,7 @@ type CreateRepositoryInput struct {
 //
 // NOTE: this transformation is specifically designed for replacing "data: ${envSubstVar}".
 func (i *CreateRepositoryInput) RegisterClusterResourceSetConfigMapTransformation(manifestPath, envSubstVar string) {
-	By(fmt.Sprintf("Reading the ClusterResourceSet manifest %s", manifestPath))
+	Byf("Reading the ClusterResourceSet manifest %s", manifestPath)
 	manifestData, err := os.ReadFile(manifestPath) //nolint:gosec
 	Expect(err).ToNot(HaveOccurred(), "Failed to read the ClusterResourceSet manifest file")
 	Expect(manifestData).ToNot(BeEmpty(), "ClusterResourceSet manifest file should not be empty")
@@ -74,13 +77,15 @@ func (i *CreateRepositoryInput) RegisterClusterResourceSetConfigMapTransformatio
 	})
 }
 
+const clusterctlConfigFileName = "clusterctl-config.yaml"
+
 // CreateRepository creates a clusterctl local repository based on the e2e test config, and the returns the path
 // to a clusterctl config file to be used for working with such repository.
 func CreateRepository(ctx context.Context, input CreateRepositoryInput) string {
 	Expect(input.E2EConfig).ToNot(BeNil(), "Invalid argument. input.E2EConfig can't be nil when calling CreateRepository")
 	Expect(os.MkdirAll(input.RepositoryFolder, 0750)).To(Succeed(), "Failed to create the clusterctl local repository folder %s", input.RepositoryFolder)
 
-	providers := []providerConfig{}
+	providers := make([]providerConfig, 0, len(input.E2EConfig.Providers))
 	for _, provider := range input.E2EConfig.Providers {
 		providerLabel := clusterctlv1.ManifestLabel(provider.Name, clusterctlv1.ProviderType(provider.Type))
 		providerURL := filepath.Join(input.RepositoryFolder, providerLabel, "latest", "components.yaml")
@@ -107,14 +112,15 @@ func CreateRepository(ctx context.Context, input CreateRepositoryInput) string {
 				}
 
 				destinationFile := filepath.Join(filepath.Dir(destinationPath), file.TargetName)
-				Expect(os.WriteFile(destinationFile, data, 0600)).To(Succeed(), "Failed to write clusterctl local repository file %q / %q", provider.Name, file.TargetName)
+				Expect(os.WriteFile(destinationFile, data, 0600)).To(Succeed(), "Failed to write clusterctl local repository file %q / %q", provider.Name, file.TargetName) //nolint:gosec // G703: destinationFile is constructed from trusted test inputs.
 			}
 		}
-		providers = append(providers, providerConfig{
+		p := providerConfig{
 			Name: provider.Name,
 			URL:  providerURL,
 			Type: provider.Type,
-		})
+		}
+		providers = append(providers, p)
 	}
 
 	// set this path to an empty file under the repository path, so test can run in isolation without user's overrides kicking in
@@ -123,18 +129,49 @@ func CreateRepository(ctx context.Context, input CreateRepositoryInput) string {
 
 	// creates a clusterctl config file to be used for working with such repository
 	clusterctlConfigFile := &clusterctlConfig{
-		Path: filepath.Join(input.RepositoryFolder, "clusterctl-config.yaml"),
+		Path: filepath.Join(input.RepositoryFolder, clusterctlConfigFileName),
 		Values: map[string]interface{}{
 			"providers":       providers,
 			"overridesFolder": overridePath,
 		},
 	}
 	for key := range input.E2EConfig.Variables {
-		clusterctlConfigFile.Values[key] = input.E2EConfig.GetVariable(key)
+		clusterctlConfigFile.Values[key] = input.E2EConfig.MustGetVariable(key)
 	}
-	clusterctlConfigFile.write()
+	Expect(clusterctlConfigFile.write()).To(Succeed(), "Failed to write clusterctlConfigFile")
 
 	return clusterctlConfigFile.Path
+}
+
+// CopyAndAmendClusterctlConfigInput is the input for copyAndAmendClusterctlConfig.
+type CopyAndAmendClusterctlConfigInput struct {
+	ClusterctlConfigPath string
+	OutputPath           string
+	Variables            map[string]string
+}
+
+// CopyAndAmendClusterctlConfig copies the clusterctl-config from ClusterctlConfigPath to
+// OutputPath and adds the given Variables.
+func CopyAndAmendClusterctlConfig(_ context.Context, input CopyAndAmendClusterctlConfigInput) error {
+	// Read clusterctl config from ClusterctlConfigPath.
+	clusterctlConfigFile := &clusterctlConfig{
+		Path: input.ClusterctlConfigPath,
+	}
+	if err := clusterctlConfigFile.read(); err != nil {
+		return err
+	}
+
+	// Overwrite variables.
+	if clusterctlConfigFile.Values == nil {
+		clusterctlConfigFile.Values = map[string]interface{}{}
+	}
+	for key, value := range input.Variables {
+		clusterctlConfigFile.Values[key] = value
+	}
+
+	// Write clusterctl config to OutputPath.
+	clusterctlConfigFile.Path = input.OutputPath
+	return clusterctlConfigFile.write()
 }
 
 // YAMLForComponentSource returns the YAML for the provided component source.
@@ -145,7 +182,7 @@ func YAMLForComponentSource(ctx context.Context, source ProviderVersionSource) (
 	case URLSource:
 		buf, err := getComponentSourceFromURL(ctx, source)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to get component source YAML from URL")
+			return nil, pkgerrors.Wrap(err, "failed to get component source YAML from URL")
 		}
 		data = buf
 	case KustomizeSource:
@@ -159,11 +196,11 @@ func YAMLForComponentSource(ctx context.Context, source ProviderVersionSource) (
 			exec.WithArgs("build", source.Value))
 		stdout, stderr, err := kustomize.Run(ctx)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to execute kustomize: %s", stderr)
+			return nil, pkgerrors.Wrapf(err, "failed to execute kustomize: %s", stderr)
 		}
 		data = stdout
 	default:
-		return nil, errors.Errorf("invalid type: %q", source.Type)
+		return nil, pkgerrors.Errorf("invalid type: %q", source.Type)
 	}
 
 	for _, replacement := range source.Replacements {
@@ -191,24 +228,43 @@ func getComponentSourceFromURL(ctx context.Context, source ProviderVersionSource
 	case "", fileURIScheme:
 		buf, err = os.ReadFile(u.Path)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to read file")
+			return nil, pkgerrors.Wrap(err, "failed to read file")
 		}
 	case httpURIScheme, httpsURIScheme:
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, source.Value, http.NoBody)
+		var getErr error
+		err := wait.ExponentialBackoff(wait.Backoff{
+			Steps:    5,
+			Duration: 100 * time.Millisecond,
+			Factor:   4.0,
+		}, func() (bool, error) {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, source.Value, http.NoBody)
+			if err != nil {
+				getErr = pkgerrors.Wrapf(err, "failed to get %s: failed to create request", source.Value)
+				return false, nil
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				getErr = pkgerrors.Wrapf(err, "failed to get %s", source.Value)
+				return false, nil
+			}
+			if resp.StatusCode != http.StatusOK {
+				getErr = pkgerrors.Errorf("failed to get %s: got status code %d", source.Value, resp.StatusCode)
+				return false, nil
+			}
+			defer resp.Body.Close()
+			buf, err = io.ReadAll(resp.Body)
+			if err != nil {
+				getErr = pkgerrors.Wrapf(err, "failed to get %s: failed to read body", source.Value)
+				return false, nil
+			}
+
+			return true, nil
+		})
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get %s: failed to create request", source.Value)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get %s", source.Value)
-		}
-		defer resp.Body.Close()
-		buf, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get %s: failed to read body", source.Value)
+			return nil, kerrors.NewAggregate([]error{err, getErr})
 		}
 	default:
-		return nil, errors.Errorf("unknown scheme for component source %q: allowed values are file, http, https", u.Scheme)
+		return nil, pkgerrors.Errorf("unknown scheme for component source %q: allowed values are file, http, https", u.Scheme)
 	}
 
 	return buf, nil

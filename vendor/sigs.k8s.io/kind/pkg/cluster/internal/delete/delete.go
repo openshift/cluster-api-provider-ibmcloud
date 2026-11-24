@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package delete contains the logic for performing cluster deletion.
 package delete
 
 import (
@@ -38,12 +39,17 @@ func Cluster(logger log.Logger, p providers.Provider, name, explicitKubeconfigPa
 		logger.Errorf("failed to update kubeconfig: %v", kerr)
 	}
 
-	err = p.DeleteNodes(n)
-	if err != nil {
-		return err
+	if len(n) > 0 {
+		err = p.DeleteNodes(n)
+		if err != nil {
+			return err
+		}
+		logger.V(0).Infof("Deleted nodes: %q", n)
 	}
+
 	if kerr != nil {
-		return err
+		return kerr
 	}
+
 	return nil
 }

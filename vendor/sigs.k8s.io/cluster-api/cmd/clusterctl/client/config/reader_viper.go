@@ -27,17 +27,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/adrg/xdg"
+	pkgerrors "github.com/pkg/errors"
 	"github.com/spf13/viper"
-	"k8s.io/client-go/util/homedir"
 
 	logf "sigs.k8s.io/cluster-api/cmd/clusterctl/log"
 )
 
 const (
-	// ConfigFolder defines the name of the config folder under $home.
+	// ConfigFolder defines the old name of the config folder under $HOME.
 	ConfigFolder = ".cluster-api"
-	// ConfigName defines the name of the config file under ConfigFolder.
+	// ConfigFolderXDG defines the name of the config folder under $XDG_CONFIG_HOME.
+	ConfigFolderXDG = "cluster-api"
+	// ConfigName defines the name of the config file under ConfigFolderXDG.
 	ConfigName = "clusterctl"
 	// DownloadConfigFile is the config file when fetching the config from a remote location.
 	DownloadConfigFile = "clusterctl-download.yaml"
@@ -58,18 +60,22 @@ func injectConfigPaths(configPaths []string) viperReaderOption {
 }
 
 // newViperReader returns a viperReader.
-func newViperReader(opts ...viperReaderOption) Reader {
+func newViperReader(opts ...viperReaderOption) (Reader, error) {
+	configDirectory, err := xdg.ConfigFile(ConfigFolderXDG)
+	if err != nil {
+		return nil, err
+	}
 	vr := &viperReader{
-		configPaths: []string{filepath.Join(homedir.HomeDir(), ConfigFolder)},
+		configPaths: []string{configDirectory, filepath.Join(xdg.Home, ConfigFolder)},
 	}
 	for _, o := range opts {
 		o(vr)
 	}
-	return vr
+	return vr, nil
 }
 
 // Init initialize the viperReader.
-func (v *viperReader) Init(path string) error {
+func (v *viperReader) Init(ctx context.Context, path string) error {
 	log := logf.Log
 
 	// Configure viper for reading environment variables as well, and more specifically:
@@ -84,21 +90,23 @@ func (v *viperReader) Init(path string) error {
 	if path != "" {
 		url, err := url.Parse(path)
 		if err != nil {
-			return errors.Wrap(err, "failed to url parse the config path")
+			return pkgerrors.Wrap(err, "failed to url parse the config path")
 		}
 
-		switch {
-		case url.Scheme == "https" || url.Scheme == "http":
-			configPath := filepath.Join(homedir.HomeDir(), ConfigFolder)
+		switch url.Scheme {
+		case "https", "http":
+			var configDirectory string
 			if len(v.configPaths) > 0 {
-				configPath = v.configPaths[0]
-			}
-			if err := os.MkdirAll(configPath, os.ModePerm); err != nil {
-				return err
+				configDirectory = v.configPaths[0]
+			} else {
+				configDirectory, err = xdg.ConfigFile(ConfigFolderXDG)
+				if err != nil {
+					return err
+				}
 			}
 
-			downloadConfigFile := filepath.Join(configPath, DownloadConfigFile)
-			err = downloadFile(url.String(), downloadConfigFile)
+			downloadConfigFile := filepath.Join(configDirectory, DownloadConfigFile)
+			err = downloadFile(ctx, url.String(), downloadConfigFile)
 			if err != nil {
 				return err
 			}
@@ -106,20 +114,20 @@ func (v *viperReader) Init(path string) error {
 			viper.SetConfigFile(downloadConfigFile)
 		default:
 			if _, err := os.Stat(path); err != nil {
-				return errors.Wrap(err, "failed to check if clusterctl config file exists")
+				return pkgerrors.Wrap(err, "failed to check if clusterctl config file exists")
 			}
 			// Use path file from the flag.
 			viper.SetConfigFile(path)
 		}
 	} else {
-		// Checks if there is a default .cluster-api/clusterctl{.extension} file in home directory
+		// Checks if there is a default $XDG_CONFIG_HOME/cluster-api/clusterctl{.extension} or $HOME/.cluster-api/clusterctl{.extension} file
 		if !v.checkDefaultConfig() {
 			// since there is no default config to read from, just skip
 			// reading in config
 			log.V(5).Info("No default config file available")
 			return nil
 		}
-		// Configure viper for reading .cluster-api/clusterctl{.extension} in home directory
+		// Configure viper for reading $XDG_CONFIG_HOME/cluster-api/clusterctl{.extension} or $HOME/.cluster-api/clusterctl{.extension} file
 		viper.SetConfigName(ConfigName)
 		for _, p := range v.configPaths {
 			viper.AddConfigPath(p)
@@ -129,17 +137,15 @@ func (v *viperReader) Init(path string) error {
 	if err := viper.ReadInConfig(); err != nil {
 		return err
 	}
-	log.V(5).Info("Using configuration", "File", viper.ConfigFileUsed())
+	log.V(5).Info("Using configuration", "file", viper.ConfigFileUsed())
 	return nil
 }
 
-func downloadFile(url string, filepath string) error {
-	ctx := context.TODO()
-
+func downloadFile(ctx context.Context, url string, filepath string) error {
 	// Create the file
 	out, err := os.Create(filepath) //nolint:gosec // No security issue: filepath is safe.
 	if err != nil {
-		return errors.Wrapf(err, "failed to create the clusterctl config file %s", filepath)
+		return pkgerrors.Wrapf(err, "failed to create the clusterctl config file %s", filepath)
 	}
 	defer out.Close()
 
@@ -149,22 +155,22 @@ func downloadFile(url string, filepath string) error {
 	// Get the data
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return errors.Wrapf(err, "failed to download the clusterctl config file from %s: failed to create request", url)
+		return pkgerrors.Wrapf(err, "failed to download the clusterctl config file from %s: failed to create request", url)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return errors.Wrapf(err, "failed to download the clusterctl config file from %s", url)
+		return pkgerrors.Wrapf(err, "failed to download the clusterctl config file from %s", url)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return errors.Errorf("failed to download the clusterctl config file from %s got %d", url, resp.StatusCode)
+		return pkgerrors.Errorf("failed to download the clusterctl config file from %s got %d", url, resp.StatusCode)
 	}
 	defer resp.Body.Close()
 
 	// Write the body to file
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
-		return errors.Wrap(err, "failed to save the data in the clusterctl config")
+		return pkgerrors.Wrap(err, "failed to save the data in the clusterctl config")
 	}
 
 	return nil
@@ -172,7 +178,7 @@ func downloadFile(url string, filepath string) error {
 
 func (v *viperReader) Get(key string) (string, error) {
 	if viper.Get(key) == nil {
-		return "", errors.Errorf("Failed to get value for variable %q. Please set the variable value using os env variables or using the .clusterctl config file", key)
+		return "", pkgerrors.Errorf("Failed to get value for variable %q. Please set the variable value using os env variables or using the .clusterctl config file", key)
 	}
 	return viper.GetString(key), nil
 }

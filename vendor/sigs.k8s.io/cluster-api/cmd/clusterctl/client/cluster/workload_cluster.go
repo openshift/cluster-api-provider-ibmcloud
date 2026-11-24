@@ -17,7 +17,9 @@ limitations under the License.
 package cluster
 
 import (
-	"github.com/pkg/errors"
+	"context"
+
+	pkgerrors "github.com/pkg/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utilkubeconfig "sigs.k8s.io/cluster-api/util/kubeconfig"
@@ -26,7 +28,7 @@ import (
 // WorkloadCluster has methods for fetching kubeconfig of workload cluster from management cluster.
 type WorkloadCluster interface {
 	// GetKubeconfig returns the kubeconfig of the workload cluster.
-	GetKubeconfig(workloadClusterName string, namespace string) (string, error)
+	GetKubeconfig(ctx context.Context, workloadClusterName string, namespace string) (string, error)
 }
 
 // workloadCluster implements WorkloadCluster.
@@ -41,8 +43,8 @@ func newWorkloadCluster(proxy Proxy) *workloadCluster {
 	}
 }
 
-func (p *workloadCluster) GetKubeconfig(workloadClusterName string, namespace string) (string, error) {
-	cs, err := p.proxy.NewClient()
+func (p *workloadCluster) GetKubeconfig(ctx context.Context, workloadClusterName string, namespace string) (string, error) {
+	cs, err := p.proxy.NewClient(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -53,7 +55,7 @@ func (p *workloadCluster) GetKubeconfig(workloadClusterName string, namespace st
 	}
 	dataBytes, err := utilkubeconfig.FromSecret(ctx, cs, obj)
 	if err != nil {
-		return "", errors.Wrapf(err, "\"%s-kubeconfig\" not found in namespace %q", workloadClusterName, namespace)
+		return "", pkgerrors.Wrapf(err, "\"%s-kubeconfig\" not found in namespace %q", workloadClusterName, namespace)
 	}
 	return string(dataBytes), nil
 }

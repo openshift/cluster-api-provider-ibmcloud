@@ -34,7 +34,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
@@ -141,6 +141,20 @@ func createRESTConfig(ctx context.Context, clientConfig *clusterAccessorClientCo
 	if restConfig.AuthProvider != nil {
 		return nil, pkgerrors.New("AuthProvider is not supported in ClusterCache")
 	}
+	// Note: File-based credentials are not supported, as file paths would be resolved against the
+	// controller's own filesystem. The kubeconfig Secret must contain all credential data inline.
+	if restConfig.BearerTokenFile != "" {
+		return nil, pkgerrors.New("BearerTokenFile is not supported in ClusterCache")
+	}
+	if restConfig.CertFile != "" {
+		return nil, pkgerrors.New("TLSClientConfig.CertFile is not supported in ClusterCache")
+	}
+	if restConfig.KeyFile != "" {
+		return nil, pkgerrors.New("TLSClientConfig.KeyFile is not supported in ClusterCache")
+	}
+	if restConfig.CAFile != "" {
+		return nil, pkgerrors.New("TLSClientConfig.CAFile is not supported in ClusterCache")
+	}
 
 	restConfig.UserAgent = clientConfig.UserAgent
 	restConfig.Timeout = clientConfig.Timeout
@@ -245,7 +259,7 @@ func createCachedClient(ctx, cacheCtx context.Context, clusterAccessorConfig *cl
 	}
 
 	// Create the cache for the cluster.
-	cacheOptions := cache.Options{
+	cacheOptions := ctrlcache.Options{
 		HTTPClient:       httpClientWith11mTimeout,
 		Scheme:           clusterAccessorConfig.Scheme,
 		Mapper:           mapper,
@@ -253,7 +267,7 @@ func createCachedClient(ctx, cacheCtx context.Context, clusterAccessorConfig *cl
 		DefaultTransform: clusterAccessorConfig.Cache.DefaultTransform,
 		ByObject:         clusterAccessorConfig.Cache.ByObject,
 	}
-	remoteCache, err := cache.New(configWith11mTimeout, cacheOptions)
+	remoteCache, err := ctrlcache.New(configWith11mTimeout, cacheOptions)
 	if err != nil {
 		return nil, nil, pkgerrors.WithMessage(err, "error creating cache")
 	}
@@ -342,7 +356,7 @@ func (c clientWithTimeout) List(ctx context.Context, list client.ObjectList, opt
 
 // stoppableCache embeds cache.Cache and combines it with a stop channel.
 type stoppableCache struct {
-	cache.Cache
+	ctrlcache.Cache
 
 	lock       sync.Mutex
 	stopped    bool
